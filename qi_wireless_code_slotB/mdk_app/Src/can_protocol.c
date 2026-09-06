@@ -90,11 +90,25 @@ static void can_lp_mark_uds(void)
 
 static void can_lp_enter_normal(void)
 {
+  uint8_t retry;
+
   if (g_can_awake != 0U)
   {
     return;
   }
-  if (sit1145_normal_mode_set() == 0U)
+  for (retry = 0U; retry < 3U; retry++)
+  {
+    if (sit1145_normal_mode_set() != 0U)
+    {
+      break;
+    }
+    /* SIT1145 may need time to settle after bootloader handoff */
+    {
+      uint32_t t0 = timer_get_tick();
+      while ((timer_get_tick() - t0) < 5U) { __NOP(); }
+    }
+  }
+  if (retry >= 3U)
   {
     return;
   }

@@ -28,6 +28,7 @@
 #include "boot_metadata.h"
 #include "core_cm4.h"
 #include "at32f422_426_conf.h"
+#include "sit1145.h"
 
 /**
  * @brief  Jump-to-APP method selection
@@ -90,6 +91,13 @@ void boot_jump_to_app(uint32_t app_addr)
   /* disable CAN1 */
   can_reset(CAN1);
   crm_periph_clock_enable(CRM_CAN1_PERIPH_CLOCK, FALSE);
+
+  /* Put SIT1145 into Standby before disabling SPI.
+   * Standby is a known low-power state; SPI remains accessible so
+   * APP can re-init via sit1145_init().  Without this the transceiver
+   * may stay in an undefined state after MCU reset, causing
+   * sit1145_normal_mode_set() to fail and CAN bus never comes up. */
+  (void)sit1145_standby_mode_set();
 
   /* disable SPI1 (SIT1145 transceiver) so APP gets a clean slate */
   spi_enable(SPI1, FALSE);
