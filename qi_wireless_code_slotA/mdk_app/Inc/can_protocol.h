@@ -117,6 +117,9 @@ extern "C" {
 #define DID_ROLLBACK_COUNT          0x2116U   /*!< rollback counter */
 #define DID_CLAMP_STATE             0x2118U   /*!< PA0 hall: 0=closed, 1=open */
 #define DID_ECDSA_PUBKEY            0x2120U   /*!< ECDSA P-256 public key, 65-byte SEC1 */
+#define DID_QI_IAP_CONTROL          0x2130U   /*!< Qi IAP 控制（写）：启动/中止升级 */
+#define DID_QI_IAP_DATA             0x2131U   /*!< Qi IAP 数据（写）：固件数据包 */
+#define DID_QI_IAP_STATUS           0x2132U   /*!< Qi IAP 状态（读）：进度/错误码 */
 
 /* ========================================================================== */
 /*  Session management constants                                             */

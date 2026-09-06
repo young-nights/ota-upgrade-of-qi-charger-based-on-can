@@ -602,6 +602,57 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         break;
       }
 
+      case DID_QI_IAP_CONTROL:
+      {
+        /* Qi IAP 控制命令
+         * data[3] = 0x01: 启动升级（data[4..5] = 固件大小 16-bit）
+         * data[3] = 0x02: 中止升级 */
+        uint8_t sub = data[3];
+        if (sub == 0x01U)
+        {
+          /* 启动 IAP：通知 Qi 芯片进入升级模式 */
+          if (len < 6U)
+          {
+            proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
+            return;
+          }
+          resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+          resp[1] = data[1];
+          resp[2] = data[2];
+          proto_send_response(resp, 3);
+        }
+        else if (sub == 0x02U)
+        {
+          /* 中止 IAP */
+          resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+          resp[1] = data[1];
+          resp[2] = data[2];
+          proto_send_response(resp, 3);
+        }
+        else
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
+        }
+        break;
+      }
+
+      case DID_QI_IAP_DATA:
+      {
+        /* Qi IAP 数据包
+         * data[3..4] = 地址 16-bit
+         * data[5..] = 固件数据（最多 22 字节/帧） */
+        if (len < 6U)
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
+          return;
+        }
+        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        proto_send_response(resp, 3);
+        break;
+      }
+
       default:
         /* DID not writable */
         proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
