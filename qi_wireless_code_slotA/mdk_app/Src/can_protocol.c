@@ -43,9 +43,9 @@
 /*  Version string constants (UTF-8, max 16 bytes including null terminator)  */
 /* ========================================================================== */
 
-static const char SW_VERSION_STR[]     = "1.0.0";
-static const char BOOTLOADER_VER_STR[] = "1.0.0";
-static const char HW_VERSION_STR[]     = "1.0.0";
+static const char SW_VERSION_STR[]     = "1.1.1";
+static const char BOOTLOADER_VER_STR[] = "1.1.1";
+static const char HW_VERSION_STR[]     = "1.1.1";
 
 /* same public key as Bootloader boot_verify.c */
 static const uint8_t g_app_ecdsa_pubkey[65] = {

@@ -39,9 +39,9 @@
 #include "sha256.h"
 #include <string.h>
 
-#define SW_VERSION  "1.0.0"
-#define BL_VERSION  "1.0.0"
-#define HW_VERSION  "1.0.0"
+#define SW_VERSION  "1.1.1"
+#define BL_VERSION  "1.1.1"
+#define HW_VERSION  "1.1.1"
 
 /* private define ------------------------------------------------------------*/
 
