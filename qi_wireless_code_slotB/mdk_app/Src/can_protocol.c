@@ -33,6 +33,7 @@
 #include "device_info.h"
 #include "board_gpio.h"
 #include "qi_protocol.h"
+#include "nvm_drv.h"
 #include "sha256.h"
 #include "uECC.h"
 #include "sit1145.h"
@@ -86,6 +87,29 @@ static uint8_t  g_qi_iap_state    = QI_IAP_IDLE;
 static uint8_t  g_qi_iap_progress = 0U;
 static uint16_t g_qi_iap_total    = 0U;
 static uint16_t g_qi_iap_sent     = 0U;
+
+/* ========================================================================== */
+/*  Qi charging state variables                                              */
+/* ========================================================================== */
+
+static uint8_t  g_qi_charger_enable   = 0U;     /*!< DID 0x2101: volatile, reset to 0 */
+static uint8_t  g_qi_charge_state     = QI_CHARGE_DISABLED;  /*!< DID 0x2102 */
+static uint8_t  g_qi_device_present   = 0U;     /*!< DID 0x2103 */
+static uint16_t g_qi_output_power_mw  = 0U;     /*!< DID 0x2104, mW */
+static uint8_t  g_qi_voltage_raw      = 0U;     /*!< DID 0x2105 byte 0 */
+static uint8_t  g_qi_current_raw      = 0U;     /*!< DID 0x2105 byte 1 */
+static uint8_t  g_qi_coil_temp        = 50U;    /*!< DID 0x2107, raw (offset -50, 50=0℃) */
+static uint8_t  g_qi_fod_status       = 0U;     /*!< DID 0x2109 */
+static uint8_t  g_qi_alignment        = 0U;     /*!< DID 0x210A */
+static uint8_t  g_qi_fault_code       = 0U;     /*!< DID 0x210B */
+static uint8_t  g_qi_thermal_derate   = 100U;   /*!< DID 0x210C, 100%=no derating */
+static uint32_t g_qi_energy_delivered = 0U;     /*!< DID 0x2111 */
+
+/* Qi persistent config (loaded from NVM at init) */
+static uint16_t g_qi_power_limit_cw   = 150U;   /*!< DID 0x210D, 150 cW = 1.5W default */
+static uint16_t g_qi_bc_period_ms     = 1000U;  /*!< DID 0x210E, 1000 ms default */
+static uint8_t  g_qi_work_mode        = 0U;     /*!< DID 0x210F, Normal default */
+static uint16_t g_qi_idle_timeout_s   = 600U;   /*!< DID 0x2117, 10 min default */
 
 /** @brief  SIT1145 Normal + CAN online. Power-on default is Standby. */
 static uint8_t  g_can_awake = 0;
@@ -262,6 +286,69 @@ static uint32_t generate_random_seed(void)
   return lfsr;
 }
 
+/* ========================================================================== */
+/*  NVM persistence helpers for Qi config DIDs                               */
+/* ========================================================================== */
+
+/**
+ * @brief  load persistent Qi config from NVM
+ */
+static void qi_nvm_load_config(void)
+{
+  uint8_t buf[8];
+
+  if (nvm_drv_is_valid() != 0U)
+  {
+    if (nvm_drv_read(NVM_OFFSET_POWER_LIMIT, buf, 2U) == NVM_STATUS_OK)
+    {
+      uint16_t val = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
+      if (val <= 0x012CU)
+      {
+        g_qi_power_limit_cw = val;
+      }
+    }
+    if (nvm_drv_read(NVM_OFFSET_BC_PERIOD, buf, 2U) == NVM_STATUS_OK)
+    {
+      uint16_t val = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
+      if ((val == 0x0000U) || ((val >= 0x0064U) && (val <= 0x2710U)))
+      {
+        g_qi_bc_period_ms = val;
+      }
+    }
+    if (nvm_drv_read(NVM_OFFSET_WORK_MODE, buf, 1U) == NVM_STATUS_OK)
+    {
+      if (buf[0] <= 0x03U)
+      {
+        g_qi_work_mode = buf[0];
+      }
+    }
+    if (nvm_drv_read(NVM_OFFSET_IDLE_TIMEOUT, buf, 2U) == NVM_STATUS_OK)
+    {
+      uint16_t val = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
+      if (val <= 0x003CU)
+      {
+        g_qi_idle_timeout_s = val;
+      }
+    }
+  }
+}
+
+/**
+ * @brief  save one persistent Qi config field to NVM
+ * @param  offset: NVM offset
+ * @param  data: pointer to data
+ * @param  len: data length
+ * @retval 0=ok, -1=error
+ */
+static int8_t qi_nvm_save(uint16_t offset, const uint8_t *data, uint16_t len)
+{
+  if (nvm_drv_write(offset, (uint8_t *)data, len) != NVM_STATUS_OK)
+  {
+    return -1;
+  }
+  return 0;
+}
+
 static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
 {
   device_info_t di;
@@ -360,6 +447,74 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 65U;
       return 0;
     }
+    case DID_CHARGER_ENABLE:
+      out[0] = g_qi_charger_enable;
+      *olen = 1U;
+      return 0;
+    case DID_CHARGE_STATE:
+      out[0] = g_qi_charge_state;
+      *olen = 1U;
+      return 0;
+    case DID_DEVICE_PRESENT:
+      out[0] = g_qi_device_present;
+      *olen = 1U;
+      return 0;
+    case DID_OUTPUT_POWER:
+      out[0] = (uint8_t)(g_qi_output_power_mw & 0xFFU);
+      out[1] = (uint8_t)((g_qi_output_power_mw >> 8) & 0xFFU);
+      *olen = 2U;
+      return 0;
+    case DID_INPUT_VI:
+      out[0] = g_qi_voltage_raw;
+      out[1] = g_qi_current_raw;
+      *olen = 2U;
+      return 0;
+    case DID_COIL_TEMP:
+      out[0] = g_qi_coil_temp;
+      *olen = 1U;
+      return 0;
+    case DID_FOD_STATUS:
+      out[0] = g_qi_fod_status;
+      *olen = 1U;
+      return 0;
+    case DID_ALIGNMENT:
+      out[0] = g_qi_alignment;
+      *olen = 1U;
+      return 0;
+    case DID_FAULT_CODE:
+      out[0] = g_qi_fault_code;
+      *olen = 1U;
+      return 0;
+    case DID_THERMAL_DERATE:
+      out[0] = g_qi_thermal_derate;
+      *olen = 1U;
+      return 0;
+    case DID_POWER_LIMIT:
+      out[0] = (uint8_t)(g_qi_power_limit_cw & 0xFFU);
+      out[1] = (uint8_t)((g_qi_power_limit_cw >> 8) & 0xFFU);
+      *olen = 2U;
+      return 0;
+    case DID_BC_PERIOD:
+      out[0] = (uint8_t)(g_qi_bc_period_ms & 0xFFU);
+      out[1] = (uint8_t)((g_qi_bc_period_ms >> 8) & 0xFFU);
+      *olen = 2U;
+      return 0;
+    case DID_WORK_MODE:
+      out[0] = g_qi_work_mode;
+      *olen = 1U;
+      return 0;
+    case DID_ENERGY_DELIVERED:
+      out[0] = (uint8_t)(g_qi_energy_delivered & 0xFFU);
+      out[1] = (uint8_t)((g_qi_energy_delivered >> 8) & 0xFFU);
+      out[2] = (uint8_t)((g_qi_energy_delivered >> 16) & 0xFFU);
+      out[3] = (uint8_t)((g_qi_energy_delivered >> 24) & 0xFFU);
+      *olen = 4U;
+      return 0;
+    case DID_IDLE_TIMEOUT:
+      out[0] = (uint8_t)(g_qi_idle_timeout_s & 0xFFU);
+      out[1] = (uint8_t)((g_qi_idle_timeout_s >> 8) & 0xFFU);
+      *olen = 2U;
+      return 0;
     case 0x21FFU:
       out[0] = sit1145_get_mode();  /* 0x04=Standby, 0x07=Normal, 0x01=Sleep */
       *olen = 1U;
@@ -535,6 +690,7 @@ static void handle_read_data_by_id(uint8_t *data, uint16_t len)
 static void handle_write_data_by_id(uint8_t *data, uint16_t len)
 {
   uint8_t resp[4];
+  uint16_t did;
 
   /* minimum: SID + DID_H + DID_L + 1 byte data */
   if (len < 4U)
@@ -543,23 +699,53 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
     return;
   }
 
-  /* check programming session */
-  if (current_session != SESSION_PROGRAMMING)
+  did = ((uint16_t)data[1] << 8) | (uint16_t)data[2];
+
+  /* check session & security per DID */
+  switch (did)
   {
-    proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
-    return;
+    /* Extended session + SA DIDs (Qi charger config) */
+    case DID_CHARGER_ENABLE:
+    case DID_POWER_LIMIT:
+    case DID_BC_PERIOD:
+    case DID_WORK_MODE:
+    case DID_IDLE_TIMEOUT:
+      if (current_session != SESSION_EXTENDED)
+      {
+        proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
+        return;
+      }
+      if (!security_unlocked)
+      {
+        proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_SECURITY_ACCESS_DENIED);
+        return;
+      }
+      break;
+
+    /* Programming session + SA DIDs */
+    case DID_FW_TYPE:
+    case DID_SERIAL_NUMBER:
+    case DID_ECDSA_PUBKEY:
+    case DID_QI_IAP_CONTROL:
+    case DID_QI_IAP_DATA:
+      if (current_session != SESSION_PROGRAMMING)
+      {
+        proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
+        return;
+      }
+      if (!security_unlocked)
+      {
+        proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_SECURITY_ACCESS_DENIED);
+        return;
+      }
+      break;
+
+    default:
+      proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
+      return;
   }
 
-  /* check security access */
-  if (!security_unlocked)
   {
-    proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_SECURITY_ACCESS_DENIED);
-    return;
-  }
-
-  {
-    uint16_t did = ((uint16_t)data[1] << 8) | (uint16_t)data[2];
-
     switch (did)
     {
       case DID_FW_TYPE:
@@ -713,6 +899,130 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
             g_qi_iap_progress = 100U;
           }
         }
+        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        proto_send_response(resp, 3);
+        break;
+      }
+
+      case DID_CHARGER_ENABLE:
+      {
+        uint8_t val = data[3];
+        if (val > 0x01U)
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
+          return;
+        }
+        /* QI-FUNC-005: reject enable (0x01) when blocking fault active */
+        if ((val == 0x01U) && (g_qi_fault_code != 0x00U))
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
+          return;
+        }
+        /* QI-FUNC-015: reset energy counter on 0->1 transition */
+        if ((g_qi_charger_enable == 0x00U) && (val == 0x01U))
+        {
+          g_qi_energy_delivered = 0U;
+        }
+        g_qi_charger_enable = val;
+        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        proto_send_response(resp, 3);
+        break;
+      }
+
+      case DID_POWER_LIMIT:
+      {
+        uint16_t val;
+        uint8_t nvm_buf[2];
+        if (len < 5U)
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
+          return;
+        }
+        val = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
+        if (val > 0x012CU)  /* max 300 cW = 3.0 W */
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
+          return;
+        }
+        g_qi_power_limit_cw = val;
+        nvm_buf[0] = (uint8_t)(val & 0xFFU);
+        nvm_buf[1] = (uint8_t)((val >> 8) & 0xFFU);
+        (void)qi_nvm_save(NVM_OFFSET_POWER_LIMIT, nvm_buf, 2U);
+        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        proto_send_response(resp, 3);
+        break;
+      }
+
+      case DID_BC_PERIOD:
+      {
+        uint16_t val;
+        uint8_t nvm_buf[2];
+        if (len < 5U)
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
+          return;
+        }
+        val = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
+        if ((val != 0x0000U) && ((val < 0x0064U) || (val > 0x2710U)))
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
+          return;
+        }
+        g_qi_bc_period_ms = val;
+        nvm_buf[0] = (uint8_t)(val & 0xFFU);
+        nvm_buf[1] = (uint8_t)((val >> 8) & 0xFFU);
+        (void)qi_nvm_save(NVM_OFFSET_BC_PERIOD, nvm_buf, 2U);
+        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        proto_send_response(resp, 3);
+        break;
+      }
+
+      case DID_WORK_MODE:
+      {
+        uint8_t val = data[3];
+        uint8_t nvm_buf[1];
+        if (val > 0x03U)
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
+          return;
+        }
+        g_qi_work_mode = val;
+        nvm_buf[0] = val;
+        (void)qi_nvm_save(NVM_OFFSET_WORK_MODE, nvm_buf, 1U);
+        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        proto_send_response(resp, 3);
+        break;
+      }
+
+      case DID_IDLE_TIMEOUT:
+      {
+        uint16_t val;
+        uint8_t nvm_buf[2];
+        if (len < 5U)
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
+          return;
+        }
+        val = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
+        if (val > 0x003CU)  /* max 60 s */
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
+          return;
+        }
+        g_qi_idle_timeout_s = val;
+        nvm_buf[0] = (uint8_t)(val & 0xFFU);
+        nvm_buf[1] = (uint8_t)((val >> 8) & 0xFFU);
+        (void)qi_nvm_save(NVM_OFFSET_IDLE_TIMEOUT, nvm_buf, 2U);
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];
@@ -958,7 +1268,7 @@ static void handle_tester_present(uint8_t *data, uint16_t len)
 #define QI_IAP_ACK_FAILED   0x03U
 
 /**
- * @brief  Qi frame callback: update IAP state from Qi chip ACK
+ * @brief  Qi frame callback: handle IAP ACK and status report (0x01)
  */
 static void qi_iap_frame_cb(const qi_frame_t *frame)
 {
@@ -966,23 +1276,135 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
   {
     return;
   }
-  if (frame->cmd != QI_CMD_IAP)
+
+  /* ---- Qi IAP ACK (0xCC) ---- */
+  if (frame->cmd == QI_CMD_IAP)
   {
+    if (frame->data_len < 1U)
+    {
+      return;
+    }
+    if (frame->data[0] == QI_IAP_ACK_COMPLETE)
+    {
+      g_qi_iap_state    = QI_IAP_SUCCESS;
+      g_qi_iap_progress = 100U;
+    }
+    else if (frame->data[0] == QI_IAP_ACK_FAILED)
+    {
+      g_qi_iap_state = QI_IAP_FAILED;
+    }
     return;
   }
-  if (frame->data_len < 1U)
+
+  /* ---- Qi status report (0x01) ---- */
+  if (frame->cmd == QI_CMD_STATUS_REPORT)
   {
+    uint8_t status_byte;
+
+    if (frame->data_len < 13U)
+    {
+      return;  /* expect at least 13 bytes of status data */
+    }
+
+    status_byte = frame->data[0];
+
+    /* decode charge state from status bits */
+    if ((status_byte & QI_STATUS_CHARGING) != 0U)
+    {
+      g_qi_charge_state = QI_CHARGE_CHARGING;
+      g_qi_device_present = 1U;
+    }
+    else if ((status_byte & QI_STATUS_FULL) != 0U)
+    {
+      g_qi_charge_state = QI_CHARGE_COMPLETE;
+      g_qi_device_present = 1U;
+    }
+    else if ((status_byte & QI_STATUS_PING) != 0U)
+    {
+      g_qi_charge_state = QI_CHARGE_DEVICE_DETECTED;
+      g_qi_device_present = 1U;
+    }
+    else
+    {
+      /* no device-related status bits set */
+      if (g_qi_charger_enable != 0U)
+      {
+        g_qi_charge_state = QI_CHARGE_STANDBY;
+      }
+      else
+      {
+        g_qi_charge_state = QI_CHARGE_DISABLED;
+      }
+      g_qi_device_present = 0U;
+    }
+
+    /* protection/fault bits */
+    if ((status_byte & QI_STATUS_FOD) != 0U)
+    {
+      g_qi_fod_status = 0x02U;  /* confirmed */
+      g_qi_fault_code = 0x06U;  /* FOD fault */
+      if (g_qi_charge_state == QI_CHARGE_CHARGING)
+      {
+        g_qi_charge_state = QI_CHARGE_SUSPENDED_FOD;
+      }
+    }
+    else if ((status_byte & QI_STATUS_OTP) != 0U)
+    {
+      g_qi_fault_code = 0x07U;  /* coil over-temp */
+      if (g_qi_charge_state == QI_CHARGE_CHARGING)
+      {
+        g_qi_charge_state = QI_CHARGE_SUSPENDED_THERMAL;
+      }
+    }
+    else if ((status_byte & (QI_STATUS_OVP | QI_STATUS_UVP | QI_STATUS_OCP)) != 0U)
+    {
+      if ((status_byte & QI_STATUS_OVP) != 0U)
+      {
+        g_qi_fault_code = 0x04U;  /* input over-voltage */
+      }
+      else if ((status_byte & QI_STATUS_UVP) != 0U)
+      {
+        g_qi_fault_code = 0x05U;  /* input under-voltage */
+      }
+      else
+      {
+        g_qi_fault_code = 0x0AU;  /* input over-current */
+      }
+      g_qi_charge_state = QI_CHARGE_FAULT;
+    }
+
+    /* output power: bytes 4-5, uint16 mW */
+    g_qi_output_power_mw = (uint16_t)frame->data[4]
+                         | ((uint16_t)frame->data[5] << 8);
+
+    /* input voltage raw: byte 6 */
+    g_qi_voltage_raw = frame->data[6];
+
+    /* input current raw: byte 7 */
+    g_qi_current_raw = frame->data[7];
+
+    /* coil temperature: byte 8 */
+    g_qi_coil_temp = frame->data[8];
+
+    /* FOD status: byte 9 */
+    if (frame->data[9] != 0x00U)
+    {
+      g_qi_fod_status = frame->data[9];
+    }
+
+    /* alignment: byte 10 */
+    g_qi_alignment = frame->data[10];
+
+    /* fault code: byte 11 */
+    if (frame->data[11] != 0x00U)
+    {
+      g_qi_fault_code = frame->data[11];
+    }
+
+    /* thermal derating: byte 12 */
+    g_qi_thermal_derate = frame->data[12];
+
     return;
-  }
-  /* data[0] = 0x00 ACK, 0x02 flash success, 0x03 flash failed */
-  if (frame->data[0] == QI_IAP_ACK_COMPLETE)
-  {
-    g_qi_iap_state    = QI_IAP_SUCCESS;
-    g_qi_iap_progress = 100U;
-  }
-  else if (frame->data[0] == QI_IAP_ACK_FAILED)
-  {
-    g_qi_iap_state = QI_IAP_FAILED;
   }
 }
 
@@ -1136,6 +1558,10 @@ void can_protocol_init(void)
   isotp_init(isotp_message_received);
   can_driver_register_rx_callback(can_protocol_rx_handler);
   qi_protocol_register_callback(qi_iap_frame_cb);
+
+  /* load persistent Qi config from NVM */
+  (void)nvm_drv_init();
+  qi_nvm_load_config();
 
   /* After OTA the image is in trial: host 22 2113 must work immediately.
    * Confirmed idle boots stay in SIT1145 Standby until a wake-up frame. */
