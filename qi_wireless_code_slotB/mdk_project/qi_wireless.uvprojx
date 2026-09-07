@@ -544,6 +544,11 @@
               <FilePath>..\mdk_app\Src\qi_uart.c</FilePath>
             </File>
             <File>
+              <FileName>qi_protocol.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\mdk_app\Src\qi_protocol.c</FilePath>
+            </File>
+            <File>
               <FileName>timer_drv.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\mdk_app\Src\timer_drv.c</FilePath>
