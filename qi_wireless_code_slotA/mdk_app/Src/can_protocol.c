@@ -1103,11 +1103,13 @@ void can_protocol_poll(void)
     (void)sit1145_normal_mode_set();
   }
 
+#if (CAN_LP_IDLE_TIMEOUT_MS > 0U)
   if ((now - g_uds_last_ms) >= CAN_LP_IDLE_TIMEOUT_MS)
   {
     can_lp_enter_standby();
     return;
   }
+#endif
 
   if (current_session != SESSION_DEFAULT)
   {
