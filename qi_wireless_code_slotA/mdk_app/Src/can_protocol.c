@@ -98,18 +98,14 @@ static uint8_t  g_qi_device_present   = 0U;     /*!< DID 0x2103 */
 static uint16_t g_qi_output_power_mw  = 0U;     /*!< DID 0x2104, mW */
 static uint8_t  g_qi_voltage_raw      = 0U;     /*!< DID 0x2105 byte 0 */
 static uint8_t  g_qi_current_raw      = 0U;     /*!< DID 0x2105 byte 1 */
-static uint8_t  g_qi_coil_temp        = 50U;    /*!< DID 0x2107, raw (offset -50, 50=0℃) */
+static uint8_t  g_qi_pcb_temp         = 0U;     /*!< DID 0x2108, PCB temperature ℃ */
 static uint8_t  g_qi_fod_status       = 0U;     /*!< DID 0x2109 */
-static uint8_t  g_qi_alignment        = 0U;     /*!< DID 0x210A */
 static uint8_t  g_qi_fault_code       = 0U;     /*!< DID 0x210B */
 static uint8_t  g_qi_thermal_derate   = 100U;   /*!< DID 0x210C, 100%=no derating */
-static uint32_t g_qi_energy_delivered = 0U;     /*!< DID 0x2111 */
+static uint8_t  g_qi_last_fault_detail[4] = {0U};  /*!< DID 0x2110, 4-byte fault detail */
 
 /* Qi persistent config (loaded from NVM at init) */
-static uint16_t g_qi_power_limit_cw   = 150U;   /*!< DID 0x210D, 150 cW = 1.5W default */
-static uint16_t g_qi_bc_period_ms     = 1000U;  /*!< DID 0x210E, 1000 ms default */
-static uint8_t  g_qi_work_mode        = 0U;     /*!< DID 0x210F, Normal default */
-static uint16_t g_qi_idle_timeout_s   = 600U;   /*!< DID 0x2117, 10 min default */
+static uint16_t g_qi_power_limit_mw   = 1500U;  /*!< DID 0x210D, 1500 mW = 15W default */
 
 /** @brief  SIT1145 Normal + CAN online. Power-on default is Standby. */
 static uint8_t  g_can_awake = 0;
@@ -302,32 +298,9 @@ static void qi_nvm_load_config(void)
     if (nvm_drv_read(NVM_OFFSET_POWER_LIMIT, buf, 2U) == NVM_STATUS_OK)
     {
       uint16_t val = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
-      if (val <= 0x012CU)
+      if ((val == 500U) || (val == 1000U) || (val == 1500U))
       {
-        g_qi_power_limit_cw = val;
-      }
-    }
-    if (nvm_drv_read(NVM_OFFSET_BC_PERIOD, buf, 2U) == NVM_STATUS_OK)
-    {
-      uint16_t val = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
-      if ((val == 0x0000U) || ((val >= 0x0064U) && (val <= 0x2710U)))
-      {
-        g_qi_bc_period_ms = val;
-      }
-    }
-    if (nvm_drv_read(NVM_OFFSET_WORK_MODE, buf, 1U) == NVM_STATUS_OK)
-    {
-      if (buf[0] <= 0x03U)
-      {
-        g_qi_work_mode = buf[0];
-      }
-    }
-    if (nvm_drv_read(NVM_OFFSET_IDLE_TIMEOUT, buf, 2U) == NVM_STATUS_OK)
-    {
-      uint16_t val = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
-      if (val <= 0x003CU)
-      {
-        g_qi_idle_timeout_s = val;
+        g_qi_power_limit_mw = val;
       }
     }
   }
@@ -447,9 +420,12 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 65U;
       return 0;
     }
-    case DID_CHARGER_ENABLE:
-      out[0] = g_qi_charger_enable;
-      *olen = 1U;
+    case DID_CHARGER_CAPABILITY:
+      out[0] = 15U;   /* max power 15W */
+      out[1] = 0U;
+      out[2] = 0U;
+      out[3] = 0U;
+      *olen = 4U;
       return 0;
     case DID_CHARGE_STATE:
       out[0] = g_qi_charge_state;
@@ -469,16 +445,17 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       out[1] = g_qi_current_raw;
       *olen = 2U;
       return 0;
+    case DID_INPUT_CURRENT:
     case DID_COIL_TEMP:
-      out[0] = g_qi_coil_temp;
+    case DID_ALIGNMENT:
+      /* HW not supported */
+      return -1;
+    case DID_PCB_TEMP:
+      out[0] = g_qi_pcb_temp;
       *olen = 1U;
       return 0;
     case DID_FOD_STATUS:
       out[0] = g_qi_fod_status;
-      *olen = 1U;
-      return 0;
-    case DID_ALIGNMENT:
-      out[0] = g_qi_alignment;
       *olen = 1U;
       return 0;
     case DID_FAULT_CODE:
@@ -490,30 +467,13 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 1U;
       return 0;
     case DID_POWER_LIMIT:
-      out[0] = (uint8_t)(g_qi_power_limit_cw & 0xFFU);
-      out[1] = (uint8_t)((g_qi_power_limit_cw >> 8) & 0xFFU);
+      out[0] = (uint8_t)(g_qi_power_limit_mw & 0xFFU);
+      out[1] = (uint8_t)((g_qi_power_limit_mw >> 8) & 0xFFU);
       *olen = 2U;
       return 0;
-    case DID_BC_PERIOD:
-      out[0] = (uint8_t)(g_qi_bc_period_ms & 0xFFU);
-      out[1] = (uint8_t)((g_qi_bc_period_ms >> 8) & 0xFFU);
-      *olen = 2U;
-      return 0;
-    case DID_WORK_MODE:
-      out[0] = g_qi_work_mode;
-      *olen = 1U;
-      return 0;
-    case DID_ENERGY_DELIVERED:
-      out[0] = (uint8_t)(g_qi_energy_delivered & 0xFFU);
-      out[1] = (uint8_t)((g_qi_energy_delivered >> 8) & 0xFFU);
-      out[2] = (uint8_t)((g_qi_energy_delivered >> 16) & 0xFFU);
-      out[3] = (uint8_t)((g_qi_energy_delivered >> 24) & 0xFFU);
+    case DID_LAST_FAULT_DETAIL:
+      memcpy(out, g_qi_last_fault_detail, 4U);
       *olen = 4U;
-      return 0;
-    case DID_IDLE_TIMEOUT:
-      out[0] = (uint8_t)(g_qi_idle_timeout_s & 0xFFU);
-      out[1] = (uint8_t)((g_qi_idle_timeout_s >> 8) & 0xFFU);
-      *olen = 2U;
       return 0;
     case 0x21FFU:
       out[0] = sit1145_get_mode();  /* 0x04=Standby, 0x07=Normal, 0x01=Sleep */
@@ -707,9 +667,6 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
     /* Extended session + SA DIDs (Qi charger config) */
     case DID_CHARGER_ENABLE:
     case DID_POWER_LIMIT:
-    case DID_BC_PERIOD:
-    case DID_WORK_MODE:
-    case DID_IDLE_TIMEOUT:
       if (current_session != SESSION_EXTENDED)
       {
         proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
@@ -914,18 +871,14 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
           return;
         }
-        /* QI-FUNC-005: reject enable (0x01) when blocking fault active */
+        /* reject enable (0x01) when blocking fault active */
         if ((val == 0x01U) && (g_qi_fault_code != 0x00U))
         {
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
           return;
         }
-        /* QI-FUNC-015: reset energy counter on 0->1 transition */
-        if ((g_qi_charger_enable == 0x00U) && (val == 0x01U))
-        {
-          g_qi_energy_delivered = 0U;
-        }
         g_qi_charger_enable = val;
+        board_5v_set(val);  /* control Qi chip power supply via GPIO */
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];
@@ -943,86 +896,16 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           return;
         }
         val = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
-        if (val > 0x012CU)  /* max 300 cW = 3.0 W */
+        /* only accept 5W / 10W / 15W */
+        if ((val != 500U) && (val != 1000U) && (val != 1500U))
         {
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
           return;
         }
-        g_qi_power_limit_cw = val;
+        g_qi_power_limit_mw = val;
         nvm_buf[0] = (uint8_t)(val & 0xFFU);
         nvm_buf[1] = (uint8_t)((val >> 8) & 0xFFU);
         (void)qi_nvm_save(NVM_OFFSET_POWER_LIMIT, nvm_buf, 2U);
-        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
-        resp[1] = data[1];
-        resp[2] = data[2];
-        proto_send_response(resp, 3);
-        break;
-      }
-
-      case DID_BC_PERIOD:
-      {
-        uint16_t val;
-        uint8_t nvm_buf[2];
-        if (len < 5U)
-        {
-          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
-          return;
-        }
-        val = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
-        if ((val != 0x0000U) && ((val < 0x0064U) || (val > 0x2710U)))
-        {
-          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
-          return;
-        }
-        g_qi_bc_period_ms = val;
-        nvm_buf[0] = (uint8_t)(val & 0xFFU);
-        nvm_buf[1] = (uint8_t)((val >> 8) & 0xFFU);
-        (void)qi_nvm_save(NVM_OFFSET_BC_PERIOD, nvm_buf, 2U);
-        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
-        resp[1] = data[1];
-        resp[2] = data[2];
-        proto_send_response(resp, 3);
-        break;
-      }
-
-      case DID_WORK_MODE:
-      {
-        uint8_t val = data[3];
-        uint8_t nvm_buf[1];
-        if (val > 0x03U)
-        {
-          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
-          return;
-        }
-        g_qi_work_mode = val;
-        nvm_buf[0] = val;
-        (void)qi_nvm_save(NVM_OFFSET_WORK_MODE, nvm_buf, 1U);
-        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
-        resp[1] = data[1];
-        resp[2] = data[2];
-        proto_send_response(resp, 3);
-        break;
-      }
-
-      case DID_IDLE_TIMEOUT:
-      {
-        uint16_t val;
-        uint8_t nvm_buf[2];
-        if (len < 5U)
-        {
-          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
-          return;
-        }
-        val = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
-        if (val > 0x003CU)  /* max 60 s */
-        {
-          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
-          return;
-        }
-        g_qi_idle_timeout_s = val;
-        nvm_buf[0] = (uint8_t)(val & 0xFFU);
-        nvm_buf[1] = (uint8_t)((val >> 8) & 0xFFU);
-        (void)qi_nvm_save(NVM_OFFSET_IDLE_TIMEOUT, nvm_buf, 2U);
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];
@@ -1383,8 +1266,9 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
     /* input current raw: byte 7 */
     g_qi_current_raw = frame->data[7];
 
-    /* coil temperature: byte 8 */
-    g_qi_coil_temp = frame->data[8];
+    /* coil temperature: byte 8 - HW not supported, skip */
+    /* PCB temperature: byte 8 (reuse field) */
+    g_qi_pcb_temp = frame->data[8];
 
     /* FOD status: byte 9 */
     if (frame->data[9] != 0x00U)
@@ -1392,8 +1276,7 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
       g_qi_fod_status = frame->data[9];
     }
 
-    /* alignment: byte 10 */
-    g_qi_alignment = frame->data[10];
+    /* alignment: byte 10 - HW not supported, skip */
 
     /* fault code: byte 11 */
     if (frame->data[11] != 0x00U)

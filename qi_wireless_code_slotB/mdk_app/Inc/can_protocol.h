@@ -115,21 +115,21 @@ extern "C" {
 #define DID_PENDING_SLOT            0x2114U   /*!< pending firmware slot */
 #define DID_LAST_BOOT_REASON        0x2115U   /*!< last boot reason */
 #define DID_ROLLBACK_COUNT          0x2116U   /*!< rollback counter */
-#define DID_CHARGER_ENABLE          0x2101U   /*!< charger enable, uint8 0/1, volatile */
+#define DID_CHARGER_CAPABILITY      0x2100U   /*!< charger capability, 4B [max_power_W,0,0,0] */
+#define DID_CHARGER_ENABLE          0x2101U   /*!< charger enable, uint8 0/1, write-only */
 #define DID_CHARGE_STATE            0x2102U   /*!< charge state machine, uint8 */
 #define DID_DEVICE_PRESENT          0x2103U   /*!< device present, uint8 0/1 */
 #define DID_OUTPUT_POWER            0x2104U   /*!< output power, uint16 mW */
 #define DID_INPUT_VI                0x2105U   /*!< input voltage/current, 2×uint8 */
-#define DID_COIL_TEMP               0x2107U   /*!< coil temperature, uint8 ℃ */
+#define DID_INPUT_CURRENT           0x2106U   /*!< input current, NRC 0x31 (HW not supported) */
+#define DID_COIL_TEMP               0x2107U   /*!< coil temperature, NRC 0x31 (HW not supported) */
+#define DID_PCB_TEMP                0x2108U   /*!< PCB temperature, uint8 ℃ */
 #define DID_FOD_STATUS              0x2109U   /*!< FOD status, uint8 */
-#define DID_ALIGNMENT               0x210AU   /*!< alignment status, uint8 */
+#define DID_ALIGNMENT               0x210AU   /*!< alignment status, NRC 0x31 (HW not supported) */
 #define DID_FAULT_CODE              0x210BU   /*!< fault code, uint8 */
 #define DID_THERMAL_DERATE          0x210CU   /*!< thermal derating level, uint8 */
-#define DID_POWER_LIMIT             0x210DU   /*!< power limit, uint16 cW, R/W+NVM */
-#define DID_BC_PERIOD               0x210EU   /*!< broadcast period, uint16 ms, R/W+NVM */
-#define DID_WORK_MODE               0x210FU   /*!< work mode, uint8 0-3, R/W+NVM */
-#define DID_ENERGY_DELIVERED        0x2111U   /*!< delivered energy, uint32 */
-#define DID_IDLE_TIMEOUT            0x2117U   /*!< idle timeout, uint16 s, R/W+NVM */
+#define DID_POWER_LIMIT             0x210DU   /*!< power limit, uint16 mW, R/W+NVM (500/1000/1500) */
+#define DID_LAST_FAULT_DETAIL       0x2110U   /*!< last fault detail, 4B */
 #define DID_CLAMP_STATE             0x2118U   /*!< PA0 hall: 0=closed, 1=open */
 #define DID_ECDSA_PUBKEY            0x2120U   /*!< ECDSA P-256 public key, 65-byte SEC1 */
 #define DID_QI_IAP_CONTROL          0x2130U   /*!< Qi IAP 控制（写）：启动/中止升级 */
@@ -178,10 +178,7 @@ extern "C" {
 /*  NVM offsets for Qi persistent configuration                               */
 /* ========================================================================== */
 
-#define NVM_OFFSET_POWER_LIMIT      0x100U    /*!< DID 0x210D power limit, uint16 cW */
-#define NVM_OFFSET_BC_PERIOD        0x102U    /*!< DID 0x210E broadcast period, uint16 ms */
-#define NVM_OFFSET_WORK_MODE        0x104U    /*!< DID 0x210F work mode, uint8 */
-#define NVM_OFFSET_IDLE_TIMEOUT     0x106U    /*!< DID 0x2117 idle timeout, uint16 s */
+#define NVM_OFFSET_POWER_LIMIT      0x100U    /*!< DID 0x210D power limit, uint16 mW */
 
 /* ========================================================================== */
 /*  RoutineControl routine IDs                                               */
