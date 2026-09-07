@@ -18,6 +18,7 @@ void    board_5v_set(uint8_t on);
 void    board_12v_buck_set(uint8_t on);
 uint8_t board_hall_open(void);
 void    board_charge_poll(void);
+void    board_charge_set_enable(uint8_t en);
 
 #ifdef __cplusplus
 }

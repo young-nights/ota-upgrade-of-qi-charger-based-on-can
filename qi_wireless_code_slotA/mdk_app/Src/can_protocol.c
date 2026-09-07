@@ -403,7 +403,8 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       return 0;
     }
     case DID_CLAMP_STATE:
-      out[0] = board_hall_open();
+      /* PA0 low (magnetic field/phone present) → 0x00, PA0 high (no phone) → 0x01 */
+      out[0] = (gpio_input_data_bit_read(GPIOA, GPIO_PINS_0) != RESET) ? 0x01U : 0x00U;
       *olen = 1U;
       return 0;
     case DID_ECDSA_PUBKEY:
@@ -428,7 +429,13 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 4U;
       return 0;
     case DID_CHARGE_STATE:
-      out[0] = g_qi_charge_state;
+      /* read PB2 actual level for charge state */
+      if (gpio_output_data_bit_read(GPIOB, GPIO_PINS_2) != RESET)
+        out[0] = QI_CHARGE_CHARGING;  /* PB2 high → CHARGING */
+      else if (g_qi_charger_enable != 0U)
+        out[0] = QI_CHARGE_STANDBY;   /* enabled but no device */
+      else
+        out[0] = QI_CHARGE_DISABLED;  /* disabled */
       *olen = 1U;
       return 0;
     case DID_DEVICE_PRESENT:
@@ -878,7 +885,7 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           return;
         }
         g_qi_charger_enable = val;
-        board_5v_set(val);  /* control Qi chip power supply via GPIO */
+        board_charge_set_enable(val);  /* CCU enable; PB2 controlled by charge_poll */
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];
@@ -906,6 +913,12 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         nvm_buf[0] = (uint8_t)(val & 0xFFU);
         nvm_buf[1] = (uint8_t)((val >> 8) & 0xFFU);
         (void)qi_nvm_save(NVM_OFFSET_POWER_LIMIT, nvm_buf, 2U);
+        /* forward to Qi chip: 5W=0x01, 10W=0x02, 15W=0x03 */
+        {
+          uint8_t qi_power = (val == 500U) ? QI_POWER_5W :
+                             (val == 1000U) ? QI_POWER_10W : QI_POWER_15W;
+          (void)qi_protocol_set_power(qi_power, 0U);
+        }
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];

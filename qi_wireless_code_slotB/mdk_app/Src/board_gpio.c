@@ -5,6 +5,8 @@
   */
 #include "board_gpio.h"
 
+static uint8_t g_charge_enabled = 0U;
+
 void board_gpio_init(void)
 {
   gpio_init_type gpio_init_struct;
@@ -83,13 +85,21 @@ uint8_t board_hall_open(void)
 
 void board_charge_poll(void)
 {
-  /* PA0 high = no magnet = phone placed → enable 5V
-   * PA0 low  = magnet   = no phone  → disable 5V */
-  if (board_hall_open() == 0U)
+  /* PB2 high only when charger enabled AND hall detects phone (PA0 low) */
+  if (g_charge_enabled != 0U && board_hall_open() == 0U)
   {
     board_5v_set(1U);
   }
   else
+  {
+    board_5v_set(0U);
+  }
+}
+
+void board_charge_set_enable(uint8_t en)
+{
+  g_charge_enabled = en;
+  if (en == 0U)
   {
     board_5v_set(0U);
   }
