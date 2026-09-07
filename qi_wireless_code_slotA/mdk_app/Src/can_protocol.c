@@ -141,13 +141,11 @@ static void can_lp_enter_normal(void)
     /* SIT1145 may need time to settle after bootloader handoff */
     {
       uint32_t t0 = timer_get_tick();
-      while ((timer_get_tick() - t0) < 5U) { __NOP(); }
+      while ((timer_get_tick() - t0) < 10U) { __NOP(); }
     }
   }
-  if (retry >= 3U)
-  {
-    return;
-  }
+  /* Force CAN online even if SIT1145 failed — transceiver may still work.
+   * Previous code silently returned here, leaving CAN in software reset. */
   sit1145_wakeup_clear();
   can_driver_online();
   g_can_awake = 1U;
@@ -1451,8 +1449,6 @@ static void can_protocol_rx_handler(uint32_t id, uint8_t *data, uint8_t len)
  */
 void can_protocol_init(void)
 {
-  ota_metadata_t meta;
-
   current_session          = SESSION_DEFAULT;
   security_unlocked        = 0;
   last_tester_present_tick = timer_get_tick();
@@ -1464,8 +1460,7 @@ void can_protocol_init(void)
   can_driver_register_rx_callback(can_protocol_rx_handler);
   qi_protocol_register_callback(qi_iap_frame_cb);
 
-  /* load persistent Qi config from NVM */
-  (void)nvm_drv_init();
+  /* load persistent Qi config from NVM (nvm_drv_init already called in main) */
   qi_nvm_load_config();
 
   /* CAN always online */
