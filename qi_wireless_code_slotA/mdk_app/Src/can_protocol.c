@@ -83,6 +83,10 @@ static uint8_t  g_sa_sig_block_seq        = 0;
 #define QI_IAP_SUCCESS      0x02U
 #define QI_IAP_FAILED       0x03U
 
+/* Qi IAP auto-complete timeout after last data packet sent */
+#define QI_IAP_DONE_TIMEOUT_MS  3000U
+static uint32_t g_qi_iap_last_tx_ms = 0U;
+
 static uint8_t  g_qi_iap_state    = QI_IAP_IDLE;
 static uint8_t  g_qi_iap_progress = 0U;
 static uint16_t g_qi_iap_total    = 0U;
@@ -855,6 +859,7 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         memcpy(&iap_buf[2], &data[5], chunk_len);
         (void)qi_protocol_send(QI_CMD_IAP, iap_buf, (uint8_t)(2U + chunk_len), 0U);
         g_qi_iap_sent += (uint16_t)(len - 5U);
+        g_qi_iap_last_tx_ms = timer_get_tick();
         if (g_qi_iap_total > 0U)
         {
           g_qi_iap_progress = (uint8_t)((uint32_t)g_qi_iap_sent * 100U / g_qi_iap_total);
@@ -1482,6 +1487,17 @@ void can_protocol_poll(void)
   static uint32_t sit_last;
 
   now = timer_get_tick();
+
+  /* Qi IAP auto-complete: if all data sent and no ACK within timeout, assume success */
+  if ((g_qi_iap_state == QI_IAP_IN_PROGRESS) &&
+      (g_qi_iap_total > 0U) &&
+      (g_qi_iap_sent >= g_qi_iap_total) &&
+      (g_qi_iap_last_tx_ms != 0U) &&
+      ((now - g_qi_iap_last_tx_ms) >= QI_IAP_DONE_TIMEOUT_MS))
+  {
+    g_qi_iap_state    = QI_IAP_SUCCESS;
+    g_qi_iap_progress = 100U;
+  }
 
   if (g_can_awake == 0U)
   {
