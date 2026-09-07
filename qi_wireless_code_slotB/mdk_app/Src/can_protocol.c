@@ -1173,19 +1173,23 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
     return;
   }
 
-  /* ---- Qi IAP ACK (0xCC) ---- */
+  /* ---- Qi IAP ACK (0xCC) ----
+   * ACK frame: data[0]=sub_cmd, data[1]=status
+   *   sub_cmd: 0x01=prepare ACK, 0x02=data ACK
+   *   status:  0x00=OK, 0x02=flash complete, 0x03=flash failed */
   if (frame->cmd == QI_CMD_IAP)
   {
-    if (frame->data_len < 1U)
+    if (frame->data_len < 2U)
     {
       return;
     }
-    if (frame->data[0] == QI_IAP_ACK_COMPLETE)
+    /* check status byte (data[1]) for IAP completion */
+    if (frame->data[1] == QI_IAP_ACK_COMPLETE)
     {
       g_qi_iap_state    = QI_IAP_SUCCESS;
       g_qi_iap_progress = 100U;
     }
-    else if (frame->data[0] == QI_IAP_ACK_FAILED)
+    else if (frame->data[1] == QI_IAP_ACK_FAILED)
     {
       g_qi_iap_state = QI_IAP_FAILED;
     }
