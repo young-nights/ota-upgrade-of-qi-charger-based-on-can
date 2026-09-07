@@ -1468,17 +1468,8 @@ void can_protocol_init(void)
   (void)nvm_drv_init();
   qi_nvm_load_config();
 
-  /* After OTA the image is in trial: host 22 2113 must work immediately.
-   * Confirmed idle boots stay in SIT1145 Standby until a wake-up frame. */
-  if ((ota_metadata_read(&meta) == 0) &&
-      ((meta.trial_state == 1U) || (meta.trial_state == 2U)))
-  {
-    can_lp_enter_normal();
-  }
-  else
-  {
-    can_driver_offline();
-  }
+  /* CAN always online */
+  can_lp_enter_normal();
 }
 
 void can_protocol_poll(void)
