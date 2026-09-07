@@ -1875,8 +1875,8 @@
       <Doc>
         <Name>..\libraries\drivers\src\at32f422_426_can.c</Name>
         <ColumnNumber>0</ColumnNumber>
-        <TopLine>25</TopLine>
-        <CurrentLine>46</CurrentLine>
+        <TopLine>70</TopLine>
+        <CurrentLine>94</CurrentLine>
         <Folding>1</Folding>
         <ContractedFolders></ContractedFolders>
         <PaneID>0</PaneID>
