@@ -88,25 +88,11 @@ void boot_jump_to_app(uint32_t app_addr)
 
   __disable_irq();
 
-  /* Put SIT1145 into Standby FIRST — stop receiving CAN frames
-   * before disabling the CAN controller.  If we disable CAN while
-   * SIT1145 is still in Normal mode, arriving frames have nowhere
-   * to go and can corrupt the transceiver's internal state,
-   * leaving it TX-only (can't receive) after APP re-init.
-   * This is the root cause of post-OTA CAN RX deafness. */
-  (void)sit1145_standby_mode_set();
-
-  /* let SIT1145 fully enter Standby before cutting clocks */
-  {
-    volatile uint32_t d;
-    for (d = 0U; d < 200000U; d++) { __asm("nop"); }
-  }
-
   /* disable CAN1 */
   can_reset(CAN1);
   crm_periph_clock_enable(CRM_CAN1_PERIPH_CLOCK, FALSE);
 
-  /* disable SPI1 (SIT1145 transceiver) so APP gets a clean slate */
+  /* disable SPI1 */
   spi_enable(SPI1, FALSE);
   crm_periph_clock_enable(CRM_SPI1_PERIPH_CLOCK, FALSE);
 
