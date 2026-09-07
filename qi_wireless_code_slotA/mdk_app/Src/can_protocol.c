@@ -32,6 +32,7 @@
 #include "lifecycle.h"
 #include "device_info.h"
 #include "board_gpio.h"
+#include "qi_protocol.h"
 #include "sha256.h"
 #include "uECC.h"
 #include "sit1145.h"
@@ -74,6 +75,17 @@ static uint32_t g_security_lockout_until_ms = 0;
 static uint8_t  g_sa_sig_buf[64];
 static uint8_t  g_sa_sig_bytes_received   = 0;
 static uint8_t  g_sa_sig_block_seq        = 0;
+
+/* Qi IAP state tracking */
+#define QI_IAP_IDLE         0x00U
+#define QI_IAP_IN_PROGRESS  0x01U
+#define QI_IAP_SUCCESS      0x02U
+#define QI_IAP_FAILED       0x03U
+
+static uint8_t  g_qi_iap_state    = QI_IAP_IDLE;
+static uint8_t  g_qi_iap_progress = 0U;
+static uint16_t g_qi_iap_total    = 0U;
+static uint16_t g_qi_iap_sent     = 0U;
 
 /** @brief  SIT1145 Normal + CAN online. Power-on default is Standby. */
 static uint8_t  g_can_awake = 0;
@@ -352,6 +364,11 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       out[0] = sit1145_get_mode();  /* 0x04=Standby, 0x07=Normal, 0x01=Sleep */
       *olen = 1U;
       return 0;
+    case DID_QI_IAP_STATUS:
+      out[0] = g_qi_iap_state;
+      out[1] = g_qi_iap_progress;
+      *olen = 2U;
+      return 0;
     default:
       return -1;
   }
@@ -624,12 +641,19 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         uint8_t sub = data[3];
         if (sub == 0x01U)
         {
-          /* 启动 IAP：通知 Qi 芯片进入升级模式 */
+          uint8_t iap_data[2];
           if (len < 6U)
           {
             proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
             return;
           }
+          g_qi_iap_total    = ((uint16_t)data[4] << 8) | (uint16_t)data[5];
+          g_qi_iap_sent     = 0U;
+          g_qi_iap_state    = QI_IAP_IN_PROGRESS;
+          g_qi_iap_progress = 0U;
+          iap_data[0] = data[4];
+          iap_data[1] = data[5];
+          (void)qi_protocol_send(QI_CMD_IAP, iap_data, 2U, 0U);
           resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
           resp[1] = data[1];
           resp[2] = data[2];
@@ -637,7 +661,10 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         }
         else if (sub == 0x02U)
         {
-          /* 中止 IAP */
+          g_qi_iap_state = QI_IAP_IDLE;
+          g_qi_iap_progress = 0U;
+          g_qi_iap_total = 0U;
+          g_qi_iap_sent = 0U;
           resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
           resp[1] = data[1];
           resp[2] = data[2];
@@ -655,10 +682,36 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         /* Qi IAP 数据包
          * data[3..4] = 地址 16-bit
          * data[5..] = 固件数据（最多 22 字节/帧） */
+        uint8_t iap_buf[2 + QI_FRAME_MAX_DATA_LEN];
+        uint16_t chunk_len;
+
         if (len < 6U)
         {
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
           return;
+        }
+        if (g_qi_iap_state != QI_IAP_IN_PROGRESS)
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
+          return;
+        }
+        iap_buf[0] = data[3];  /* addr hi */
+        iap_buf[1] = data[4];  /* addr lo */
+        chunk_len = (uint16_t)(len - 5U);
+        if (chunk_len > QI_FRAME_MAX_DATA_LEN)
+        {
+          chunk_len = QI_FRAME_MAX_DATA_LEN;
+        }
+        memcpy(&iap_buf[2], &data[5], chunk_len);
+        (void)qi_protocol_send(QI_CMD_IAP, iap_buf, (uint8_t)(2U + chunk_len), 0U);
+        g_qi_iap_sent += (uint16_t)(len - 5U);
+        if (g_qi_iap_total > 0U)
+        {
+          g_qi_iap_progress = (uint8_t)((uint32_t)g_qi_iap_sent * 100U / g_qi_iap_total);
+          if (g_qi_iap_progress > 100U)
+          {
+            g_qi_iap_progress = 100U;
+          }
         }
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
@@ -896,6 +949,44 @@ static void handle_tester_present(uint8_t *data, uint16_t len)
 }
 
 /* ========================================================================== */
+/*  Qi IAP frame callback                                                    */
+/* ========================================================================== */
+
+/** @brief  Qi IAP ACK status codes from Qi chip (data[0] of 0xCC response) */
+#define QI_IAP_ACK_OK       0x00U
+#define QI_IAP_ACK_COMPLETE 0x02U
+#define QI_IAP_ACK_FAILED   0x03U
+
+/**
+ * @brief  Qi frame callback: update IAP state from Qi chip ACK
+ */
+static void qi_iap_frame_cb(const qi_frame_t *frame)
+{
+  if (frame == (const qi_frame_t *)0)
+  {
+    return;
+  }
+  if (frame->cmd != QI_CMD_IAP)
+  {
+    return;
+  }
+  if (frame->data_len < 1U)
+  {
+    return;
+  }
+  /* data[0] = 0x00 ACK, 0x02 flash success, 0x03 flash failed */
+  if (frame->data[0] == QI_IAP_ACK_COMPLETE)
+  {
+    g_qi_iap_state    = QI_IAP_SUCCESS;
+    g_qi_iap_progress = 100U;
+  }
+  else if (frame->data[0] == QI_IAP_ACK_FAILED)
+  {
+    g_qi_iap_state = QI_IAP_FAILED;
+  }
+}
+
+/* ========================================================================== */
 /*  Main UDS message dispatcher                                              */
 /* ========================================================================== */
 
@@ -1044,6 +1135,7 @@ void can_protocol_init(void)
 
   isotp_init(isotp_message_received);
   can_driver_register_rx_callback(can_protocol_rx_handler);
+  qi_protocol_register_callback(qi_iap_frame_cb);
 
   /* After OTA the image is in trial: host 22 2113 must work immediately.
    * Confirmed idle boots stay in SIT1145 Standby until a wake-up frame. */
