@@ -438,9 +438,10 @@ def run_sn_write(bus_id, sn_code):
     _log("写入数据: " + _hex(sn32))
     uds_req(bus_id, SID_WDBI, [0xF1, 0x8C] + sn32, wait_pending_s=10)
 
-    # Flash 擦写会让 CAN 短暂 bus-off；22 F18C 是 35B 多帧，需等总线恢复
-    time.sleep(0.3)
+    # Flash 擦写（4KB sector）+ CAN bus-off 恢复需要较长时间
+    time.sleep(1.0)
     uds_try(bus_id, SID_TP, [0x00])
+    time.sleep(0.2)
 
     # Step 4: 验证读回（MCU 定长 32 字节空格填充，ISO-TP 多帧）
     _log("---- Step 4: 读回验证 ----")
