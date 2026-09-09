@@ -31,7 +31,8 @@ extern "C" {
 #define QI_FRAME_HEADER1        0x55U   /**< 帧起始头第1字节 */
 #define QI_FRAME_HEADER2        0xAAU   /**< 帧起始头第2字节 */
 #define QI_FRAME_HEADER_LEN     2U      /**< 帧头长度 */
-#define QI_FRAME_MIN_LEN        7U      /**< 最小帧长度：头(2)+长度(1)+命令(1)+流水号(1)+校验(1) */
+#define QI_FRAME_MIN_LEN        8U      /**< 最小帧长度：头(2)+长度(1)+命令(1)+数据(0)+流水号(1)+校验(1) */
+#define QI_FRAME_MIN_LEN_IAP    6U      /**< IAP 帧最小长度：头(2)+长度(1)+命令(1)+数据(0)+校验(1)，无流水号 */
 #define QI_FRAME_MAX_DATA_LEN   32U     /**< 帧数据最大长度 */
 
 /* ==========================================================================
@@ -97,7 +98,8 @@ typedef struct {
   uint8_t cmd;                           /**< 命令码 */
   uint8_t data[QI_FRAME_MAX_DATA_LEN];  /**< 帧数据 */
   uint8_t data_len;                      /**< 帧数据长度 */
-  uint8_t seq;                           /**< 流水号 */
+  uint8_t seq;                           /**< 流水号 (IAP 帧此字段无效) */
+  uint8_t expect_seq;                    /**< 1=普通帧含流水号, 0=IAP 帧不含 */
   uint8_t cs;                            /**< 接收到的校验和 */
 } qi_frame_t;
 
@@ -129,6 +131,16 @@ void qi_protocol_register_callback(qi_frame_callback_t cb);
  * @retval 0=成功，-1=参数错误
  */
 int8_t qi_protocol_send(uint8_t cmd, const uint8_t *data, uint8_t data_len, uint8_t seq);
+
+/**
+ * @brief  构建并发送一帧 IAP 数据 (Command 0xCC)
+ * @note   IAP 帧格式：[0x55][0xAA][LEN][CMD][DATA...][CS]，不含流水号
+ *         LEN = CMD(1) + DATA(n)
+ * @param  data: 帧数据指针（不可为 NULL，至少1字节子命令）
+ * @param  data_len: 帧数据长度
+ * @retval 0=成功，-1=参数错误
+ */
+int8_t qi_protocol_send_iap(const uint8_t *data, uint8_t data_len);
 
 /**
  * @brief  发送 ACK 应答

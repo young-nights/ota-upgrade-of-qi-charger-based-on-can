@@ -808,7 +808,7 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           g_qi_iap_progress = 0U;
           iap_data[0] = data[4];
           iap_data[1] = data[5];
-          (void)qi_protocol_send(QI_CMD_IAP, iap_data, 2U, 0U);
+          (void)qi_protocol_send_iap(iap_data, 2U);
           resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
           resp[1] = data[1];
           resp[2] = data[2];
@@ -858,7 +858,7 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           chunk_len = QI_FRAME_MAX_DATA_LEN;
         }
         memcpy(&iap_buf[2], &data[5], chunk_len);
-        (void)qi_protocol_send(QI_CMD_IAP, iap_buf, (uint8_t)(2U + chunk_len), 0U);
+        (void)qi_protocol_send_iap(iap_buf, (uint8_t)(2U + chunk_len));
         g_qi_iap_sent += (uint16_t)(len - 5U);
         g_qi_iap_last_tx_ms = timer_get_tick();
         if (g_qi_iap_total > 0U)
@@ -1180,22 +1180,17 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
   }
 
   /* ---- Qi IAP ACK (0xCC) ----
-   * ACK frame: data[0]=sub_cmd, data[1]=status
+   * ACK frame: data[0]=sub_cmd, data[1]=status, data[2]=reserved
    *   sub_cmd: 0x01=prepare ACK, 0x02=data ACK
-   *   status:  0x00=OK, 0x02=flash complete, 0x03=flash failed */
+   *   status:  0x00=OK */
   if (frame->cmd == QI_CMD_IAP)
   {
-    if (frame->data_len < 2U)
+    if (frame->data_len < 3U)
     {
       return;
     }
-    /* check status byte (data[1]) for IAP completion */
-    if (frame->data[1] == QI_IAP_ACK_COMPLETE)
-    {
-      g_qi_iap_state    = QI_IAP_SUCCESS;
-      g_qi_iap_progress = 100U;
-    }
-    else if (frame->data[1] == QI_IAP_ACK_FAILED)
+    /* check status byte (data[1]) */
+    if (frame->data[1] == QI_IAP_ACK_FAILED)
     {
       g_qi_iap_state = QI_IAP_FAILED;
     }
