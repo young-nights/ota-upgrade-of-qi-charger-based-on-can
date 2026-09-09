@@ -751,10 +751,13 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
           return;
         }
+        (void)sit1145_normal_mode_set();
+        (void)can_driver_wait_tx_idle(50U);
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];
         proto_send_response(resp, 3);
+        (void)can_driver_wait_tx_idle(50U);
         break;
       }
 

@@ -43,6 +43,117 @@
 #define BL_VERSION  "1.1.1"
 #define HW_VERSION  "1.1.1"
 
+#define DEVICE_INFO_MAGIC        0x44455649U  /* "DEVI" */
+#define DEVICE_INFO_VERSION      2U
+#define DEVICE_INFO_STRUCT_SIZE  512U
+#define DEVICE_INFO_PUBKEY_LEN   65U
+
+typedef struct
+{
+  uint32_t magic;
+  uint32_t version;
+  uint32_t crc32;
+  char     sn[32];
+  char     hw_version[8];
+  uint32_t production_date;
+  uint8_t  ecdsa_pubkey[DEVICE_INFO_PUBKEY_LEN];
+  uint8_t  pubkey_valid;
+  uint8_t  reserved[390];
+} device_info_t;
+
+static uint32_t device_info_crc(const device_info_t *info)
+{
+  const uint8_t *p = (const uint8_t *)info;
+  uint32_t crc = 0xFFFFFFFFU;
+  uint32_t n;
+  uint32_t j;
+  uint32_t bit;
+
+  for (n = 0U; n < DEVICE_INFO_STRUCT_SIZE; n++)
+  {
+    if ((n >= 8U) && (n < 12U))
+    {
+      continue;
+    }
+    crc ^= (uint32_t)p[n];
+    for (j = 0U; j < 8U; j++)
+    {
+      bit = crc & 1U;
+      crc >>= 1;
+      if (bit != 0U)
+      {
+        crc ^= 0xEDB88320U;
+      }
+    }
+  }
+  return crc ^ 0xFFFFFFFFU;
+}
+
+static int8_t device_info_read(device_info_t *out)
+{
+  const device_info_t *flash = (const device_info_t *)DEVICE_INFO_ADDR;
+
+  if (out == (device_info_t *)0)
+  {
+    return -1;
+  }
+  memcpy((void *)out, (const void *)flash, sizeof(device_info_t));
+  if ((out->magic != DEVICE_INFO_MAGIC) ||
+      (out->version != DEVICE_INFO_VERSION) ||
+      (device_info_crc(out) != out->crc32))
+  {
+    return -1;
+  }
+  return 0;
+}
+
+static int8_t device_info_write_sn(const uint8_t *sn32)
+{
+  device_info_t info;
+  const uint32_t *src;
+  uint32_t words;
+  uint32_t i;
+  flash_status_type st;
+
+  if (sn32 == (const uint8_t *)0)
+  {
+    return -1;
+  }
+  if (device_info_read(&info) != 0)
+  {
+    memset((void *)&info, 0xFF, sizeof(info));
+    info.magic           = DEVICE_INFO_MAGIC;
+    info.version         = DEVICE_INFO_VERSION;
+    info.production_date = 0U;
+    memset((void *)info.hw_version, 0, sizeof(info.hw_version));
+    info.pubkey_valid    = 0xFFU;
+    memset((void *)info.reserved, 0xFF, sizeof(info.reserved));
+  }
+  memcpy((void *)info.sn, (const void *)sn32, 32U);
+  info.crc32 = device_info_crc(&info);
+
+  flash_unlock();
+  st = flash_sector_erase(DEVICE_INFO_ADDR);
+  if (st != FLASH_OPERATE_DONE)
+  {
+    flash_lock();
+    return -1;
+  }
+  src   = (const uint32_t *)&info;
+  words = sizeof(device_info_t) / 4U;
+  for (i = 0U; i < words; i++)
+  {
+    st = flash_word_program(DEVICE_INFO_ADDR + (i * 4U), src[i]);
+    if (st != FLASH_OPERATE_DONE)
+    {
+      flash_lock();
+      return -1;
+    }
+  }
+  flash_lock();
+  return 0;
+}
+
 /* private define ------------------------------------------------------------*/
 
 /** @brief  safe mode CAN IDs for OTA download */
@@ -899,8 +1010,26 @@ static void uds_process_message(uint8_t *data, uint16_t len)
       }
       else if (did == 0xF18CU)
       {
-        /* SN is written later from APP (0x2E F18C); Boot does not store it */
-        safe_mode_send_nrc(service_id, UDS_NRC_REQUEST_OUT_OF_RANGE);
+        device_info_t di;
+        uint8_t i;
+
+        if (device_info_read(&di) != 0)
+        {
+          safe_mode_send_nrc(service_id, UDS_NRC_REQUEST_OUT_OF_RANGE);
+          break;
+        }
+        resp[0] = service_id + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        for (i = 0U; i < 32U; i++)
+        {
+          resp[3U + i] = 0x20U;
+        }
+        for (i = 0U; (i < 32U) && (di.sn[i] != '\0'); i++)
+        {
+          resp[3U + i] = (uint8_t)di.sn[i];
+        }
+        safe_mode_send_response(resp, 35U);
       }
       else if (did == 0x2112U)
       {
@@ -989,6 +1118,38 @@ static void uds_process_message(uint8_t *data, uint16_t len)
         resp[1] = data[1];
         resp[2] = data[2];
         safe_mode_send_response(resp, 3);
+      }
+      else if (did == 0xF18CU)
+      {
+        uint8_t sn32[32];
+        uint16_t n;
+        uint16_t i;
+
+        n = (uint16_t)(len - 3U);
+        if (n > 32U)
+        {
+          safe_mode_send_nrc(service_id, UDS_NRC_REQUEST_OUT_OF_RANGE);
+          break;
+        }
+        memset(sn32, 0x20, 32U);
+        for (i = 0U; i < n; i++)
+        {
+          sn32[i] = data[3U + i];
+        }
+        if (device_info_write_sn(sn32) != 0)
+        {
+          safe_mode_send_nrc(service_id, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+          break;
+        }
+        /* Flash erase/program stalls the CPU; recover CAN before 6E / later 22 F18C. */
+        (void)safe_mode_can_busoff_recover();
+        (void)sit1145_normal_mode_set();
+        (void)can_driver_wait_tx_idle(50U);
+        resp[0] = service_id + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        safe_mode_send_response(resp, 3);
+        (void)can_driver_wait_tx_idle(50U);
       }
       else
       {

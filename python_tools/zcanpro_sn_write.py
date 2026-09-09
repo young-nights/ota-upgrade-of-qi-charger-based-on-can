@@ -370,25 +370,25 @@ def send_security_key(bus_id, sig):
 
 # ======== SN 写入流程 ========
 
-def _assert_running_app(bus_id):
-    """0x2E F18C 只在 APP 实现。Boot Safe Mode 对写 SN 回 NRC 0x31。"""
+def _probe_side(bus_id):
+    """0x34: APP → NRC 0x11；Boot 默认会话 → NRC 0x22。两边都可以写 SN。"""
     try:
         uds_req(bus_id, SID_RD, [0x00])
+        _log("0x34 正响应，按 Boot Programming 继续写 SN")
+        return "BOOT"
     except RuntimeError as e:
         msg = str(e)
-        if "NRC=0x11" in msg or "NRC=0x%02X" % NRC_SNS in msg:
-            _log("当前在 APP（0x34 NRC 0x11），可以写 SN")
-            return
-        if "NRC=" in msg:
-            raise RuntimeError(
-                "当前像在 Bootloader（0x2E F18C 会失败）。请先让模块跳到 APP 再写 SN: " + msg
-            )
+        if "NRC=0x11" in msg:
+            _log("当前在 APP（0x34 NRC 0x11）")
+            return "APP"
+        if "NRC=0x22" in msg:
+            _log("当前在 Bootloader（0x34 NRC 0x22），Safe Mode 写 SN")
+            return "BOOT"
         raise
-    raise RuntimeError("0x34 未拒绝，当前不在 APP，不能写 SN")
 
 
 def run_sn_write(bus_id, sn_code):
-    """完整 SN 写入流程（必须跑在 APP，不是 Boot Safe Mode）"""
+    """完整 SN 写入流程（APP 或 Boot Safe Mode）"""
     _log("======== SN 写入流程 ========")
     _log("SN: %s (%d字节)" % (sn_code, len(sn_code)))
     _log("私钥: " + PRIVATE_KEY_PATH)
@@ -399,11 +399,11 @@ def run_sn_write(bus_id, sn_code):
 
     uds_init()
 
-    # Step 0: 确认在 APP
-    _log("---- Step 0: 确认在 APP ----")
-    _assert_running_app(bus_id)
+    # Step 0: 识别 APP / Boot（均可写 F18C）
+    _log("---- Step 0: 识别 APP / Boot ----")
+    _probe_side(bus_id)
 
-    # Step 1: 进入编程会话（APP 内 10 02 不会复位，11 才会进 Boot）
+    # Step 1: 进入编程会话（APP 内 10 02 不会复位；Boot 本身就是 Safe Mode）
     _log("---- Step 1: 进入编程会话 ----")
     uds_req(bus_id, SID_DSC, [0x02])
 
@@ -438,9 +438,28 @@ def run_sn_write(bus_id, sn_code):
     _log("写入数据: " + _hex(sn32))
     uds_req(bus_id, SID_WDBI, [0xF1, 0x8C] + sn32, wait_pending_s=10)
 
-    # Step 4: 验证读回（MCU 定长 32 字节空格填充）
+    # Flash 擦写会让 CAN 短暂 bus-off；22 F18C 是 35B 多帧，需等总线恢复
+    time.sleep(0.3)
+    uds_try(bus_id, SID_TP, [0x00])
+
+    # Step 4: 验证读回（MCU 定长 32 字节空格填充，ISO-TP 多帧）
     _log("---- Step 4: 读回验证 ----")
-    rx = read_did(bus_id, DID_SN)
+    rx = None
+    last = None
+    for i in range(6):
+        if stopTask:
+            raise RuntimeError("用户停止脚本")
+        try:
+            rx = read_did(bus_id, DID_SN)
+            last = None
+            break
+        except Exception as e:
+            last = e
+            _log("22 F18C 第 %d/6 次: %s" % (i + 1, e))
+            time.sleep(0.4)
+            uds_try(bus_id, SID_TP, [0x00])
+    if last is not None:
+        raise last
     sn_read = "".join(chr(int(b) & 0xFF) for b in rx[:32]).rstrip(" ")
     _log("读回 SN: [%s]" % sn_read)
 
