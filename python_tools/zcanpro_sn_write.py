@@ -458,13 +458,8 @@ def _tx_builders():
 
 
 def _transmit_one(bus_id, msg, wrap_list):
-    payload = msg if not wrap_list else [msg]
-    try:
-        return zcanpro.transmit(bus_id, payload)
-    except TypeError:
-        if wrap_list:
-            return zcanpro.transmit(bus_id, msg)
-        return zcanpro.transmit(bus_id, [msg])
+    payload = [msg] if wrap_list else msg
+    return zcanpro.transmit(bus_id, payload)
 
 
 def can_send(bus_id, can_id, data):
@@ -505,18 +500,13 @@ def _normalize_msgs(msgs):
 def can_recv(bus_id):
     global _RX_DUMP
     collected = []
-    for args in ((bus_id,), ()):
-        try:
-            raw = zcanpro.receive(*args)
-        except TypeError:
-            continue
-        except Exception as e:
-            if _RX_DUMP < 4:
-                _log("receive%s 异常: %s" % (args, e))
-            continue
-        collected.extend(_normalize_msgs(raw))
-        if collected:
-            break
+    try:
+        raw = zcanpro.receive(bus_id)
+    except Exception as e:
+        if _RX_DUMP < 4:
+            _log("receive 异常: %s" % e)
+        return []
+    collected = _normalize_msgs(raw)
     if collected and _RX_DUMP < 12:
         _RX_DUMP += 1
         fr0 = collected[0]
