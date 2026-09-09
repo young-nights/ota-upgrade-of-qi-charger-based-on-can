@@ -329,9 +329,13 @@ def uds_try(bus_id, sid, payload, suppress=0):
         return None
 
 
-# ZCANPRO uds_request() 组不好 35 字节 ISO-TP 响应。下面用原始 CAN 自组 ISO-TP。
+# ZCANPRO uds_request() 组不好 35 字节 ISO-TP 响应。用 transmit/receive 自组。
+# 上一版失败点：uds_deinit 后 TX 未标扩展帧 → MCU 滤掉；或 UDS 栈截走 18DA030D。
 _FILL = 0xCC
 _ISOTP_LOGGED_API = False
+_RX_DUMP = 0
+_TX_STYLE = None  # (builder_index, wrap_list)
+_UDS_RELEASED = False
 
 
 def _can_pad8(data):
@@ -341,23 +345,82 @@ def _can_pad8(data):
     return d[:8]
 
 
+def _as_int(v):
+    if v is None:
+        return 0
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, int):
+        return int(v)
+    s = str(v).strip()
+    if not s:
+        return 0
+    try:
+        if s.lower().startswith("0x"):
+            return int(s, 16)
+        return int(s, 10)
+    except Exception:
+        return 0
+
+
+def _id_norm(fid):
+    return _as_int(fid) & 0x1FFFFFFF
+
+
 def _frame_id(fr):
-    if not isinstance(fr, dict):
-        return int(getattr(fr, "can_id", getattr(fr, "canID", getattr(fr, "id", 0))) or 0)
-    for k in ("can_id", "canID", "id", "canId"):
-        if k in fr and fr[k] is not None:
-            return int(fr[k]) & 0x1FFFFFFF
-    return 0
+    if isinstance(fr, dict):
+        inner = fr.get("frame")
+        if isinstance(inner, dict):
+            for k in ("can_id", "canID", "id", "canId", "ID"):
+                if k in inner and inner[k] is not None:
+                    return _id_norm(inner[k])
+        for k in ("can_id", "canID", "id", "canId", "ID"):
+            if k in fr and fr[k] is not None:
+                return _id_norm(fr[k])
+        return 0
+    raw = getattr(fr, "can_id", None)
+    if raw is None:
+        raw = getattr(fr, "canID", getattr(fr, "id", 0))
+    return _id_norm(raw)
+
+
+def _bytes_from(d):
+    if d is None:
+        return []
+    if isinstance(d, (bytes, bytearray)):
+        return [int(x) & 0xFF for x in d]
+    if isinstance(d, str):
+        s = d.replace(",", " ").replace("0x", " ").replace("0X", " ")
+        out = []
+        for tok in s.split():
+            try:
+                out.append(int(tok, 16) & 0xFF)
+            except Exception:
+                pass
+        return out
+    try:
+        seq = list(d)
+    except TypeError:
+        return [_as_int(d) & 0xFF]
+    out = []
+    for x in seq:
+        if isinstance(x, (list, tuple)):
+            break
+        out.append(_as_int(x) & 0xFF)
+    return out
 
 
 def _frame_data(fr):
-    if not isinstance(fr, dict):
-        d = getattr(fr, "data", None)
-        if d is None:
-            return []
-        return [int(x) & 0xFF for x in list(d)]
-    d = fr.get("data") or fr.get("Data") or []
-    return [int(x) & 0xFF for x in d]
+    if isinstance(fr, dict):
+        inner = fr.get("frame")
+        if isinstance(inner, dict):
+            d = inner.get("data") or inner.get("Data") or inner.get("payload")
+            got = _bytes_from(d)
+            if got:
+                return got
+        d = fr.get("data") or fr.get("Data") or fr.get("payload")
+        return _bytes_from(d)
+    return _bytes_from(getattr(fr, "data", None))
 
 
 def _log_zcan_apis():
@@ -367,69 +430,163 @@ def _log_zcan_apis():
     _ISOTP_LOGGED_API = True
     names = [n for n in dir(zcanpro) if not n.startswith("_")]
     _log("zcanpro 原始 CAN API: " + ", ".join(names))
+    for fn in ("transmit", "receive"):
+        obj = getattr(zcanpro, fn, None)
+        _log("%s doc=%s" % (fn, str(getattr(obj, "__doc__", None))))
+        try:
+            import inspect
+            _log("%s spec=%s" % (fn, inspect.getfullargspec(obj)))
+        except Exception:
+            pass
+
+
+def _tx_builders():
+    def b0(cid, d):
+        return {"can_id": cid | 0x80000000, "is_canfd": 0, "canfd_brs": 0,
+                "data": d, "frame_type": 1}
+    def b1(cid, d):
+        return {"can_id": cid, "is_canfd": 0, "canfd_brs": 0,
+                "data": d, "frame_type": 1}
+    def b2(cid, d):
+        return {"can_id": cid | 0x80000000, "is_canfd": 0, "canfd_brs": 0, "data": d}
+    def b3(cid, d):
+        return {"id": cid, "is_canfd": 0, "data": d, "frame_type": 1, "extend": 1}
+    def b4(cid, d):
+        return {"can_id": cid, "is_canfd": 0, "canfd_brs": 0, "data": d,
+                "extend": 1, "is_extend": 1, "eff": 1}
+    return (b0, b1, b2, b3, b4)
+
+
+def _transmit_one(bus_id, msg, wrap_list):
+    payload = msg if not wrap_list else [msg]
+    try:
+        return zcanpro.transmit(bus_id, payload)
+    except TypeError:
+        if wrap_list:
+            return zcanpro.transmit(bus_id, msg)
+        return zcanpro.transmit(bus_id, [msg])
 
 
 def can_send(bus_id, can_id, data):
+    """扩展帧。优先用探测到的 TX 格式。"""
     payload = _can_pad8(data)
-    msg = {
-        "can_id": can_id,
-        "canID": can_id,
-        "id": can_id,
-        "data": payload,
-        "frame_type": 1,
-        "frameType": 1,
-        "is_canfd": 0,
-        "isCanfd": 0,
-        "canfd_brs": 0,
-        "canfdBRS": 0,
-        "ext": True,
-    }
-    if hasattr(zcanpro, "transmit"):
-        return zcanpro.transmit(bus_id, msg)
-    if hasattr(zcanpro, "send"):
-        try:
-            return zcanpro.send(bus_id, msg)
-        except TypeError:
-            return zcanpro.send(bus_id, can_id, payload, True)
-    raise RuntimeError("zcanpro 没有 transmit/send，无法自组 ISO-TP")
+    builders = _tx_builders()
+    if _TX_STYLE is None:
+        bi, wrap = 0, True
+    else:
+        bi, wrap = _TX_STYLE
+    msg = builders[bi](int(can_id), payload)
+    ret = _transmit_one(bus_id, msg, wrap)
+    _log("[Tx CAN] %08X %s style=%d list=%d ret=%s" % (
+        can_id, _hex(payload), bi, int(wrap), str(ret)))
+    return ret
 
 
-def can_recv(bus_id):
-    fn = None
-    for name in ("receive", "recv", "read", "read_bus"):
-        if hasattr(zcanpro, name):
-            fn = getattr(zcanpro, name)
-            break
-    if fn is None:
-        raise RuntimeError("zcanpro 没有 receive/recv/read，无法自组 ISO-TP")
-    try:
-        msgs = fn(bus_id)
-    except TypeError:
-        try:
-            msgs = fn(bus_id, 0)
-        except TypeError:
-            msgs = fn()
+def _normalize_msgs(msgs):
     if msgs is None:
         return []
     if isinstance(msgs, dict):
+        inner = msgs.get("data")
+        if isinstance(inner, list) and inner and isinstance(inner[0], dict) and (
+                msgs.get("can_id") is None and msgs.get("id") is None):
+            return inner
         return [msgs]
+    if isinstance(msgs, (bytes, bytearray, str)):
+        return []
     try:
-        return list(msgs)
+        seq = list(msgs)
     except TypeError:
         return [msgs]
+    if seq and not isinstance(seq[0], (dict, list, tuple)) and not hasattr(seq[0], "data"):
+        return []
+    return seq
+
+
+def can_recv(bus_id):
+    global _RX_DUMP
+    collected = []
+    for args in ((bus_id,), ()):
+        try:
+            raw = zcanpro.receive(*args)
+        except TypeError:
+            continue
+        except Exception as e:
+            if _RX_DUMP < 4:
+                _log("receive%s 异常: %s" % (args, e))
+            continue
+        collected.extend(_normalize_msgs(raw))
+        if collected:
+            break
+    if collected and _RX_DUMP < 12:
+        _RX_DUMP += 1
+        fr0 = collected[0]
+        keys = str(list(fr0.keys()) if isinstance(fr0, dict) else dir(fr0)[:16])
+        _log("receive 样例 type=%s n=%d keys=%s id=%08X data=%s" % (
+            type(fr0).__name__, len(collected), keys,
+            _frame_id(fr0), _hex(_frame_data(fr0)[:8])))
+    return collected
 
 
 def can_flush(bus_id):
-    if hasattr(zcanpro, "clear"):
-        try:
-            zcanpro.clear(bus_id)
-            return
-        except Exception:
-            pass
     try:
         can_recv(bus_id)
     except Exception:
         pass
+
+
+def release_uds_stack():
+    """UDS 栈会截走 18DA030D，自组多帧前必须释放。"""
+    global _UDS_RELEASED
+    if _UDS_RELEASED:
+        return
+    try:
+        zcanpro.uds_deinit()
+        _UDS_RELEASED = True
+        _log("已 uds_deinit，后续走原始 CAN")
+    except Exception as e:
+        _log("uds_deinit: " + str(e))
+
+
+def _discover_tx(bus_id):
+    """用 3E 00 单帧探测哪种 transmit 字典 MCU 能回 7E。"""
+    global _TX_STYLE
+    if _TX_STYLE is not None:
+        return
+    builders = _tx_builders()
+    payload = _can_pad8([0x02, SID_TP, 0x00])
+    echo_style = None
+    for wrap in (True, False):
+        for bi, builder in enumerate(builders):
+            if stopTask:
+                raise RuntimeError("用户停止脚本")
+            can_flush(bus_id)
+            msg = builder(UDS_REQ_ID, payload)
+            try:
+                ret = _transmit_one(bus_id, msg, wrap)
+            except Exception as e:
+                _log("transmit probe style=%d list=%d 异常: %s" % (bi, int(wrap), e))
+                continue
+            _log("[Tx probe] style=%d list=%d ret=%s %s" % (
+                bi, int(wrap), str(ret), _hex(payload)))
+            t0 = time.time()
+            while time.time() - t0 < 0.35:
+                for fr in can_recv(bus_id):
+                    fid = _frame_id(fr)
+                    d = _frame_data(fr)
+                    _log("[Rx probe] id=%08X %s" % (fid, _hex(d[:8])))
+                    if fid == UDS_RESP_ID and d:
+                        _TX_STYLE = (bi, wrap)
+                        _log("锁定 TX 格式 style=%d list=%d (MCU 应答)" % (bi, int(wrap)))
+                        return
+                    if fid == UDS_REQ_ID:
+                        echo_style = (bi, wrap)
+                time.sleep(0.02)
+    if echo_style is not None:
+        _TX_STYLE = echo_style
+        _log("仅见 TX 回显，锁定 style=%d list=%d" % (echo_style[0], int(echo_style[1])))
+        return
+    _TX_STYLE = (0, True)
+    _log("未探测到 MCU/回显，默认 style=0 list=1")
 
 
 def isotp_request(bus_id, uds_payload, timeout_s=3.0):
@@ -441,35 +598,35 @@ def isotp_request(bus_id, uds_payload, timeout_s=3.0):
 
     if n <= 7:
         can_send(bus_id, UDS_REQ_ID, [n] + uds_payload)
-        _log("[Tx CAN] %08X %s" % (UDS_REQ_ID, _hex(_can_pad8([n] + uds_payload))))
     else:
         ff = [0x10 | ((n >> 8) & 0x0F), n & 0xFF] + uds_payload[:6]
         can_send(bus_id, UDS_REQ_ID, ff)
-        _log("[Tx CAN FF] %08X %s" % (UDS_REQ_ID, _hex(_can_pad8(ff))))
         t0 = time.time()
         got_fc = False
         while time.time() - t0 < timeout_s:
             if stopTask:
                 raise RuntimeError("用户停止脚本")
             for fr in can_recv(bus_id):
-                if _frame_id(fr) != UDS_RESP_ID:
-                    continue
                 d = _frame_data(fr)
+                fid = _frame_id(fr)
+                if fid != UDS_RESP_ID:
+                    if d:
+                        _log("[Rx 其它] id=%08X %s" % (fid, _hex(d[:8])))
+                    continue
                 if d and (d[0] & 0xF0) == 0x30:
                     _log("[Rx CAN FC] " + _hex(d[:8]))
                     got_fc = True
                     break
             if got_fc:
                 break
-            time.sleep(0.005)
+            time.sleep(0.01)
         if not got_fc:
             raise RuntimeError("ISO-TP 未收到 MCU 流控")
         off = 6
         sn = 1
         while off < n:
             chunk = uds_payload[off:off + 7]
-            cf = [0x20 | (sn & 0x0F)] + chunk
-            can_send(bus_id, UDS_REQ_ID, cf)
+            can_send(bus_id, UDS_REQ_ID, [0x20 | (sn & 0x0F)] + chunk)
             off += len(chunk)
             sn = (sn + 1) & 0x0F
             time.sleep(0.001)
@@ -477,14 +634,23 @@ def isotp_request(bus_id, uds_payload, timeout_s=3.0):
     buf = []
     total = 0
     expect_sn = 1
+    saw_any = 0
     t0 = time.time()
     while time.time() - t0 < timeout_s:
         if stopTask:
             raise RuntimeError("用户停止脚本")
-        for fr in can_recv(bus_id):
+        frames = can_recv(bus_id)
+        if not frames:
+            time.sleep(0.01)
+            continue
+        for fr in frames:
             fid = _frame_id(fr)
             d = _frame_data(fr)
-            if fid != UDS_RESP_ID or not d:
+            if not d:
+                continue
+            saw_any += 1
+            if fid != UDS_RESP_ID:
+                _log("[Rx 其它] id=%08X %s" % (fid, _hex(d[:8])))
                 continue
             pci = d[0] & 0xF0
             if pci == 0x00:
@@ -495,7 +661,6 @@ def isotp_request(bus_id, uds_payload, timeout_s=3.0):
                 buf = list(d[2:])
                 _log("[Rx CAN FF] len=%d %s" % (total, _hex(d[:8])))
                 can_send(bus_id, UDS_REQ_ID, [0x30, 0x00, 0x01])
-                _log("[Tx CAN FC] 30 00 01")
                 expect_sn = 1
                 t0 = time.time()
             elif pci == 0x20:
@@ -506,18 +671,12 @@ def isotp_request(bus_id, uds_payload, timeout_s=3.0):
                 expect_sn = (expect_sn + 1) & 0x0F
                 if total != 0 and len(buf) >= total:
                     return buf[:total]
-            elif pci == 0x30:
-                continue
-        time.sleep(0.005)
-    raise RuntimeError("ISO-TP 接收超时 (已收 %d/%d)" % (len(buf), total))
+        time.sleep(0.01)
+    raise RuntimeError("ISO-TP 接收超时 (已收 %d/%d, 见过 %d 帧)" % (len(buf), total, saw_any))
 
 
 def read_did(bus_id, did):
     """读取 DID。32 字节响应走自组 ISO-TP，避开 uds_request 多帧 bug。"""
-    try:
-        zcanpro.uds_deinit()
-    except Exception:
-        pass
     uds = isotp_request(
         bus_id,
         [SID_RDBI, (did >> 8) & 0xFF, did & 0xFF],
@@ -637,8 +796,11 @@ def run_sn_write(bus_id, sn_code):
     uds_req(bus_id, SID_WDBI, [0xF1, 0x8C] + sn32, wait_pending_s=10)
 
     time.sleep(0.3)
-    # 22 F18C 是 35 字节多帧，不走 uds_request
+    # 先用 uds_request 发 3E 刷新 S3（单帧，API 没问题），再释放 UDS 栈
+    uds_try(bus_id, SID_TP, [0x00])
     _log("---- Step 4: 读回验证（自组 ISO-TP）----")
+    release_uds_stack()
+    _discover_tx(bus_id)
     rx = None
     last = None
     for i in range(4):
@@ -651,7 +813,11 @@ def run_sn_write(bus_id, sn_code):
         except Exception as e:
             last = e
             _log("22 F18C 第 %d/4 次: %s" % (i + 1, e))
-            time.sleep(0.4)
+            try:
+                isotp_request(bus_id, [SID_TP, 0x00], timeout_s=1.0)
+            except Exception:
+                pass
+            time.sleep(0.2)
     if last is not None:
         raise last
     sn_read = "".join(chr(int(b) & 0xFF) for b in rx[:32]).rstrip(" ")
@@ -666,8 +832,12 @@ def run_sn_write(bus_id, sn_code):
 # ======== 入口 ========
 
 def z_main():
-    global stopTask
+    global stopTask, _TX_STYLE, _UDS_RELEASED, _RX_DUMP, _ISOTP_LOGGED_API
     stopTask = False
+    _TX_STYLE = None
+    _UDS_RELEASED = False
+    _RX_DUMP = 0
+    _ISOTP_LOGGED_API = False
     _log("======== Qi Charger SN 写入工具 ========")
     _log("SN: " + SN_CODE)
     buses = zcanpro.get_buses()
