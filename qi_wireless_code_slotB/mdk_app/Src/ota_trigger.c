@@ -298,8 +298,6 @@ void ota_trigger_request(void)
   NVIC_SystemReset();
 }
 
-#define TRIAL_STATE_ACTIVE      2U
-#define TRIAL_STATE_CONFIRMED   3U
 #define TRIAL_HEALTH_DELAY_MS   100U
 
 static uint8_t  g_trial_pending = 0;

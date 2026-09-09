@@ -59,6 +59,12 @@ extern "C" {
 #define OTA_STATE_IDLE          0x00U         /*!< no OTA in progress */
 #define OTA_STATE_DOWNLOADING   0x01U         /*!< OTA download in progress */
 
+/** @brief  trial-boot state (metadata.trial_state) */
+#define TRIAL_STATE_IDLE        0U
+#define TRIAL_STATE_PENDING     1U
+#define TRIAL_STATE_ACTIVE      2U
+#define TRIAL_STATE_CONFIRMED   3U
+
 /** @brief  Flash sector size for AT32F426 */
 #define OTA_FLASH_SECTOR_SIZE   0x800U        /*!< 2KB per sector */
 

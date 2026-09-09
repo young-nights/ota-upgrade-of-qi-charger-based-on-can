@@ -901,19 +901,26 @@ uint8_t sit1145_wakeup_pending(void)
 {
   uint8_t ev;
 
-  /* 快速路径：检查 PA11 引脚电平 */
+  /* 快速路径：Standby 唤醒期间 SIT1145 强制 RXD(PA11) 拉低 */
   if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET)
   {
-    return 1U;  /* PA11 低电平 = SIT1145 正在驱动唤醒事件 */
+    return 1U;
   }
 
-  /* 可靠路径：通过 SPI 读取 CW 标志位 */
+  /* 0x24：TJA1145 兼容 TRANSCEIVER_EVENT（CW/WUF，W1C） */
   ev = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
-  if (ev == 0xFFU)
+  if ((ev != 0xFFU) && ((ev & (SIT1145_CW | SIT1145_WUF)) != 0U))
   {
-    return 0U;  /* SPI 读取失败（可能 Sleep 模式） */
+    return 1U;
   }
-  return ((ev & (SIT1145_CW | SIT1145_WUF)) != 0U) ? 1U : 0U;
+
+  /* 0x63：SIT1145 手册收发器事件状态（CW） */
+  ev = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+  if ((ev != 0xFFU) && ((ev & SIT1145_TRX_EVT_STA_CW) != 0U))
+  {
+    return 1U;
+  }
+  return 0U;
 }
 
 /**
@@ -931,6 +938,7 @@ uint8_t sit1145_wakeup_pending(void)
 void sit1145_wakeup_clear(void)
 {
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT, SIT1145_CW | SIT1145_WUF);
+  sit1145_write_reg(SIT1145_REG_TRX_EVENT_STATUS, SIT1145_TRX_EVT_STA_CW);
 }
 
 /**

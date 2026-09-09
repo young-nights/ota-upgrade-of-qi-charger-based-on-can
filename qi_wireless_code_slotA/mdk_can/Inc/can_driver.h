@@ -166,6 +166,16 @@ void can_driver_offline(void);
  */
 void can_driver_online(void);
 
+/**
+ * @brief  PA11/PA12 back to CAN AF4 (call before SIT1145 Normal + can_driver_online)
+ */
+void can_driver_pins_active(void);
+
+/**
+ * @brief  PA12 GPIO out low, PA11 GPIO in pull-up (SIT1145 Standby WUP listen)
+ */
+void can_driver_pins_standby(void);
+
 #ifdef __cplusplus
 }
 #endif

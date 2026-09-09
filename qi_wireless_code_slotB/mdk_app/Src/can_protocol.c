@@ -116,12 +116,28 @@ static uint8_t  g_can_awake = 0;
 static uint8_t  g_need_lifecycle_announce = 0;
 static uint32_t g_uds_last_ms = 0;
 
-/** 6 minutes with no UDS RX/TX → SIT1145 Standby */
-#define CAN_LP_IDLE_TIMEOUT_MS  (0UL)  /* Standby 已禁用，SIT1145 保持 Normal */
+/** 6 minutes with no UDS RX/TX → SIT1145 Standby (ISO 11898-2 WUP can wake) */
+#define CAN_LP_IDLE_TIMEOUT_MS  (6UL * 60UL * 1000UL)
 
 static void can_lp_mark_uds(void)
 {
   g_uds_last_ms = timer_get_tick();
+}
+
+static uint8_t can_lp_trial_needs_normal(void)
+{
+  ota_metadata_t meta;
+
+  if (ota_metadata_read(&meta) != 0)
+  {
+    return 0U;
+  }
+  if ((meta.trial_state != TRIAL_STATE_PENDING) &&
+      (meta.trial_state != TRIAL_STATE_ACTIVE))
+  {
+    return 0U;
+  }
+  return (meta.trial_slot == ota_running_slot()) ? 1U : 0U;
 }
 
 static void can_lp_enter_normal(void)
@@ -132,20 +148,21 @@ static void can_lp_enter_normal(void)
   {
     return;
   }
+
+  /* TXD 必须先回到 CAN AF，再切 Normal，否则 GPIO 低会把总线拉成显性 */
+  can_driver_pins_active();
+
   for (retry = 0U; retry < 3U; retry++)
   {
     if (sit1145_normal_mode_set() != 0U)
     {
       break;
     }
-    /* SIT1145 may need time to settle after bootloader handoff */
     {
       uint32_t t0 = timer_get_tick();
       while ((timer_get_tick() - t0) < 10U) { __NOP(); }
     }
   }
-  /* Force CAN online even if SIT1145 failed — transceiver may still work.
-   * Previous code silently returned here, leaving CAN in software reset. */
   sit1145_wakeup_clear();
   can_driver_online();
   g_can_awake = 1U;
@@ -153,46 +170,24 @@ static void can_lp_enter_normal(void)
   g_need_lifecycle_announce = 1U;
 }
 
-static void can_lp_enter_standby(void)
+static void can_lp_hold_standby(void)
 {
-  if (g_can_awake == 0U)
-  {
-    return;
-  }
-  (void)can_driver_wait_tx_idle(20U);
   can_driver_offline();
-
-  {
-    gpio_init_type gpio_init_struct;
-
-    /* PA12 (CAN_TX) 从 AF4 切到 GPIO 输出低，防止上拉电阻将 SIT1145 TXD 拉高，
-     * 确保总线处于 recessive 状态，SIT1145 可正常检测 ISO 11898-2 WUP 唤醒模式。
-     * can_lp_enter_normal() 会恢复 PA12 为 CAN AF4。 */
-    gpio_default_para_init(&gpio_init_struct);
-    gpio_init_struct.gpio_pins           = GPIO_PINS_12;
-    gpio_init_struct.gpio_mode           = GPIO_MODE_OUTPUT;
-    gpio_init_struct.gpio_out_type       = GPIO_OUTPUT_PUSH_PULL;
-    gpio_init_struct.gpio_pull           = GPIO_PULL_NONE;
-    gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
-    gpio_init(GPIOA, &gpio_init_struct);
-    gpio_bits_reset(GPIOA, GPIO_PINS_12);
-
-    /* PA11 (CAN_RX) 从 AF4 切到 GPIO 输入上拉，
-     * 确保 sit1145_wakeup_pending() 能通过 gpio_input_data_bit_read()
-     * 正确读取 SIT1145 驱动的 RXD 电平（唤醒时拉低）。
-     * can_lp_enter_normal() 会恢复 PA11 为 CAN AF4。 */
-    gpio_default_para_init(&gpio_init_struct);
-    gpio_init_struct.gpio_pins           = GPIO_PINS_11;
-    gpio_init_struct.gpio_mode           = GPIO_MODE_INPUT;
-    gpio_init_struct.gpio_pull           = GPIO_PULL_UP;
-    gpio_init(GPIOA, &gpio_init_struct);
-  }
-
+  can_driver_pins_standby();
   sit1145_wake_enable();
   sit1145_wakeup_clear();
   (void)sit1145_standby_mode_set();
   g_can_awake = 0U;
-  session_reset_to_default();
+}
+
+static void can_lp_enter_standby(void)
+{
+  if (g_can_awake != 0U)
+  {
+    (void)can_driver_wait_tx_idle(20U);
+    session_reset_to_default();
+  }
+  can_lp_hold_standby();
 }
 
 /* ========================================================================== */
@@ -1461,8 +1456,16 @@ void can_protocol_init(void)
   /* load persistent Qi config from NVM (nvm_drv_init already called in main) */
   qi_nvm_load_config();
 
-  /* CAN always online */
-  can_lp_enter_normal();
+  /* sit1145_init() 已进 Standby。OTA trial 需要立刻在线确认；其余上电保持 Standby，
+   * 等 ISO 11898-2 WUP / RXD 拉低再进 Normal。 */
+  if (can_lp_trial_needs_normal() != 0U)
+  {
+    can_lp_enter_normal();
+  }
+  else
+  {
+    can_lp_hold_standby();
+  }
 }
 
 void can_protocol_poll(void)
@@ -1487,16 +1490,6 @@ void can_protocol_poll(void)
   {
     if (sit1145_wakeup_pending() != 0U)
     {
-      uint8_t evt = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
-      if ((evt & SIT1145_WUF) != 0U)
-      {
-      }
-      else if ((evt & SIT1145_CW) != 0U)
-      {
-      }
-      else
-      {
-      }
       can_lp_enter_normal();
     }
   }
