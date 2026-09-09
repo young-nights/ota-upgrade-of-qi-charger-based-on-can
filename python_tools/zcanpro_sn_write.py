@@ -16,6 +16,7 @@ ZCANPRO 扩展脚本 — SN 序列号写入
 import os
 import sys
 import time
+import binascii
 
 try:
     import zcanpro
@@ -40,8 +41,11 @@ SID_DSC = 0x10
 SID_SA  = 0x27
 SID_WDBI = 0x2E
 SID_RDBI = 0x22
+SID_RD   = 0x34
+SID_TP   = 0x3E
 SID_NRC  = 0x7F
 SID_PR   = 0x40
+NRC_SNS  = 0x11
 
 NRC_RCRRP = 0x78
 
@@ -366,8 +370,25 @@ def send_security_key(bus_id, sig):
 
 # ======== SN 写入流程 ========
 
+def _assert_running_app(bus_id):
+    """0x2E F18C 只在 APP 实现。Boot Safe Mode 对写 SN 回 NRC 0x31。"""
+    try:
+        uds_req(bus_id, SID_RD, [0x00])
+    except RuntimeError as e:
+        msg = str(e)
+        if "NRC=0x11" in msg or "NRC=0x%02X" % NRC_SNS in msg:
+            _log("当前在 APP（0x34 NRC 0x11），可以写 SN")
+            return
+        if "NRC=" in msg:
+            raise RuntimeError(
+                "当前像在 Bootloader（0x2E F18C 会失败）。请先让模块跳到 APP 再写 SN: " + msg
+            )
+        raise
+    raise RuntimeError("0x34 未拒绝，当前不在 APP，不能写 SN")
+
+
 def run_sn_write(bus_id, sn_code):
-    """完整 SN 写入流程"""
+    """完整 SN 写入流程（必须跑在 APP，不是 Boot Safe Mode）"""
     _log("======== SN 写入流程 ========")
     _log("SN: %s (%d字节)" % (sn_code, len(sn_code)))
     _log("私钥: " + PRIVATE_KEY_PATH)
@@ -376,7 +397,13 @@ def run_sn_write(bus_id, sn_code):
         raise RuntimeError("找不到私钥: " + PRIVATE_KEY_PATH)
     priv = load_ec_private_key(PRIVATE_KEY_PATH)
 
-    # Step 1: 进入编程会话
+    uds_init()
+
+    # Step 0: 确认在 APP
+    _log("---- Step 0: 确认在 APP ----")
+    _assert_running_app(bus_id)
+
+    # Step 1: 进入编程会话（APP 内 10 02 不会复位，11 才会进 Boot）
     _log("---- Step 1: 进入编程会话 ----")
     uds_req(bus_id, SID_DSC, [0x02])
 
@@ -392,32 +419,35 @@ def run_sn_write(bus_id, sn_code):
         _log("已解锁 (seed=0)，跳过签名")
     else:
         _log("ECDSA P-256 签名中...")
-        sig = ecdsa_sign_msg(priv, bytes(seed))
+        sig = ecdsa_sign_msg(priv, _to_bytes(seed))
         _log("签名完成，发送分片...")
         send_security_key(bus_id, sig)
 
     _log("安全解锁成功")
+    uds_try(bus_id, SID_TP, [0x00])
 
-    # Step 3: 写入 SN
+    # Step 3: 写入 SN（SID+DID+32B = 35B，ISO-TP 多帧；Flash 擦写可能 >P2）
     _log("---- Step 3: 写入 SN ----")
-    sn_bytes = sn_code.encode("ascii")
+    if sys.version_info[0] >= 3:
+        sn_bytes = sn_code.encode("ascii")
+    else:
+        sn_bytes = str(sn_code)
     if len(sn_bytes) > 32:
         raise RuntimeError("SN 超过32字节: %d" % len(sn_bytes))
-    # 不足32字节补空格
-    sn32 = list(sn_bytes) + [0x20] * (32 - len(sn_bytes))
+    sn32 = _to_list(sn_bytes) + [0x20] * (32 - len(sn_bytes))
     _log("写入数据: " + _hex(sn32))
-    uds_req(bus_id, SID_WDBI, [0xF1, 0x8C] + sn32)
+    uds_req(bus_id, SID_WDBI, [0xF1, 0x8C] + sn32, wait_pending_s=10)
 
-    # Step 4: 验证读回
+    # Step 4: 验证读回（MCU 定长 32 字节空格填充）
     _log("---- Step 4: 读回验证 ----")
     rx = read_did(bus_id, DID_SN)
-    sn_read = "".join(chr(b) for b in rx).rstrip()
+    sn_read = "".join(chr(int(b) & 0xFF) for b in rx[:32]).rstrip(" ")
     _log("读回 SN: [%s]" % sn_read)
 
     if sn_read == sn_code:
         _log("======== SN 写入成功 ========")
     else:
-        _log("警告: 读回 SN 与写入不一致! 写入=[%s] 读回=[%s]" % (sn_code, sn_read))
+        raise RuntimeError("读回 SN 与写入不一致! 写入=[%s] 读回=[%s]" % (sn_code, sn_read))
 
 
 # ======== 入口 ========
@@ -435,6 +465,11 @@ def z_main():
         run_sn_write(buses[0]["busID"], SN_CODE)
     except Exception as e:
         _log("SN 写入失败: " + str(e))
+    finally:
+        try:
+            zcanpro.uds_deinit()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
