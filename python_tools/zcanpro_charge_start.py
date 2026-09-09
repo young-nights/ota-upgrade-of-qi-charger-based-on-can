@@ -16,6 +16,7 @@ ZCANPRO 扩展脚本 — 启动 Qi 无线充电
 import os
 import sys
 import time
+import binascii
 
 try:
     import zcanpro
@@ -46,9 +47,13 @@ SID_DSC = 0x10
 SID_SA  = 0x27
 SID_WDBI = 0x2E
 SID_RDBI = 0x22
+SID_RD  = 0x34
+SID_TP  = 0x3E
 SID_NRC  = 0x7F
 SID_PR   = 0x40
 
+NRC_SNS = 0x11
+NRC_CNC = 0x22
 NRC_RCRRP = 0x78
 
 DID_CHARGER_ENABLE = 0x2101
@@ -60,8 +65,9 @@ CHARGE_DISABLED = 0x00
 CHARGE_STANDBY  = 0x01
 CHARGE_CHARGING = 0x04
 
-# 功率档位映射
+# 功率档位映射。DID 0x210D 写的是 uint16 小端毫瓦，不是档位字节。
 POWER_NAME = {0x01: "5W", 0x02: "10W", 0x03: "15W"}
+POWER_MW = {0x01: 500, 0x02: 1000, 0x03: 1500}
 
 # secp256r1
 _P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
@@ -388,6 +394,27 @@ def charge_state_name(state):
 
 # ======== 主流程 ========
 
+def _probe_side(bus_id):
+    """0x34: APP → NRC 0x11；Boot 默认会话 → NRC 0x22。充电只能在 APP。"""
+    last = None
+    for i in range(3):
+        if stopTask:
+            raise RuntimeError("用户停止脚本")
+        try:
+            uds_req(bus_id, SID_RD, [0x00])
+            return "BOOT"
+        except RuntimeError as e:
+            last = e
+            msg = str(e)
+            if "NRC=0x%02X" % NRC_SNS in msg:
+                return "APP"
+            if "NRC=0x%02X" % NRC_CNC in msg:
+                return "BOOT"
+            _log("探测第 %d/3 次: %s" % (i + 1, e))
+            time.sleep(0.4)
+    raise last
+
+
 def run_charge_start(bus_id):
     _log("======== 启动 Qi 充电 ========")
     _log("功率: %s" % POWER_NAME.get(POWER_LEVEL, "未知"))
@@ -395,9 +422,18 @@ def run_charge_start(bus_id):
 
     if not os.path.isfile(PRIVATE_KEY_PATH):
         raise RuntimeError("找不到私钥: " + PRIVATE_KEY_PATH)
+    if POWER_LEVEL not in POWER_MW:
+        raise RuntimeError("未知功率档位 0x%02X" % POWER_LEVEL)
     priv = load_ec_private_key(PRIVATE_KEY_PATH)
 
-    # Step 1: 进入扩展会话
+    uds_init()
+
+    _log("---- Step 0: 识别 APP / Boot ----")
+    side = _probe_side(bus_id)
+    if side == "BOOT":
+        raise RuntimeError("当前在 Bootloader，无法启动充电。请确认 APP 在跑后再试")
+
+    # Step 1: 进入扩展会话（2101/210D 要求 SESSION_EXTENDED + SA）
     _log("---- Step 1: 进入扩展会话 ----")
     uds_req(bus_id, SID_DSC, [0x03])
 
@@ -418,9 +454,10 @@ def run_charge_start(bus_id):
         send_security_key(bus_id, sig)
     _log("安全解锁成功")
 
-    # Step 3: 设置功率
-    _log("---- Step 3: 设置功率 %s ----" % POWER_NAME.get(POWER_LEVEL, "?"))
-    uds_req(bus_id, SID_WDBI, [0x21, 0x0D, POWER_LEVEL])
+    # Step 3: 设置功率（DID 0x210D = uint16 LE mW：500/1000/1500）
+    mw = POWER_MW[POWER_LEVEL]
+    _log("---- Step 3: 设置功率 %s (%d mW) ----" % (POWER_NAME.get(POWER_LEVEL, "?"), mw))
+    uds_req(bus_id, SID_WDBI, [0x21, 0x0D, mw & 0xFF, (mw >> 8) & 0xFF])
 
     # Step 4: 使能充电
     _log("---- Step 4: 使能充电 ----")
@@ -446,6 +483,7 @@ def run_charge_start(bus_id):
                 _log("警告: 检测到故障状态 %s" % name)
         except Exception as e:
             _log("读取失败: %s" % e)
+        uds_try(bus_id, SID_TP, [0x00])
         time.sleep(POLL_INTERVAL)
 
     _log("超时: %d 秒内未进入 CHARGING 状态" % CHARGE_TIMEOUT)
