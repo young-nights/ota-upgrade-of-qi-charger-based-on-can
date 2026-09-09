@@ -57,6 +57,12 @@ _GY = 0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5
 stopTask = False
 
 
+def z_notify(type, obj):
+    if type == "stop":
+        global stopTask
+        stopTask = True
+
+
 # ======== 工具函数 ========
 
 def _log(msg):
