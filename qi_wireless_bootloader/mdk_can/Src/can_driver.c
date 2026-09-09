@@ -38,12 +38,12 @@
  *         sample   = bts1 / (bts1 + bts2)
  *         BTS1 already includes SYNC_SEG (do not add +1).
  *         CAN kernel = PLL 180 MHz, div = 10 → 18 MHz tq clock
- *         63 + 9 = 72 Tq → 18 MHz / 72 = 250 kbps, SP = 63/72 = 87.5%
+ *         54 + 18 = 72 Tq → 18 MHz / 72 = 250 kbps, SP = 54/72 = 75%
  */
 #define CAN_BITTIME_DIV                 10U
 #define CAN_BITTIME_SJW                 4U
-#define CAN_BITTIME_BTS1                63U
-#define CAN_BITTIME_BTS2                 9U
+#define CAN_BITTIME_BTS1                54U
+#define CAN_BITTIME_BTS2                18U
 
 /* private variables ---------------------------------------------------------*/
 
@@ -125,7 +125,7 @@ void can_driver_init(void)
   /* set CAN to normal communication mode */
   can_mode_set(CAN1, CAN_MODE_COMMUNICATE);
 
-  /* classic CAN only: 250 kbps, 87.5% SP. FD fields stay at BSP defaults */
+  /* classic CAN only: 250 kbps, 75% SP. FD fields stay at BSP defaults */
   can_bittime_default_para_init(&can_bittime_struct);
   can_bittime_struct.bittime_div  = CAN_BITTIME_DIV;
   can_bittime_struct.ac_rsaw_size = CAN_BITTIME_SJW;

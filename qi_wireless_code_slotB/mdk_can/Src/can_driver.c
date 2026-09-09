@@ -38,12 +38,12 @@
  *         sample   = bts1 / (bts1 + bts2)
  *         BTS1 already includes SYNC_SEG (do not add +1).
  *         CAN kernel = PLL 180 MHz, div = 10 → 18 MHz tq clock
- *         63 + 9 = 72 Tq → 18 MHz / 72 = 250 kbps, SP = 63/72 = 87.5%
+ *         54 + 18 = 72 Tq → 18 MHz / 72 = 250 kbps, SP = 54/72 = 75%
  */
 #define CAN_BITTIME_DIV                 10U
 #define CAN_BITTIME_SJW                 4U
-#define CAN_BITTIME_BTS1                63U
-#define CAN_BITTIME_BTS2                 9U
+#define CAN_BITTIME_BTS1                54U
+#define CAN_BITTIME_BTS2                18U
 
 /* private variables ---------------------------------------------------------*/
 
