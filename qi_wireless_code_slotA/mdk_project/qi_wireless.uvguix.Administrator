@@ -1874,9 +1874,9 @@
       </Doc>
       <Doc>
         <Name>..\mdk_app\Src\can_protocol.c</Name>
-        <ColumnNumber>15</ColumnNumber>
+        <ColumnNumber>33</ColumnNumber>
         <TopLine>367</TopLine>
-        <CurrentLine>390</CurrentLine>
+        <CurrentLine>391</CurrentLine>
         <Folding>1</Folding>
         <ContractedFolders></ContractedFolders>
         <PaneID>0</PaneID>

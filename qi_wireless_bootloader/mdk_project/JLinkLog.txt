@@ -1,0 +1,91 @@
+T8D44 000:231.011   SEGGER J-Link V7.82 Log File
+T8D44 000:231.126   DLL Compiled: Oct 13 2022 13:32:51
+T8D44 000:231.143   Logging started @ 2026-09-09 13:30
+T8D44 000:231.157 - 231.184ms
+T8D44 000:231.192 JLINK_SetWarnOutHandler(...)
+T8D44 000:231.195 - 0.005ms
+T8D44 000:231.199 JLINK_OpenEx(...)
+T8D44 000:232.388   Firmware: J-Link V9 compiled May  7 2021 16:26:12
+T8D44 000:232.711   Firmware: J-Link V9 compiled May  7 2021 16:26:12
+T8D44 000:232.844   Decompressing FW timestamp took 91 us
+T8D44 000:239.384   Hardware: V9.20
+T8D44 000:239.396   S/N: 59800889
+T8D44 000:239.400   OEM: SEGGER
+T8D44 000:239.403   Feature(s): RDI, GDB, FlashDL, FlashBP, JFlash
+T8D44 000:240.672   TELNET listener socket opened on port 19021
+T8D44 000:240.843   WEBSRV WEBSRV_Init(): Starting webserver thread(s)
+T8D44 000:241.037   WEBSRV Webserver running on local port 19080
+T8D44 000:251.797 - 20.611ms returns "O.K."
+T8D44 000:251.839 JLINK_GetEmuCaps()
+T8D44 000:251.843 - 0.004ms returns 0xB9FF7BBF
+T8D44 000:251.850 JLINK_TIF_GetAvailable(...)
+T8D44 000:252.010 - 0.162ms
+T8D44 000:252.017 JLINK_SetErrorOutHandler(...)
+T8D44 000:252.020 - 0.003ms
+T8D44 000:252.046 JLINK_ExecCommand("ProjectFile = "I:\GitHub-young-nights\ota-upgrade-of-qi-charger-based-on-can\qi_wireless_bootloader\mdk_project\JLinkSettings.ini"", ...). 
+T8D44 000:260.077   Device "ARM7" selected.
+T8D44 000:260.446 - 8.407ms returns 0x00
+T8D44 000:260.472 JLINK_ExecCommand("Device = AT32F426KBU7-4", ...). 
+T8D44 000:260.581   Device "ARM7" selected.
+T8D44 000:260.950 - 0.473ms returns 0x00
+T8D44 000:260.960 JLINK_ExecCommand("DisableConnectionTimeout", ...). 
+T8D44 000:260.964 - 0.002ms returns 0x01
+T8D44 000:260.968 JLINK_GetHardwareVersion()
+T8D44 000:260.971 - 0.004ms returns 92000
+T8D44 000:260.978 JLINK_GetDLLVersion()
+T8D44 000:260.981 - 0.003ms returns 78200
+T8D44 000:260.984 JLINK_GetOEMString(...)
+T8D44 000:260.987 JLINK_GetFirmwareString(...)
+T8D44 000:260.990 - 0.004ms
+T8D44 000:260.996 JLINK_GetDLLVersion()
+T8D44 000:260.998 - 0.003ms returns 78200
+T8D44 000:261.001 JLINK_GetCompileDateTime()
+T8D44 000:261.003 - 0.003ms
+T8D44 000:261.007 JLINK_GetFirmwareString(...)
+T8D44 000:261.009 - 0.003ms
+T8D44 000:261.013 JLINK_GetHardwareVersion()
+T8D44 000:261.015 - 0.003ms returns 92000
+T8D44 000:261.019 JLINK_GetSN()
+T8D44 000:261.021 - 0.003ms returns 59800889
+T8D44 000:261.025 JLINK_GetOEMString(...)
+T8D44 000:261.029 JLINK_TIF_Select(JLINKARM_TIF_SWD)
+T8D44 000:261.612 - 0.587ms returns 0x00
+T8D44 000:261.621 JLINK_HasError()
+T8D44 000:261.650 JLINK_SetSpeed(5000)
+T8D44 000:261.744 - 0.100ms
+T8D44 000:262.062 JLINK_HasError()
+T8D44 000:262.070 JLINK_SetResetType(JLINKARM_RESET_TYPE_NORMAL)
+T8D44 000:262.073 - 0.004ms returns JLINKARM_RESET_TYPE_NORMAL
+T8D44 000:262.077 JLINK_Reset()
+T8D44 000:262.274   
+  ***** Error: 
+T8D44 000:262.282   ARM7 is not supported via SWD
+T8D44 000:262.287   Connect failed. Resetting via Reset pin and trying again.
+T8D44 000:323.879   
+  ***** Error: 
+T8D44 000:323.893   ARM7 is not supported via SWD
+T8D44 000:323.897 - 61.821ms
+T8D44 000:323.944 JLINK_GetId()
+T8D44 000:324.097   
+  ***** Error: 
+T8D44 000:324.108   ARM7 is not supported via SWD
+T8D44 000:324.115   Connect failed. Resetting via Reset pin and trying again.
+T8D44 000:387.293   
+  ***** Error: 
+T8D44 000:387.312   ARM7 is not supported via SWD
+T8D44 000:387.316 - 63.373ms returns 0x00000000
+T8D44 000:387.364 JLINK_GetId()
+T8D44 000:387.869   
+  ***** Error: 
+T8D44 000:387.881   ARM7 is not supported via SWD
+T8D44 000:387.888   Connect failed. Resetting via Reset pin and trying again.
+T8D44 000:450.069   
+  ***** Error: 
+T8D44 000:450.087   ARM7 is not supported via SWD
+T8D44 000:450.091 - 62.728ms returns 0x00000000
+T8D44 000:458.744 JLINK_GetFirmwareString(...)
+T8D44 000:458.759 - 0.016ms
+T8D44 003:522.467 JLINK_Close()
+T8D44 003:537.207 - 14.756ms
+T8D44 003:537.225   
+T8D44 003:537.227   Closed
