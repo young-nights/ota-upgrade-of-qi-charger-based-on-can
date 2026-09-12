@@ -43,6 +43,9 @@ static uint8_t rx_cs_acc;
 /** @brief 当前帧期望的数据长度（从 LEN 字段解析） */
 static uint8_t rx_expected_data_len;
 
+/** @brief 原表 LEN 字段原值。普通帧含 SEQ，IAP 帧不含 */
+static uint8_t rx_len_field;
+
 /** @brief 已接收的数据字节数 */
 static uint8_t rx_data_idx;
 
@@ -67,6 +70,7 @@ static void rx_reset(void)
   rx_state = QI_RX_STATE_IDLE;
   rx_cs_acc = 0;
   rx_expected_data_len = 0;
+  rx_len_field = 0;
   rx_data_idx = 0;
   rx_expect_seq = 1U;
 }
@@ -115,36 +119,53 @@ static void rx_process_byte(uint8_t byte)
       break;
 
     case QI_RX_STATE_LENGTH:
-      /* 帧长度 = 命令(1) + 数据(n) (不含流水号) */
+      /* 原表：普通帧 LEN=CMD+DATA+SEQ；IAP 帧 LEN=CMD+DATA。CMD 之后再拆 DATA 长度 */
       rx_cs_acc += byte;
-      if (byte < 1U || byte > (QI_FRAME_MAX_DATA_LEN + 1U))
+      rx_len_field = byte;
+      if (byte < 1U || byte > (QI_FRAME_MAX_DATA_LEN + 2U))
       {
-        rx_reset();  /* 长度异常 */
+        rx_reset();
         break;
       }
-      rx_expected_data_len = (uint8_t)(byte - 1U);  /* 减去命令字节 */
-      rx_frame.data_len = rx_expected_data_len;
       rx_data_idx = 0;
       rx_state = QI_RX_STATE_CMD;
       break;
 
     case QI_RX_STATE_CMD:
-      /* 命令码 */
       rx_cs_acc += byte;
       rx_frame.cmd = byte;
       rx_expect_seq = (byte == QI_CMD_IAP) ? 0U : 1U;
       rx_frame.expect_seq = rx_expect_seq;
+      if (rx_expect_seq != 0U)
+      {
+        if (rx_len_field < 2U)
+        {
+          rx_reset();
+          break;
+        }
+        rx_expected_data_len = (uint8_t)(rx_len_field - 2U);
+      }
+      else
+      {
+        rx_expected_data_len = (uint8_t)(rx_len_field - 1U);
+      }
+      if (rx_expected_data_len > QI_FRAME_MAX_DATA_LEN)
+      {
+        rx_reset();
+        break;
+      }
+      rx_frame.data_len = rx_expected_data_len;
       if (rx_expected_data_len > 0U)
       {
         rx_state = QI_RX_STATE_DATA;
       }
       else if (rx_expect_seq != 0U)
       {
-        rx_state = QI_RX_STATE_SEQ;  /* 无数据，普通帧到流水号 */
+        rx_state = QI_RX_STATE_SEQ;
       }
       else
       {
-        rx_state = QI_RX_STATE_CS;   /* 无数据，IAP 帧直接到校验 */
+        rx_state = QI_RX_STATE_CS;
       }
       break;
 
@@ -234,7 +255,7 @@ void qi_protocol_register_callback(qi_frame_callback_t cb)
 /**
  * @brief  构建并发送一帧数据
  * @note   自动计算校验和，格式：[0x55][0xAA][LEN][CMD][DATA...][SEQ][CS]
- *         LEN = CMD(1) + DATA(n) (不含 SEQ)
+ *         原表普通帧 LEN = CMD(1) + DATA(n) + SEQ(1)
  * @param  cmd: 命令码
  * @param  data: 帧数据指针（可为 NULL）
  * @param  data_len: 帧数据长度
@@ -254,8 +275,8 @@ int8_t qi_protocol_send(uint8_t cmd, const uint8_t *data, uint8_t data_len, uint
     return -1;
   }
 
-  /* LEN = CMD(1) + DATA(n) */
-  len_field = (uint8_t)(1U + data_len);
+  /* 原表：LEN = CMD + DATA + SEQ（设置功率 LEN=0x03，应答 LEN=0x03） */
+  len_field = (uint8_t)(1U + data_len + 1U);
 
   /* 组装帧 */
   buf[idx++] = QI_FRAME_HEADER1;  /* 0x55 */
