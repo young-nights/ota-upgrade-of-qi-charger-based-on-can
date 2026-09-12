@@ -154,6 +154,8 @@ static uint8_t can_lp_trial_needs_normal(void)
   return (meta.trial_slot == ota_running_slot()) ? 1U : 0U;
 }
 
+static uint8_t g_lp_ident_sent;
+
 static void can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
                              uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7)
 {
@@ -170,6 +172,60 @@ static void can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
   d[7] = b7;
   (void)can_driver_send(CAN_ID_LIFECYCLE_BROADCAST, d, 8);
   (void)can_driver_wait_tx_idle(20U);
+}
+
+/** 识别帧打到 0x18FF260D。harvest 结束只能走这条，避免抢在 50 01 前面占 UDS ID */
+static void can_lp_send_ident_bus(void)
+{
+  if (g_lp_woke_from_standby != 0U)
+  {
+    can_lp_tx_marker(LIFECYCLE_BOOTUP, 0x57U, 0x4BU, g_lp_wup_count,
+                     g_lp_last_wake_src,
+                     (uint8_t)(g_lp_last_standby_sec & 0xFFU),
+                     (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU));
+  }
+  else
+  {
+    can_lp_tx_marker(LIFECYCLE_BOOTUP, 0U, 0U, 0U, 0U, 0U, 0U);
+  }
+  g_need_lifecycle_announce = 0U;
+}
+
+/** 50 01 之后再发：18FF260D + UDS 响应 ID 上的 ISO-TP SF（01 41 …） */
+static void can_lp_send_ident(void)
+{
+  uint8_t uds[8];
+  uint8_t i;
+
+  can_lp_send_ident_bus();
+
+  for (i = 0U; i < 8U; i++)
+  {
+    uds[i] = 0xCCU;
+  }
+
+  if (g_lp_woke_from_standby != 0U)
+  {
+    uds[0] = 0x07U;
+    uds[1] = LIFECYCLE_BOOTUP;
+    uds[2] = 0x41U;
+    uds[3] = 0x57U;
+    uds[4] = 0x4BU;
+    uds[5] = g_lp_wup_count;
+    uds[6] = g_lp_last_wake_src;
+    uds[7] = (uint8_t)(g_lp_last_standby_sec & 0xFFU);
+  }
+  else
+  {
+    uds[0] = 0x03U;
+    uds[1] = LIFECYCLE_BOOTUP;
+    uds[2] = 0x41U;
+    uds[3] = 0x00U;
+  }
+
+  (void)can_driver_send(CAN_PROTO_UDS_RESPONSE, uds, 8);
+  (void)can_driver_wait_tx_idle(20U);
+  g_lp_ident_sent = 1U;
 }
 
 static void can_lp_enter_normal(void)
@@ -231,6 +287,7 @@ static void can_lp_enter_normal(void)
   can_driver_online();
   g_can_awake = 1U;
   can_lp_mark_uds();
+  g_lp_ident_sent = 0U;
   g_need_lifecycle_announce = 1U;
   g_announce_due_ms = timer_get_tick() + CAN_LP_ANNOUNCE_DELAY_MS;
 
@@ -242,14 +299,10 @@ static void can_lp_enter_normal(void)
     can_driver_poll();
   }
 
-  /* 50 01 已在 harvest 里发出。立刻打 WK，否则 UDS 窗口关掉后看不到 18FF260D。 */
-  if (g_lp_woke_from_standby != 0U)
+  if (g_lp_ident_sent == 0U)
   {
-    g_need_lifecycle_announce = 0U;
-    can_lp_tx_marker(LIFECYCLE_BOOTUP, 0x57U, 0x4BU, g_lp_wup_count,
-                     g_lp_last_wake_src,
-                     (uint8_t)(g_lp_last_standby_sec & 0xFFU),
-                     (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU));
+    /* 10 01 若还在重发路上，UDS ID 必须留给 50 01 */
+    can_lp_send_ident_bus();
   }
 }
 
@@ -656,6 +709,11 @@ static void handle_diag_session_ctrl(uint8_t *data, uint16_t len)
       n = 6U;
     }
     proto_send_response(resp, n);
+    if (session_type == SESSION_DEFAULT)
+    {
+      (void)can_driver_wait_tx_idle(20U);
+      can_lp_send_ident();
+    }
   }
 }
 
