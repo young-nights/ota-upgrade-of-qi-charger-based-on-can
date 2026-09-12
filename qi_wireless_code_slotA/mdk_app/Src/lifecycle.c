@@ -95,10 +95,17 @@ static uint8_t lifecycle_is_periodic(uint8_t state)
  */
 static void lifecycle_on_busoff_recovery(void)
 {
-  /* send BOOTUP broadcast to indicate recovery (spec section 12) */
+  uint32_t now = timer_get_tick();
+
+  /* TXD 极性错误时会连着 bus-off，BOOTUP 会刷屏且 UDS 全超时 */
+  if ((now - g_last_broadcast_tick) < 1000U)
+  {
+    return;
+  }
+
   g_lifecycle_state = LIFECYCLE_BOOTUP;
   lifecycle_send(LIFECYCLE_BOOTUP);
-  g_last_broadcast_tick = timer_get_tick();
+  g_last_broadcast_tick = now;
 }
 
 /* ========================================================================== */

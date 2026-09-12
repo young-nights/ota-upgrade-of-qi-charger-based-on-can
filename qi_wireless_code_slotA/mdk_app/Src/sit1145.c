@@ -900,27 +900,23 @@ void sit1145_wake_enable(void)
 uint8_t sit1145_wakeup_pending(void)
 {
   uint8_t ev;
+  uint8_t cw = 0U;
 
-  /* 快速路径：Standby 唤醒期间 SIT1145 强制 RXD(PA11) 拉低 */
-  if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET)
-  {
-    return 1U;
-  }
-
-  /* 0x24：TJA1145 兼容 TRANSCEIVER_EVENT（CW/WUF，W1C） */
+  /* 只信 SPI 的 CW/WUF。PA11 低电平单独不能当唤醒：
+   * Standby 切脚、TXD 毛刺都会让 RXD 短暂为低，造成刚睡立刻被拉起来。 */
   ev = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
   if ((ev != 0xFFU) && ((ev & (SIT1145_CW | SIT1145_WUF)) != 0U))
   {
-    return 1U;
+    cw = 1U;
   }
 
-  /* 0x63：SIT1145 手册收发器事件状态（CW） */
   ev = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
   if ((ev != 0xFFU) && ((ev & SIT1145_TRX_EVT_STA_CW) != 0U))
   {
-    return 1U;
+    cw = 1U;
   }
-  return 0U;
+
+  return cw;
 }
 
 /**

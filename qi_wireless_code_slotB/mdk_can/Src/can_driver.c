@@ -215,17 +215,17 @@ void can_driver_pins_standby(void)
 {
   gpio_init_type gpio_init_struct;
 
-  /* TXD 拉低保持 recessive，避免上拉把 SIT1145 TXD 拉高挡住 WUP */
+  /* CAN 隐性 = TXD 高。拉低是显性，会把总线卡死并 bus-off。 */
   gpio_default_para_init(&gpio_init_struct);
   gpio_init_struct.gpio_pins           = GPIO_PINS_12;
   gpio_init_struct.gpio_mode           = GPIO_MODE_OUTPUT;
   gpio_init_struct.gpio_out_type       = GPIO_OUTPUT_PUSH_PULL;
-  gpio_init_struct.gpio_pull           = GPIO_PULL_NONE;
+  gpio_init_struct.gpio_pull           = GPIO_PULL_UP;
   gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
   gpio_init(GPIOA, &gpio_init_struct);
-  gpio_bits_reset(GPIOA, GPIO_PINS_12);
+  gpio_bits_set(GPIOA, GPIO_PINS_12);
 
-  /* RXD 作 GPIO 输入，读 Standby 唤醒时 SIT1145 强制拉低 */
+  /* RXD 作 GPIO 输入，Standby 唤醒时 SIT1145 强制拉低 */
   gpio_default_para_init(&gpio_init_struct);
   gpio_init_struct.gpio_pins           = GPIO_PINS_11;
   gpio_init_struct.gpio_mode           = GPIO_MODE_INPUT;

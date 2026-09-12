@@ -115,6 +115,10 @@ static uint16_t g_qi_power_limit_mw   = 1500U;  /*!< DID 0x210D, 1500 mW = 15W d
 static uint8_t  g_can_awake = 0;
 static uint8_t  g_need_lifecycle_announce = 0;
 static uint32_t g_uds_last_ms = 0;
+static uint32_t g_standby_since_ms = 0;
+
+/** ignore self-wake for a short window after entering Standby */
+#define CAN_LP_WAKE_INHIBIT_MS  100U
 
 /** 6 minutes with no UDS RX/TX → SIT1145 Standby (ISO 11898-2 WUP can wake) */
 #define CAN_LP_IDLE_TIMEOUT_MS  (6UL * 60UL * 1000UL)
@@ -172,12 +176,15 @@ static void can_lp_enter_normal(void)
 
 static void can_lp_hold_standby(void)
 {
+  /* 先关 MCU CAN、再切收发器 Standby，最后才改 GPIO。
+   * 若还在 Normal 就把 TXD 改成 GPIO，会在总线上打出显性。 */
   can_driver_offline();
-  can_driver_pins_standby();
   sit1145_wake_enable();
-  sit1145_wakeup_clear();
   (void)sit1145_standby_mode_set();
+  sit1145_wakeup_clear();
+  can_driver_pins_standby();
   g_can_awake = 0U;
+  g_standby_since_ms = timer_get_tick();
 }
 
 static void can_lp_enter_standby(void)
@@ -1488,9 +1495,12 @@ void can_protocol_poll(void)
 
   if (g_can_awake == 0U)
   {
-    if (sit1145_wakeup_pending() != 0U)
+    if ((now - g_standby_since_ms) >= CAN_LP_WAKE_INHIBIT_MS)
     {
-      can_lp_enter_normal();
+      if (sit1145_wakeup_pending() != 0U)
+      {
+        can_lp_enter_normal();
+      }
     }
   }
 
