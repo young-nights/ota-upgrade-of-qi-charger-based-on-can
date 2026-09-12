@@ -241,6 +241,16 @@ static void can_lp_enter_normal(void)
   {
     can_driver_poll();
   }
+
+  /* 50 01 已在 harvest 里发出。立刻打 WK，否则 UDS 窗口关掉后看不到 18FF260D。 */
+  if (g_lp_woke_from_standby != 0U)
+  {
+    g_need_lifecycle_announce = 0U;
+    can_lp_tx_marker(LIFECYCLE_BOOTUP, 0x57U, 0x4BU, g_lp_wup_count,
+                     g_lp_last_wake_src,
+                     (uint8_t)(g_lp_last_standby_sec & 0xFFU),
+                     (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU));
+  }
 }
 
 static void can_lp_hold_standby(void)
@@ -631,9 +641,21 @@ static void handle_diag_session_ctrl(uint8_t *data, uint16_t len)
   /* send positive response unless suppressed */
   if (!suppress)
   {
+    uint8_t n = 2U;
     resp[0] = UDS_SID_DIAG_SESSION_CTRL + UDS_POSITIVE_RESPONSE_OFFSET;
     resp[1] = session_type;
-    proto_send_response(resp, 2);
+    /* 从 Standby WUP 醒来时附带 4 字节，UDS 窗口也能看到（否则只有 50 01） */
+    if (g_lp_woke_from_standby != 0U)
+    {
+      resp[2] = (uint8_t)((g_lp_ever_standby != 0U) |
+                          ((g_lp_woke_from_standby != 0U) << 1) |
+                          ((g_lp_last_wake_src & 0x0FU) << 4));
+      resp[3] = g_lp_wup_count;
+      resp[4] = (uint8_t)(g_lp_last_standby_sec & 0xFFU);
+      resp[5] = (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU);
+      n = 6U;
+    }
+    proto_send_response(resp, n);
   }
 }
 
