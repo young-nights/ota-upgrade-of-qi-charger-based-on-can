@@ -900,23 +900,26 @@ void sit1145_wake_enable(void)
 uint8_t sit1145_wakeup_pending(void)
 {
   uint8_t ev;
-  uint8_t cw = 0U;
 
-  /* 只信 SPI 的 CW/WUF。PA11 低电平单独不能当唤醒：
-   * Standby 切脚、TXD 毛刺都会让 RXD 短暂为低，造成刚睡立刻被拉起来。 */
+  /* 调用方已做过进 Standby 后的 inhibit。
+   * PA11 低 = SIT1145 正在报 WUP，比 SPI 读 CW 更快，便于赶上主机重发。 */
+  if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET)
+  {
+    return 1U;
+  }
+
   ev = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
   if ((ev != 0xFFU) && ((ev & (SIT1145_CW | SIT1145_WUF)) != 0U))
   {
-    cw = 1U;
+    return 1U;
   }
 
   ev = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
   if ((ev != 0xFFU) && ((ev & SIT1145_TRX_EVT_STA_CW) != 0U))
   {
-    cw = 1U;
+    return 1U;
   }
-
-  return cw;
+  return 0U;
 }
 
 /**

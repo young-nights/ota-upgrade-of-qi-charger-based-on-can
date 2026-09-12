@@ -116,9 +116,12 @@ static uint8_t  g_can_awake = 0;
 static uint8_t  g_need_lifecycle_announce = 0;
 static uint32_t g_uds_last_ms = 0;
 static uint32_t g_standby_since_ms = 0;
+static uint32_t g_announce_due_ms = 0;
 
 /** ignore self-wake for a short window after entering Standby */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
+/** send BOOTUP after UDS has a chance to ACK/reply the wake frame */
+#define CAN_LP_ANNOUNCE_DELAY_MS  30U
 
 /** 6 minutes with no UDS RX/TX → SIT1145 Standby (ISO 11898-2 WUP can wake) */
 #define CAN_LP_IDLE_TIMEOUT_MS  (6UL * 60UL * 1000UL)
@@ -147,13 +150,14 @@ static uint8_t can_lp_trial_needs_normal(void)
 static void can_lp_enter_normal(void)
 {
   uint8_t retry;
+  uint32_t t0;
 
   if (g_can_awake != 0U)
   {
     return;
   }
 
-  /* TXD 必须先回到 CAN AF，再切 Normal，否则 GPIO 低会把总线拉成显性 */
+  /* TXD 必须先回到 CAN AF，再切 Normal */
   can_driver_pins_active();
 
   for (retry = 0U; retry < 3U; retry++)
@@ -162,16 +166,29 @@ static void can_lp_enter_normal(void)
     {
       break;
     }
+    t0 = timer_get_tick();
+    while ((timer_get_tick() - t0) < 10U) { __NOP(); }
+  }
+
+  /* 清 CW，等 RXD 从唤醒强制低恢复成隐性，再开 CAN，否则会 bus-off */
+  sit1145_wakeup_clear();
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < 2U)
+  {
+    if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) != RESET)
     {
-      uint32_t t0 = timer_get_tick();
-      while ((timer_get_tick() - t0) < 10U) { __NOP(); }
+      break;
     }
   }
-  sit1145_wakeup_clear();
+
   can_driver_online();
   g_can_awake = 1U;
   can_lp_mark_uds();
+
+  /* 上位机若硬件重发 10 01，此时应已能 ACK；先抽 RX 回 50 01，再发 BOOTUP */
+  can_driver_poll();
   g_need_lifecycle_announce = 1U;
+  g_announce_due_ms = timer_get_tick() + CAN_LP_ANNOUNCE_DELAY_MS;
 }
 
 static void can_lp_hold_standby(void)
@@ -1504,7 +1521,8 @@ void can_protocol_poll(void)
     }
   }
 
-  if ((g_can_awake != 0U) && (g_need_lifecycle_announce != 0U))
+  if ((g_can_awake != 0U) && (g_need_lifecycle_announce != 0U) &&
+      ((int32_t)(now - g_announce_due_ms) >= 0))
   {
     g_need_lifecycle_announce = 0U;
     lifecycle_set_state(LIFECYCLE_BOOTUP);
