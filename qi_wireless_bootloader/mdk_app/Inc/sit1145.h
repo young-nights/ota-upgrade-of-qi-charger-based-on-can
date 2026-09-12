@@ -101,38 +101,14 @@ uint8_t sit1145_read_reg(uint8_t addr);
 
 /**
  * @brief  set SIT1145 to Normal Mode
- * @note   Normal Mode: CAN transceiver active, can send/receive frames.
- *         CTS bit will be set after mode switch completes.
+ * @note   Bootloader 只允许 Normal，不进入 Standby/Sleep。
  * @retval 1 on success, 0 on failure
  */
 uint8_t sit1145_normal_mode_set(void);
 
 /**
- * @brief  set SIT1145 to Standby Mode
- * @note   Standby Mode: low-power listening, CAN bus passive.
- *         Transceiver can be woken by CAN bus activity.
- *         SPI interface remains accessible for register read/write.
- * @retval 1 on success, 0 on failure
- */
-uint8_t sit1145_standby_mode_set(void);
-
-/**
- * @brief  set SIT1145 to Sleep Mode
- * @note   Sleep Mode: lowest power consumption.
- *         SPI interface is NOT accessible in Sleep mode.
- *         Wake-up via INH pin or power cycle.
- *         ⚠️ 进入 Sleep 后 SPI 通信中断，需硬件唤醒才能恢复。
- * @retval 1 on success, 0 on failure
- */
-uint8_t sit1145_sleep_mode_set(void);
-
-/**
  * @brief  get current SIT1145 operating mode
- * @retval Mode control register value & 0x07:
- *         SIT1145_MC_SLEEP_MODE   (0x01) — Sleep
- *         SIT1145_MC_STANDBY_MODE (0x04) — Standby
- *         SIT1145_MC_NORMAL_MODE  (0x07) — Normal
- *         0xFF — read error
+ * @retval Mode control register value & 0x07
  */
 uint8_t sit1145_get_mode(void);
 

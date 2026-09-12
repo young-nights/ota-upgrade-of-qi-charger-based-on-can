@@ -168,75 +168,27 @@ uint8_t sit1145_read_reg(uint8_t addr)
 }
 
 /**
- * @brief  generic mode switch with verify
- * @param  target_mode: one of SIT1145_MC_SLEEP_MODE / STANDBY / NORMAL
- * @retval 1 on success, 0 on failure
- */
-static uint8_t sit1145_set_mode(uint8_t target_mode)
-{
-  uint8_t mode_val;
-
-  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, target_mode);
-  sit1145_delay_us();
-  sit1145_delay_us();
-
-  /* Sleep mode disables SPI — cannot verify, trust the write */
-  if (target_mode == SIT1145_MC_SLEEP_MODE)
-  {
-    return 1U;
-  }
-
-  mode_val = sit1145_read_reg(SIT1145_REG_MODE_CONTROL);
-  if ((mode_val & SIT1145_MC_MODE_MASK) != target_mode)
-  {
-    return 0;
-  }
-
-  return 1U;
-}
-
-/**
  * @brief  switch SIT1145 to Normal Mode and verify
- * @note   CAN Control and Data Rate registers must be configured before
- *         calling this function (some transceivers ignore register writes
- *         once in Normal Mode).
- * @retval 1 on success, 0 on failure
+ * @note   Bootloader 只切 Normal，不进入 Standby/Sleep。
  */
 uint8_t sit1145_normal_mode_set(void)
 {
-  if (sit1145_set_mode(SIT1145_MC_NORMAL_MODE) == 0U)
+  uint8_t mode_val;
+  uint8_t i;
+
+  for (i = 0U; i < 2U; i++)
   {
-    /* retry once */
+    sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_NORMAL_MODE);
+    sit1145_delay_us();
+    sit1145_delay_us();
+    mode_val = sit1145_read_reg(SIT1145_REG_MODE_CONTROL);
+    if ((mode_val & SIT1145_MC_MODE_MASK) == SIT1145_MC_NORMAL_MODE)
+    {
+      return 1U;
+    }
     sit1145_delay_ms(1U);
-    return sit1145_set_mode(SIT1145_MC_NORMAL_MODE);
   }
-  return 1U;
-}
-
-/**
- * @brief  switch SIT1145 to Standby Mode and verify
- * @note   Standby Mode: low-power listening state.
- *         SPI remains accessible; CAN bus is passive (no TX).
- *         Transceiver can be woken by CAN bus activity.
- * @retval 1 on success, 0 on failure
- */
-uint8_t sit1145_standby_mode_set(void)
-{
-  return sit1145_set_mode(SIT1145_MC_STANDBY_MODE);
-}
-
-/**
- * @brief  switch SIT1145 to Sleep Mode
- * @note   Sleep Mode: lowest power consumption.
- *         ⚠️ SPI interface is DISABLED in Sleep mode.
- *         After calling this function, any SPI read/write will fail.
- *         Wake-up requires: INH pin transition, or full power cycle.
- *         Caller must ensure CAN controller is stopped before sleeping.
- * @retval 1 always (cannot verify — SPI is off after sleep)
- */
-uint8_t sit1145_sleep_mode_set(void)
-{
-  return sit1145_set_mode(SIT1145_MC_SLEEP_MODE);
+  return 0U;
 }
 
 /**
