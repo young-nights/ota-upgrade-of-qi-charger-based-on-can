@@ -122,6 +122,8 @@ static uint8_t  g_lp_wup_count = 0;
 static uint8_t  g_lp_woke_from_standby = 0;
 static uint8_t  g_lp_last_wake_src = 0;
 static uint16_t g_lp_last_standby_sec = 0;
+/** OTA trial 推迟到 __enable_irq() 之后再 enter_normal：harvest/wait_cts 依赖 SysTick */
+static uint8_t  g_lp_need_online = 0;
 
 /** ignore self-wake for a short window after entering Standby */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
@@ -292,11 +294,15 @@ static void can_lp_enter_normal(void)
   g_announce_due_ms = timer_get_tick() + CAN_LP_ANNOUNCE_DELAY_MS;
 
   /* Standby 下第一帧只当 WUP，MCU 收不到。主机 CAN 控制器会无 ACK 重发，
-   * 这里空转收 RX，赶在重发窗口内 ACK 并回 50 01；quiet 期内禁止 BOOTUP。 */
-  t0 = timer_get_tick();
-  while ((timer_get_tick() - t0) < CAN_LP_RX_HARVEST_MS)
+   * 这里空转收 RX，赶在重发窗口内 ACK 并回 50 01；quiet 期内禁止 BOOTUP。
+   * trial 上电不是 WUP，且 SysTick 未跑时 harvest 会死等，跳过。 */
+  if (g_lp_ever_standby != 0U)
   {
-    can_driver_poll();
+    t0 = timer_get_tick();
+    while ((timer_get_tick() - t0) < CAN_LP_RX_HARVEST_MS)
+    {
+      can_driver_poll();
+    }
   }
 
   if (g_lp_ident_sent == 0U)
@@ -1625,14 +1631,15 @@ void can_protocol_init(void)
   /* load persistent Qi config from NVM (nvm_drv_init already called in main) */
   qi_nvm_load_config();
 
-  /* sit1145_init() 已进 Standby。OTA trial 需要立刻在线确认；其余上电保持 Standby，
-   * 等 ISO 11898-2 WUP / RXD 拉低再进 Normal。 */
+  /* sit1145_init() 已进 Standby。OTA trial 必须在 SysTick 中断起来后再 enter_normal
+   * （harvest / sit1145_wait_cts / wait_tx_idle 都看 timer_get_tick）。其余上电保持 Standby。 */
   if (can_lp_trial_needs_normal() != 0U)
   {
-    can_lp_enter_normal();
+    g_lp_need_online = 1U;
   }
   else
   {
+    g_lp_need_online = 0U;
     can_lp_hold_standby();
   }
 }
@@ -1641,6 +1648,12 @@ void can_protocol_poll(void)
 {
   uint32_t now;
   static uint32_t sit_last;
+
+  if (g_lp_need_online != 0U)
+  {
+    g_lp_need_online = 0U;
+    can_lp_enter_normal();
+  }
 
   now = timer_get_tick();
 
