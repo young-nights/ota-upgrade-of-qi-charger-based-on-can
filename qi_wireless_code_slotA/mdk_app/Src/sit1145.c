@@ -902,7 +902,7 @@ uint8_t sit1145_wakeup_pending(void)
   uint8_t ev;
 
   /* 调用方已做过进 Standby 后的 inhibit。
-   * PA11 低 = SIT1145 正在报 WUP，比 SPI 读 CW 更快，便于赶上主机重发。 */
+   * 返回值区分来源，便于 22 2119 / 总线标记甄别。 */
   if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET)
   {
     return 1U;
@@ -911,13 +911,13 @@ uint8_t sit1145_wakeup_pending(void)
   ev = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
   if ((ev != 0xFFU) && ((ev & (SIT1145_CW | SIT1145_WUF)) != 0U))
   {
-    return 1U;
+    return 2U;
   }
 
   ev = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
   if ((ev != 0xFFU) && ((ev & SIT1145_TRX_EVT_STA_CW) != 0U))
   {
-    return 1U;
+    return 3U;
   }
   return 0U;
 }

@@ -117,6 +117,11 @@ static uint8_t  g_need_lifecycle_announce = 0;
 static uint32_t g_uds_last_ms = 0;
 static uint32_t g_standby_since_ms = 0;
 static uint32_t g_announce_due_ms = 0;
+static uint8_t  g_lp_ever_standby = 0;
+static uint8_t  g_lp_wup_count = 0;
+static uint8_t  g_lp_woke_from_standby = 0;
+static uint8_t  g_lp_last_wake_src = 0;
+static uint16_t g_lp_last_standby_sec = 0;
 
 /** ignore self-wake for a short window after entering Standby */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
@@ -149,14 +154,54 @@ static uint8_t can_lp_trial_needs_normal(void)
   return (meta.trial_slot == ota_running_slot()) ? 1U : 0U;
 }
 
+static void can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
+                             uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7)
+{
+  uint8_t d[8];
+
+  memset(d, 0, sizeof(d));
+  d[0] = b0;
+  d[1] = 0x41U;
+  d[2] = b2;
+  d[3] = b3;
+  d[4] = b4;
+  d[5] = b5;
+  d[6] = b6;
+  d[7] = b7;
+  (void)can_driver_send(CAN_ID_LIFECYCLE_BROADCAST, d, 8);
+  (void)can_driver_wait_tx_idle(20U);
+}
+
 static void can_lp_enter_normal(void)
 {
   uint8_t retry;
   uint32_t t0;
+  uint32_t now;
+  uint32_t dur_sec;
 
   if (g_can_awake != 0U)
   {
     return;
+  }
+
+  now = timer_get_tick();
+  if (g_lp_ever_standby != 0U)
+  {
+    dur_sec = (now - g_standby_since_ms) / 1000U;
+    if (dur_sec > 0xFFFFU)
+    {
+      dur_sec = 0xFFFFU;
+    }
+    g_lp_last_standby_sec = (uint16_t)dur_sec;
+    if (g_lp_wup_count < 0xFFU)
+    {
+      g_lp_wup_count++;
+    }
+    g_lp_woke_from_standby = 1U;
+  }
+  else
+  {
+    g_lp_woke_from_standby = 0U;
   }
 
   /* TXD 必须先回到 CAN AF，再切 Normal */
@@ -209,6 +254,7 @@ static void can_lp_hold_standby(void)
   can_driver_pins_standby();
   g_can_awake = 0U;
   g_standby_since_ms = timer_get_tick();
+  g_lp_ever_standby = 1U;
 }
 
 static void can_lp_enter_standby(void)
@@ -217,6 +263,8 @@ static void can_lp_enter_standby(void)
   {
     (void)can_driver_wait_tx_idle(20U);
     session_reset_to_default();
+    /* 进睡前打 06 41 53 42，总线上先看到 SB 再静音，才能确认真进了 Standby */
+    can_lp_tx_marker(LIFECYCLE_SHUTDOWN, 0x53U, 0x42U, g_lp_wup_count, 0U, 0U, 0U);
   }
   can_lp_hold_standby();
 }
@@ -434,6 +482,16 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       /* PA0 low (magnetic field/phone present) → 0x00, PA0 high (no phone) → 0x01 */
       out[0] = (gpio_input_data_bit_read(GPIOA, GPIO_PINS_0) != RESET) ? 0x01U : 0x00U;
       *olen = 1U;
+      return 0;
+    case DID_SIT1145_LP_STATUS:
+      /* [0] bit0=ever_standby bit1=last_wake_was_wup
+       * [1] wup_count  [2-3] last_standby_sec LE */
+      out[0] = (uint8_t)((g_lp_ever_standby != 0U) | ((g_lp_woke_from_standby != 0U) << 1) |
+                         ((g_lp_last_wake_src & 0x0FU) << 4));
+      out[1] = g_lp_wup_count;
+      out[2] = (uint8_t)(g_lp_last_standby_sec & 0xFFU);
+      out[3] = (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU);
+      *olen = 4U;
       return 0;
     case DID_ECDSA_PUBKEY:
     {
@@ -1521,8 +1579,10 @@ void can_protocol_poll(void)
   {
     if ((now - g_standby_since_ms) >= CAN_LP_WAKE_INHIBIT_MS)
     {
-      if (sit1145_wakeup_pending() != 0U)
+      uint8_t src = sit1145_wakeup_pending();
+      if (src != 0U)
       {
+        g_lp_last_wake_src = src;
         can_lp_enter_normal();
       }
     }
@@ -1532,7 +1592,18 @@ void can_protocol_poll(void)
       ((int32_t)(now - g_announce_due_ms) >= 0))
   {
     g_need_lifecycle_announce = 0U;
-    lifecycle_set_state(LIFECYCLE_BOOTUP);
+    if (g_lp_woke_from_standby != 0U)
+    {
+      /* 01 41 57 4B cnt src secL secH — 与上电 BOOTUP 01 41 00 区分 */
+      can_lp_tx_marker(LIFECYCLE_BOOTUP, 0x57U, 0x4BU, g_lp_wup_count,
+                       g_lp_last_wake_src,
+                       (uint8_t)(g_lp_last_standby_sec & 0xFFU),
+                       (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU));
+    }
+    else
+    {
+      lifecycle_set_state(LIFECYCLE_BOOTUP);
+    }
     lifecycle_set_state(LIFECYCLE_OPERATIONAL);
   }
 

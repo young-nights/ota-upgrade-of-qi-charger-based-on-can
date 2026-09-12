@@ -775,7 +775,7 @@ void sit1145_wake_enable(void);
  *         2. 再查 SPI 寄存器 — 读 TRANSCEIVER_EVENT 的 CW 位
  *            （CW=1 表示检测到 WUP 模式，W1C 标志）
  *         PA11 引脚检测更快（无 SPI 开销），CW 寄存器更可靠
- * @retval 1=有唤醒事件，0=无
+ * @retval 0=无；1=PA11 RXD 低；2=0x24 CW/WUF；3=0x63 CW
  */
 uint8_t sit1145_wakeup_pending(void);
 
