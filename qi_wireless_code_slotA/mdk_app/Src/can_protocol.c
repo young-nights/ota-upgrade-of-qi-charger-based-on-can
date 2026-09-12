@@ -132,8 +132,8 @@ static uint8_t  g_lp_need_online = 0;
 /** after CAN online, spin-poll RX so host hardware retransmit of 10 01 can be ACKed */
 #define CAN_LP_RX_HARVEST_MS      30U
 
-/** 30 s with no UDS RX/TX → SIT1145 Standby (ISO 11898-2 WUP can wake) */
-#define CAN_LP_IDLE_TIMEOUT_MS  (30UL * 1000UL)
+/** 180 s with no UDS RX/TX → SIT1145 Standby (ISO 11898-2 WUP can wake) */
+#define CAN_LP_IDLE_TIMEOUT_MS  (180UL * 1000UL)
 
 static void can_lp_mark_uds(void)
 {
