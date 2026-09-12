@@ -5,10 +5,11 @@ ZCANPRO 扩展脚本 — Qi 芯片 IAP 固件升级
 通过 CAN-UDS 将 Qi 无线充芯片固件推送给 MCU，MCU 再通过 UART 转发给 Qi 芯片。
 
 流程：
-  1. 进入编程会话 + 安全解锁
-  2. DID 0x2130 启动 IAP（传固件大小）
-  3. DID 0x2131 分包发送固件数据（22字节/包）
-  4. DID 0x2132 轮询升级状态
+  1. 读 DID 0x2133（Qi 芯片版本，来自 UART 0x01 上报）
+  2. 进入编程会话 + 安全解锁
+  3. DID 0x2130 启动 IAP（传固件大小）→ MCU UART 0xCC 0x01
+  4. DID 0x2131 分包发送固件数据（22字节/包）→ MCU UART 0xCC 0x02
+  5. DID 0x2132 轮询升级状态（含版本/已发/总长）
 
 导入: ZCANPRO → 高级功能 → 扩展脚本 → 打开本文件
 运行前: 先打开 CAN 通道 (250 kbps, Classical CAN, 扩展帧)
@@ -59,6 +60,7 @@ NRC_RCRRP = 0x78
 DID_QI_IAP_CONTROL = 0x2130
 DID_QI_IAP_DATA = 0x2131
 DID_QI_IAP_STATUS = 0x2132
+DID_QI_FW_VERSION = 0x2133
 
 # IAP 状态码
 QI_IAP_IDLE = 0x00
@@ -363,13 +365,28 @@ def qi_iap_send_data(bus_id, addr, data):
 
 
 def qi_iap_read_status(bus_id):
-    """读取 Qi IAP 状态"""
+    """读取 Qi IAP 状态。新固件 8 字节：state, progress, verLE, sentLE, totalLE。"""
     data = read_did(bus_id, DID_QI_IAP_STATUS)
     if len(data) < 2:
         raise RuntimeError("Qi IAP 状态响应过短")
     state = data[0]
     progress = data[1]
-    return state, progress
+    ver = None
+    sent = None
+    total = None
+    if len(data) >= 8:
+        ver = data[2] | (data[3] << 8)
+        sent = data[4] | (data[5] << 8)
+        total = data[6] | (data[7] << 8)
+    return state, progress, ver, sent, total
+
+
+def qi_read_fw_version(bus_id):
+    """读 DID 0x2133，Qi 芯片固件版本（UART 0x01 上报缓存）。"""
+    data = read_did(bus_id, DID_QI_FW_VERSION)
+    if len(data) < 2:
+        raise RuntimeError("DID 0x2133 响应过短")
+    return data[0] | (data[1] << 8)
 
 
 def qi_iap_wait_complete(bus_id, timeout_s=120):
@@ -379,9 +396,12 @@ def qi_iap_wait_complete(bus_id, timeout_s=120):
     while time.time() - t0 < timeout_s:
         if stopTask:
             raise RuntimeError("用户停止脚本")
-        state, progress = qi_iap_read_status(bus_id)
+        state, progress, ver, sent, total = qi_iap_read_status(bus_id)
         state_str = {0x00: "空闲", 0x01: "升级中", 0x02: "成功", 0x03: "失败"}.get(state, "未知(%02X)" % state)
-        _log("  状态: %s, 进度: %d%%" % (state_str, progress))
+        extra = ""
+        if ver is not None:
+            extra = " ver=0x%04X sent=%d/%d" % (ver, sent, total)
+        _log("  状态: %s, 进度: %d%%%s" % (state_str, progress, extra))
         if state == QI_IAP_SUCCESS:
             _log("Qi IAP 升级成功!")
             return True
@@ -432,6 +452,12 @@ def run_qi_iap(bus_id):
     uds_init()
 
     try:
+        try:
+            ver = qi_read_fw_version(bus_id)
+            _log("升级前 Qi 芯片版本 DID 0x2133 = 0x%04X" % ver)
+        except Exception as e:
+            _log("读 DID 0x2133 失败（旧固件可忽略）: " + str(e))
+
         # 3. 进入编程会话
         _log("---- 编程会话 ----")
         uds_req(bus_id, SID_DSC, [0x02])
@@ -470,6 +496,12 @@ def run_qi_iap(bus_id):
 
         # 7. 等待升级完成
         qi_iap_wait_complete(bus_id, STATUS_TIMEOUT)
+
+        try:
+            ver = qi_read_fw_version(bus_id)
+            _log("升级后 Qi 芯片版本 DID 0x2133 = 0x%04X" % ver)
+        except Exception as e:
+            _log("升级后读 DID 0x2133 失败: " + str(e))
 
         _log("======== Qi IAP 升级完成 ========")
 

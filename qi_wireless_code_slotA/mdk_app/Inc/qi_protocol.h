@@ -50,6 +50,7 @@ extern "C" {
 
 #define QI_IAP_PREPARE          0x01U   /**< 准备升级（含固件大小） */
 #define QI_IAP_DATA             0x02U   /**< 发送固件数据（含地址+数据） */
+#define QI_IAP_MAX_CHUNK        22U     /**< IAP 每帧最大固件数据字节数 */
 
 /* ==========================================================================
  *  ACK 状态码
@@ -141,6 +142,16 @@ int8_t qi_protocol_send(uint8_t cmd, const uint8_t *data, uint8_t data_len, uint
  * @retval 0=成功，-1=参数错误
  */
 int8_t qi_protocol_send_iap(const uint8_t *data, uint8_t data_len);
+
+/**
+ * @brief  通知 Qi 芯片进入 IAP：0xCC 0x01 + 固件大小（16-bit 大端）
+ */
+int8_t qi_protocol_iap_prepare(uint16_t fw_size);
+
+/**
+ * @brief  发送一包 IAP 固件：0xCC 0x02 + 地址（16-bit 大端）+ 数据（最多 22B）
+ */
+int8_t qi_protocol_iap_data(uint16_t addr, const uint8_t *payload, uint8_t payload_len);
 
 /**
  * @brief  发送 ACK 应答

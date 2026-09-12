@@ -135,7 +135,8 @@ extern "C" {
 #define DID_ECDSA_PUBKEY            0x2120U   /*!< ECDSA P-256 public key, 65-byte SEC1 */
 #define DID_QI_IAP_CONTROL          0x2130U   /*!< Qi IAP 控制（写）：启动/中止升级 */
 #define DID_QI_IAP_DATA             0x2131U   /*!< Qi IAP 数据（写）：固件数据包 */
-#define DID_QI_IAP_STATUS           0x2132U   /*!< Qi IAP 状态（读）：进度/错误码 */
+#define DID_QI_IAP_STATUS           0x2132U   /*!< Qi IAP 状态（读）：state/progress/版本/已发/总长 */
+#define DID_QI_FW_VERSION           0x2133U   /*!< Qi 芯片固件版本（读）：来自 UART 0x01 上报 */
 
 /* ========================================================================== */
 /*  Session management constants                                             */

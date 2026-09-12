@@ -352,6 +352,39 @@ int8_t qi_protocol_send_iap(const uint8_t *data, uint8_t data_len)
   return 0;
 }
 
+int8_t qi_protocol_iap_prepare(uint16_t fw_size)
+{
+  uint8_t d[3];
+
+  d[0] = QI_IAP_PREPARE;
+  d[1] = (uint8_t)((fw_size >> 8) & 0xFFU);
+  d[2] = (uint8_t)(fw_size & 0xFFU);
+  return qi_protocol_send_iap(d, 3U);
+}
+
+int8_t qi_protocol_iap_data(uint16_t addr, const uint8_t *payload, uint8_t payload_len)
+{
+  uint8_t d[3U + QI_IAP_MAX_CHUNK];
+  uint8_t i;
+
+  if ((payload == (const uint8_t *)0) || (payload_len == 0U))
+  {
+    return -1;
+  }
+  if (payload_len > QI_IAP_MAX_CHUNK)
+  {
+    payload_len = QI_IAP_MAX_CHUNK;
+  }
+  d[0] = QI_IAP_DATA;
+  d[1] = (uint8_t)((addr >> 8) & 0xFFU);
+  d[2] = (uint8_t)(addr & 0xFFU);
+  for (i = 0U; i < payload_len; i++)
+  {
+    d[3U + i] = payload[i];
+  }
+  return qi_protocol_send_iap(d, (uint8_t)(3U + payload_len));
+}
+
 /**
  * @brief  主循环轮询
  * @note   从 UART 缓冲区读取字节并送入协议状态机解析

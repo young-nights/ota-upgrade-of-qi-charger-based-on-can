@@ -91,6 +91,7 @@ static uint8_t  g_qi_iap_state    = QI_IAP_IDLE;
 static uint8_t  g_qi_iap_progress = 0U;
 static uint16_t g_qi_iap_total    = 0U;
 static uint16_t g_qi_iap_sent     = 0U;
+static uint16_t g_qi_fw_version   = 0U;     /*!< DID 0x2133 / 0x01 上报版本号 */
 
 /* ========================================================================== */
 /*  Qi charging state variables                                              */
@@ -642,8 +643,20 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 1U;
       return 0;
     case DID_QI_IAP_STATUS:
+      /* [0]state [1]progress [2-3]Qi版本 LE [4-5]已发 LE [6-7]总长 LE */
       out[0] = g_qi_iap_state;
       out[1] = g_qi_iap_progress;
+      out[2] = (uint8_t)(g_qi_fw_version & 0xFFU);
+      out[3] = (uint8_t)((g_qi_fw_version >> 8) & 0xFFU);
+      out[4] = (uint8_t)(g_qi_iap_sent & 0xFFU);
+      out[5] = (uint8_t)((g_qi_iap_sent >> 8) & 0xFFU);
+      out[6] = (uint8_t)(g_qi_iap_total & 0xFFU);
+      out[7] = (uint8_t)((g_qi_iap_total >> 8) & 0xFFU);
+      *olen = 8U;
+      return 0;
+    case DID_QI_FW_VERSION:
+      out[0] = (uint8_t)(g_qi_fw_version & 0xFFU);
+      out[1] = (uint8_t)((g_qi_fw_version >> 8) & 0xFFU);
       *olen = 2U;
       return 0;
     default:
@@ -960,13 +973,11 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
 
       case DID_QI_IAP_CONTROL:
       {
-        /* Qi IAP 控制命令
-         * data[3] = 0x01: 启动升级（data[4..5] = 固件大小 16-bit）
-         * data[3] = 0x02: 中止升级 */
+        /* data[3]=0x01 启动（data[4..5]=固件大小 16-bit BE）
+         * data[3]=0x00/0x02 中止。UART：0xCC 0x01 + size */
         uint8_t sub = data[3];
         if (sub == 0x01U)
         {
-          uint8_t iap_data[2];
           if (len < 6U)
           {
             proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
@@ -976,20 +987,20 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           g_qi_iap_sent     = 0U;
           g_qi_iap_state    = QI_IAP_IN_PROGRESS;
           g_qi_iap_progress = 0U;
-          iap_data[0] = data[4];
-          iap_data[1] = data[5];
-          (void)qi_protocol_send_iap(iap_data, 2U);
+          g_qi_iap_last_tx_ms = 0U;
+          (void)qi_protocol_iap_prepare(g_qi_iap_total);
           resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
           resp[1] = data[1];
           resp[2] = data[2];
           proto_send_response(resp, 3);
         }
-        else if (sub == 0x02U)
+        else if ((sub == 0x00U) || (sub == 0x02U))
         {
           g_qi_iap_state = QI_IAP_IDLE;
           g_qi_iap_progress = 0U;
           g_qi_iap_total = 0U;
           g_qi_iap_sent = 0U;
+          g_qi_iap_last_tx_ms = 0U;
           resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
           resp[1] = data[1];
           resp[2] = data[2];
@@ -1004,10 +1015,9 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
 
       case DID_QI_IAP_DATA:
       {
-        /* Qi IAP 数据包
-         * data[3..4] = 地址 16-bit
-         * data[5..] = 固件数据（最多 22 字节/帧） */
-        uint8_t iap_buf[2 + QI_FRAME_MAX_DATA_LEN];
+        /* data[3..4]=地址 16-bit BE，data[5..]=固件（最多 22B）
+         * UART：0xCC 0x02 + addr + data */
+        uint16_t addr;
         uint16_t chunk_len;
 
         if (len < 6U)
@@ -1020,16 +1030,14 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
           return;
         }
-        iap_buf[0] = data[3];  /* addr hi */
-        iap_buf[1] = data[4];  /* addr lo */
+        addr = ((uint16_t)data[3] << 8) | (uint16_t)data[4];
         chunk_len = (uint16_t)(len - 5U);
-        if (chunk_len > QI_FRAME_MAX_DATA_LEN)
+        if (chunk_len > QI_IAP_MAX_CHUNK)
         {
-          chunk_len = QI_FRAME_MAX_DATA_LEN;
+          chunk_len = QI_IAP_MAX_CHUNK;
         }
-        memcpy(&iap_buf[2], &data[5], chunk_len);
-        (void)qi_protocol_send_iap(iap_buf, (uint8_t)(2U + chunk_len));
-        g_qi_iap_sent += (uint16_t)(len - 5U);
+        (void)qi_protocol_iap_data(addr, &data[5], (uint8_t)chunk_len);
+        g_qi_iap_sent += (uint16_t)chunk_len;
         g_qi_iap_last_tx_ms = timer_get_tick();
         if (g_qi_iap_total > 0U)
         {
@@ -1364,17 +1372,24 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
     {
       g_qi_iap_state = QI_IAP_FAILED;
     }
+    else if (frame->data[1] == QI_IAP_ACK_COMPLETE)
+    {
+      g_qi_iap_state = QI_IAP_SUCCESS;
+      g_qi_iap_progress = 100U;
+    }
     return;
   }
 
-  /* ---- Qi status report (0x01) ---- */
+  /* ---- Qi status report (0x01) 信息读取 ----
+   * 规范 6 字节：status1, status2, power LE, version LE
+   * 扩展 ≥13 字节：额外电压/电流/温度/FOD/故障/降额 */
   if (frame->cmd == QI_CMD_STATUS_REPORT)
   {
     uint8_t status_byte;
 
-    if (frame->data_len < 13U)
+    if (frame->data_len < 6U)
     {
-      return;  /* expect at least 13 bytes of status data */
+      return;
     }
 
     status_byte = frame->data[0];
@@ -1444,36 +1459,34 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
       g_qi_charge_state = QI_CHARGE_FAULT;
     }
 
-    /* output power: bytes 4-5, uint16 mW */
-    g_qi_output_power_mw = (uint16_t)frame->data[4]
-                         | ((uint16_t)frame->data[5] << 8);
-
-    /* input voltage raw: byte 6 */
-    g_qi_voltage_raw = frame->data[6];
-
-    /* input current raw: byte 7 */
-    g_qi_current_raw = frame->data[7];
-
-    /* coil temperature: byte 8 - HW not supported, skip */
-    /* PCB temperature: byte 8 (reuse field) */
-    g_qi_pcb_temp = frame->data[8];
-
-    /* FOD status: byte 9 */
-    if (frame->data[9] != 0x00U)
+    if (frame->data_len < 13U)
     {
-      g_qi_fod_status = frame->data[9];
+      /* 规范：data[2-3] 实时功率 LE，data[4-5] 版本号 LE */
+      g_qi_output_power_mw = (uint16_t)frame->data[2]
+                           | ((uint16_t)frame->data[3] << 8);
+      g_qi_fw_version = (uint16_t)frame->data[4]
+                      | ((uint16_t)frame->data[5] << 8);
     }
-
-    /* alignment: byte 10 - HW not supported, skip */
-
-    /* fault code: byte 11 */
-    if (frame->data[11] != 0x00U)
+    else
     {
-      g_qi_fault_code = frame->data[11];
+      /* 扩展帧：data[2-3] 版本，data[4-5] 功率（兼容已有 13B 布局） */
+      g_qi_fw_version = (uint16_t)frame->data[2]
+                      | ((uint16_t)frame->data[3] << 8);
+      g_qi_output_power_mw = (uint16_t)frame->data[4]
+                           | ((uint16_t)frame->data[5] << 8);
+      g_qi_voltage_raw = frame->data[6];
+      g_qi_current_raw = frame->data[7];
+      g_qi_pcb_temp = frame->data[8];
+      if (frame->data[9] != 0x00U)
+      {
+        g_qi_fod_status = frame->data[9];
+      }
+      if (frame->data[11] != 0x00U)
+      {
+        g_qi_fault_code = frame->data[11];
+      }
+      g_qi_thermal_derate = frame->data[12];
     }
-
-    /* thermal derating: byte 12 */
-    g_qi_thermal_derate = frame->data[12];
 
     return;
   }
