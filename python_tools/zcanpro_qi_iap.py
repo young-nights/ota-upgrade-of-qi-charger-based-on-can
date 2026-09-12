@@ -12,7 +12,7 @@ ZCANPRO 扩展脚本 — Qi 芯片 IAP 固件升级
 
 导入: ZCANPRO → 高级功能 → 扩展脚本 → 打开本文件
 运行前: 先打开 CAN 通道 (250 kbps, Classical CAN, 扩展帧)
-固件目录: python_tools/iap bin/（13V.BIN / 14V.BIN）
+固件目录: python_tools/iap bin/（log1.BIN / log2.BIN）
 """
 
 import os
@@ -31,7 +31,7 @@ FIRMWARE_DIR = os.path.join(_TOOLS_DIR, "iap bin")
 
 # 固件文件名，改为你要升级的文件
 # 13V.BIN = 13V 版本固件，14V.BIN = 14V 版本固件
-FIRMWARE_NAME = "13V.BIN"
+FIRMWARE_NAME = "log1.BIN"
 
 # Qi IAP 每包数据长度（协议定义最大 22 字节）
 QI_IAP_DATA_LEN = 22
