@@ -60,7 +60,7 @@ static void lifecycle_send(uint8_t state)
 {
   uint8_t data[8];
 
-  if (can_protocol_is_bus_awake() == 0U)
+  if (can_protocol_lifecycle_tx_ready() == 0U)
   {
     return;
   }

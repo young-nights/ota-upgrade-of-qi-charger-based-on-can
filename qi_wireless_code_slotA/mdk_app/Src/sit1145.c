@@ -30,6 +30,7 @@
 
 /* 头文件 ------------------------------------------------------------------*/
 #include "sit1145.h"
+#include "timer_drv.h"
 
 /* ==========================================================================
  *  私有宏定义
@@ -159,19 +160,18 @@ static uint8_t sit1145_spi_xfer(uint8_t tx_data)
  */
 static uint8_t sit1145_wait_cts(uint32_t timeout_ms)
 {
-  uint32_t elapsed;
+  uint32_t t0 = timer_get_tick();
   uint8_t sta;
 
-  for (elapsed = 0U; elapsed < timeout_ms; elapsed++)
+  do
   {
     sta = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_STATUS);
     if ((sta & SIT1145_TRAN_STA_CTS) != 0U)
     {
-      return 1U;  /* CTS=1，收发器就绪 */
+      return 1U;
     }
-    sit1145_delay_ms(1U);
-  }
-  return 0U;  /* 超时 */
+  } while ((timer_get_tick() - t0) < timeout_ms);
+  return 0U;
 }
 
 /* ==========================================================================

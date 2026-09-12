@@ -121,7 +121,9 @@ static uint32_t g_announce_due_ms = 0;
 /** ignore self-wake for a short window after entering Standby */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
 /** send BOOTUP after UDS has a chance to ACK/reply the wake frame */
-#define CAN_LP_ANNOUNCE_DELAY_MS  30U
+#define CAN_LP_ANNOUNCE_DELAY_MS  100U
+/** after CAN online, spin-poll RX so host hardware retransmit of 10 01 can be ACKed */
+#define CAN_LP_RX_HARVEST_MS      30U
 
 /** 6 minutes with no UDS RX/TX → SIT1145 Standby (ISO 11898-2 WUP can wake) */
 #define CAN_LP_IDLE_TIMEOUT_MS  (6UL * 60UL * 1000UL)
@@ -173,7 +175,7 @@ static void can_lp_enter_normal(void)
   /* 清 CW，等 RXD 从唤醒强制低恢复成隐性，再开 CAN，否则会 bus-off */
   sit1145_wakeup_clear();
   t0 = timer_get_tick();
-  while ((timer_get_tick() - t0) < 2U)
+  while ((timer_get_tick() - t0) < 5U)
   {
     if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) != RESET)
     {
@@ -184,11 +186,16 @@ static void can_lp_enter_normal(void)
   can_driver_online();
   g_can_awake = 1U;
   can_lp_mark_uds();
-
-  /* 上位机若硬件重发 10 01，此时应已能 ACK；先抽 RX 回 50 01，再发 BOOTUP */
-  can_driver_poll();
   g_need_lifecycle_announce = 1U;
   g_announce_due_ms = timer_get_tick() + CAN_LP_ANNOUNCE_DELAY_MS;
+
+  /* Standby 下第一帧只当 WUP，MCU 收不到。主机 CAN 控制器会无 ACK 重发，
+   * 这里空转收 RX，赶在重发窗口内 ACK 并回 50 01；quiet 期内禁止 BOOTUP。 */
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < CAN_LP_RX_HARVEST_MS)
+  {
+    can_driver_poll();
+  }
 }
 
 static void can_lp_hold_standby(void)
@@ -1562,6 +1569,20 @@ void can_protocol_poll(void)
 uint8_t can_protocol_is_bus_awake(void)
 {
   return g_can_awake;
+}
+
+uint8_t can_protocol_lifecycle_tx_ready(void)
+{
+  if (g_can_awake == 0U)
+  {
+    return 0U;
+  }
+  if ((g_need_lifecycle_announce != 0U) &&
+      ((int32_t)(timer_get_tick() - g_announce_due_ms) < 0))
+  {
+    return 0U;
+  }
+  return 1U;
 }
 
 /**

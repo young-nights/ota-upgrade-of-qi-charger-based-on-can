@@ -179,8 +179,24 @@ void can_driver_offline(void)
 
 void can_driver_online(void)
 {
+  nvic_irq_disable(CAN1_RX_IRQn);
+  nvic_irq_disable(CAN1_ERR_IRQn);
+  can_interrupt_enable(CAN1, CAN_RIE_INT, FALSE);
+  can_interrupt_enable(CAN1, CAN_EIE_INT, FALSE);
+
+  /* 软件复位里挂 6 分钟后再上线，整外设复位并清 pending，避免 RX 中断/滤波器失效 */
+  can_reset(CAN1);
   can_software_reset(CAN1, TRUE);
   can_hw_config_in_reset();
+  can_flag_clear(CAN1, CAN_RIF_FLAG);
+  can_flag_clear(CAN1, CAN_ROIF_FLAG);
+  can_flag_clear(CAN1, CAN_EIF_FLAG);
+  can_flag_clear(CAN1, CAN_BEIF_FLAG);
+  can_flag_clear(CAN1, CAN_ALIF_FLAG);
+  can_flag_clear(CAN1, CAN_EPIF_FLAG);
+  NVIC_ClearPendingIRQ(CAN1_RX_IRQn);
+  NVIC_ClearPendingIRQ(CAN1_ERR_IRQn);
+
   can_software_reset(CAN1, FALSE);
   can_interrupt_enable(CAN1, CAN_RIE_INT, TRUE);
   can_interrupt_enable(CAN1, CAN_EIE_INT, TRUE);

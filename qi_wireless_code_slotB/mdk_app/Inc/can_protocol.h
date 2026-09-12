@@ -211,6 +211,12 @@ void can_protocol_poll(void);
 uint8_t can_protocol_is_bus_awake(void);
 
 /**
+ * @brief  1 if lifecycle CAN TX is allowed (awake and past post-wake quiet)
+ * @note   唤醒后先给 UDS 应答让路，quiet 期内禁止 BOOTUP。
+ */
+uint8_t can_protocol_lifecycle_tx_ready(void);
+
+/**
  * @brief  get current diagnostic session
  * @retval SESSION_DEFAULT, SESSION_PROGRAMMING, or SESSION_EXTENDED
  */

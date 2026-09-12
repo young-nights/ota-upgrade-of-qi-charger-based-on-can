@@ -68,8 +68,8 @@ int main(void)
   while (1)
   {
     timer_poll();
-    can_driver_poll();
     can_protocol_poll();
+    can_driver_poll();
     qi_uart_poll();
     lifecycle_poll();
     board_charge_poll();
