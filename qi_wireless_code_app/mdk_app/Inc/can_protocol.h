@@ -60,7 +60,7 @@ extern "C" {
  *         受控调用点：can_lp_hold_standby / can_lp_enter_standby 定义与
  *         调用点、sit1145.c sit1145_init() 步骤10（sit1145_standby_mode_set）。
  */
-#define CAN_LP_STANDBY_ENABLE        0
+#define CAN_LP_STANDBY_ENABLE        1
 
 /* ========================================================================== */
 /*  UDS service identifiers                                                  */
