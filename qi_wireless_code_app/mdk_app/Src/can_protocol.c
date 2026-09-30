@@ -187,38 +187,6 @@ static void can_lp_mark_uds(void)
   g_uds_last_ms = timer_get_tick();
 }
 
-static uint8_t can_lp_trial_needs_normal(void)
-{
-  ota_metadata_t meta;
-
-  if (ota_metadata_read(&meta) != 0)
-  {
-    return 0U;
-  }
-
-  /* single-App arch (OTA-ARCH-0920): keep CAN online while a download
-     is active or a pending backup copy failed validation — host must be
-     able to probe the device in either state */
-  if (meta.ota_state == OTA_STATE_DOWNLOADING)
-  {
-    return 1U;
-  }
-  if (meta.backup_valid != 0U)
-  {
-    return 1U;
-  }
-
-  /* after a failed backup copy the old APP boots with last_boot_reason
-     == COPY_FAIL: keep CAN online so the host sees the device state,
-     otherwise the old APP enters Standby and probe frames die as WUP */
-  if (meta.last_boot_reason == OTA_BOOT_REASON_ROLLBACK)
-  {
-    return 1U;
-  }
-
-  return 0U;
-}
-
 static uint8_t g_lp_ident_sent;
 
 /**
