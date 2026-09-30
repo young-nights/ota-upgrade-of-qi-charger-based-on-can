@@ -26,7 +26,7 @@
   （0x2113=0x00、0xF195==载荷版本）→ RESULT PASS/FAIL，exit 0/1。
 
 用法（仓库任意位置）：
-  python3 python_tools/tc0105_response_pending.py [--firmware "路径.bin"]
+  python3 "python_tools/3. wsl script/tc0105_response_pending.py" [--firmware "路径.bin"]
   默认载荷：python_tools/app bin/app_image_v1_1_1.bin（设备当前 1.1.2，刷回 1.1.1）
 退出码：0=PASS，1=FAIL。
 
@@ -41,13 +41,17 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# 本脚本已移入 python_tools/3. wsl script/：同级 shim 用 HERE，
+# 上一级 python_tools/（zcanpro_ext_ota_auto 与 app bin）用 PT。
+PT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+sys.path.insert(0, PT)
 
 import zcanpro_shim_zqwl as shim  # noqa: E402
 sys.modules["zcanpro"] = shim
 import zcanpro_ext_ota_auto as ext  # noqa: E402
 
-DEFAULT_FIRMWARE = os.path.join(HERE, "app bin", "app_image_v1_1_1.bin")
+DEFAULT_FIRMWARE = os.path.join(PT, "app bin", "app_image_v1_1_1.bin")
 
 UDS_REQ_ID = 0x18DA0D03   # 主机 TX
 UDS_RESP_ID = 0x18DA030D  # ECU TX / 主机 RX

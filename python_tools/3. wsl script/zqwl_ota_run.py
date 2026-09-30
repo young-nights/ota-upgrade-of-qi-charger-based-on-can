@@ -4,9 +4,9 @@
 
 用法（仓库根目录）：
   自测（唯一允许的硬件命令，只读 22 F195，不碰会话/写入类 SID）：
-    python3 python_tools/zqwl_ota_run.py --smoke-read
+    python3 "python_tools/3. wsl script/zqwl_ota_run.py" --smoke-read
   完整 OTA（由主管验收后执行；脚本参数原样透传）：
-    python3 python_tools/zqwl_ota_run.py [--firmware "python_tools/app bin/xxx.bin"]
+    python3 "python_tools/3. wsl script/zqwl_ota_run.py" [--firmware "python_tools/app bin/xxx.bin"]
 
 实现：
   1. import zcanpro_shim_zqwl 并 sys.modules['zcanpro'] = shim，
@@ -25,9 +25,13 @@ import runpy
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# 本脚本已移入 python_tools/3. wsl script/，同级 shim 脚本用 HERE，
+# 上一级 python_tools/（主脚本与 app bin）用 PT。
+PT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+sys.path.insert(0, PT)
 
-MAIN_SCRIPT = os.path.join(HERE, "zcanpro_ext_ota_auto.py")
+MAIN_SCRIPT = os.path.join(PT, "zcanpro_ext_ota_auto.py")
 
 
 def _smoke_read():

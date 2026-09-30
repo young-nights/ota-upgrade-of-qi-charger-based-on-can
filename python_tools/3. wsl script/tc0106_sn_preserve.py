@@ -19,7 +19,7 @@ DID 0xF18C（SN）与 0xF195（SW 版本），断言：
   → 复位后 22 F18C / 22 F195 / 0x2113 → 三断言判定 → RESULT PASS/FAIL。
 
 用法（仓库任意位置）：
-  python3 python_tools/tc0106_sn_preserve.py [--firmware "路径.bin"]
+  python3 "python_tools/3. wsl script/tc0106_sn_preserve.py" [--firmware "路径.bin"]
   默认载荷：python_tools/app bin/app_image_v1_1_2.bin（设备当前 1.1.1，本次刷 1.1.2）
 退出码：0=PASS，1=FAIL。
 
@@ -36,13 +36,17 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# 本脚本已移入 python_tools/3. wsl script/：同级 shim 用 HERE，
+# 上一级 python_tools/（zcanpro_ext_ota_auto 与 app bin）用 PT。
+PT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+sys.path.insert(0, PT)
 
 import zcanpro_shim_zqwl as shim  # noqa: E402
 sys.modules["zcanpro"] = shim
 import zcanpro_ext_ota_auto as ext  # noqa: E402
 
-DEFAULT_FIRMWARE = os.path.join(HERE, "app bin", "app_image_v1_1_2.bin")
+DEFAULT_FIRMWARE = os.path.join(PT, "app bin", "app_image_v1_1_2.bin")
 
 TRANSFER_BLOCK = 128    # 36 每块字节数（≤0x400，与 ext/tc0104 一致）
 

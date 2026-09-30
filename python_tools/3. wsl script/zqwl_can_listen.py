@@ -3,7 +3,7 @@
 """ZQWL-USBCANFD (VID 3562:0101) CDC 收包 + Boot M1–M4 监听。
 
 用法见仓库 AGENTS.md「WSL2 串口 CAN 监听」。
-  python3 python_tools/zqwl_can_listen.py --port /dev/ttyACM0
+  python3 "python_tools/3. wsl script/zqwl_can_listen.py" --port /dev/ttyACM0
 """
 from __future__ import print_function
 import argparse
