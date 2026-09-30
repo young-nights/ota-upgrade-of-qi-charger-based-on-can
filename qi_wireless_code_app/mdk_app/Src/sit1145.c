@@ -923,21 +923,27 @@ uint8_t sit1145_wakeup_pending(void)
 }
 
 /**
- * @brief  清除 CAN 唤醒事件标志
- * @note   向 TRANSCEIVER_EVENT 寄存器的 CW 位写 1（W1C 机制）
- *         硬件自动清零该标志
- *         进入 Standby 前和唤醒后都应调用此函数
- */
-/**
- * @brief  清除 CAN 唤醒事件标志（CW + WUF，写1清零）
- * @note   向 TRANSCEIVER_EVENT 寄存器的 CW 和 WUF 位写1，
- *         硬件自动清零（W1C 机制）。
- *         进入 Standby 前和唤醒后都应调用此函数。
+ * @brief  Clear every wake/event flag (official SleepMode_Set order)
+ * @note   Mirrors the official FAE example: write 0xFF to System_event_status
+ *         (0x61), Transceiver_event_status (0x63) and Wake_event (0x64) to
+ *         W1C-clear them, plus the project-specific TRANSCEIVER_EVENT (0x24)
+ *         CW|WUF flags and 0x63 CW. The old version cleared only 0x24/0x63
+ *         CW, so a residual 0x64 WAKE-pin event (WPR/WPF) survived standby
+ *         entry and kept RXD forced low -> immediate self-wake.
+ *         Must be the last action on wake flags before the standby inhibit
+ *         window starts, and is also called before enabling wake detection.
+ *         0x60 Global_event_capture is read-only: clearing the three source
+ *         registers above clears the aggregate bits.
  */
 void sit1145_wakeup_clear(void)
 {
+  /* 0x61/0x63/0x64: write 0xFF exactly like the official SleepMode_Set.
+   * 0x61 is marked read-only in the datasheet register map; the write is a
+   * harmless no-op there and matches the FAE reference sequence. */
+  sit1145_write_reg(SIT1145_REG_SYSTEM_EVENT_STATUS, 0xFFU);
+  sit1145_write_reg(SIT1145_REG_TRX_EVENT_STATUS, 0xFFU);      /* W1C */
+  sit1145_write_reg(SIT1145_REG_WAKE_PIN_EVENT_STATUS, 0xFFU); /* W1C */
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT, SIT1145_CW | SIT1145_WUF);
-  sit1145_write_reg(SIT1145_REG_TRX_EVENT_STATUS, SIT1145_TRX_EVT_STA_CW);
 }
 
 /**

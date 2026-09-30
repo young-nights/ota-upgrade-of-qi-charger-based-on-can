@@ -221,10 +221,23 @@ static uint8_t can_lp_trial_needs_normal(void)
 
 static uint8_t g_lp_ident_sent;
 
-static void can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
-                             uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7)
+/**
+ * @brief  send one lifecycle marker frame on 0x18FF260D
+ * @note   Completion is confirmed by handle (can_driver_wait_tx_frame),
+ *         not by can_driver_wait_tx_idle: right after enqueue the
+ *         controller may not have picked the frame up yet, so tstat still
+ *         reads IDLE/TRANSMITTED from the previous frame and wait_tx_idle
+ *         returns instantly. The caller then takes the CAN offline before
+ *         the frame ever reaches the bus (root cause of the missing SB
+ *         marker on Standby entry).
+ * @retval 1 = frame enqueued and confirmed transmitted, 0 = send rejected
+ *         or completion wait failed/aborted
+ */
+static uint8_t can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
+                                uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7)
 {
   uint8_t d[8];
+  uint8_t handle;
 
   memset(d, 0, sizeof(d));
   d[0] = b0;
@@ -235,8 +248,19 @@ static void can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
   d[5] = b5;
   d[6] = b6;
   d[7] = b7;
-  (void)can_driver_send(CAN_ID_LIFECYCLE_BROADCAST, d, 8);
-  (void)can_driver_wait_tx_idle(20U);
+  if (can_driver_send(CAN_ID_LIFECYCLE_BROADCAST, d, 8) != 0)
+  {
+    return 0U;
+  }
+  if (can_driver_last_tx_handle(&handle) != 0)
+  {
+    return 0U;
+  }
+  if (can_driver_wait_tx_frame(handle, 20U) != 0)
+  {
+    return 0U;
+  }
+  return 1U;
 }
 
 /** 识别帧打到 0x18FF260D。harvest 结束只能走这条，避免抢在 50 01 前面占 UDS ID */
@@ -328,6 +352,11 @@ static void can_lp_enter_normal(void)
   /* TXD 必须先回到 CAN AF，再切 Normal */
   can_driver_pins_active();
 
+  /* Official NormalMode_Set also rewrites CANCtrl (PNCOK=INVALID, CPNC=DIS,
+   * CMC=active) before switching. No rewrite needed here: the wake path
+   * only touches 0x23 EVENT_EN (sit1145_wake_enable) and 0x01 MODE_CONTROL,
+   * so CANCtrl still holds the init value, which equals that official
+   * sequence. CTS is already validated inside sit1145_normal_mode_set. */
   for (retry = 0U; retry < 3U; retry++)
   {
     if (sit1145_normal_mode_set() != 0U)
@@ -383,16 +412,28 @@ static void can_lp_hold_standby(void)
 {
   uint32_t t0;
 
-  /* 先关 MCU CAN、再切收发器 Standby，最后才改 GPIO。
-   * 若还在 Normal 就把 TXD 改成 GPIO，会在总线上打出显性。 */
+  /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
+   * clear every wake/event register -> enable wake detection -> switch mode.
+   * 1) MCU CAN offline first: no ACK/TX while the transceiver is reconfigured.
+   *    Keep it before any GPIO change — moving TXD to GPIO while still in
+   *    Normal would drive the bus dominant. */
   can_driver_offline();
+
+  /* 2) Full event wipe BEFORE enabling wake / switching mode. The old code
+   *    only cleared 0x24 CW/WUF and 0x63 CW, and only after the mode switch;
+   *    a residual 0x64 WAKE-pin event (never cleared anywhere, incl. init)
+   *    keeps RXD forced low for the whole wake period, so the first poll
+   *    after the 100 ms inhibit saw PA11 low and self-woke immediately. */
+  sit1145_wakeup_clear();
+
+  /* 3) Enable standard CAN wake (CWE @0x23) only after the flags are clean */
   sit1145_wake_enable();
 
-  /* 模式切换失败：延时 1ms 重试一次（与原 sit1145_init 步骤10 同模式）。
-   * 两次都失败仍继续后续收尾（收发器态未知，但 MCU 侧必须下线），
-   * 置 sticky 标记 g_lp_standby_fail，经 DID 0x2119 flags bit2 可观测。
-   * TODO: 现有诊断计数器无 Standby 进入失败专用计数，
-   *       如需计数/遥测升级请新增计数器后在此累加。 */
+  /* 4) Switch to Standby: write + readback inside sit1145_set_mode. On
+   *    failure retry once after 1 ms (same pattern as the old init step 10).
+   *    Two failures still continue teardown (transceiver state unknown, but
+   *    the MCU side must go offline) and raise the sticky flag
+   *    g_lp_standby_fail, observable via DID 0x2119 flags bit2. */
   if (sit1145_standby_mode_set() == 0U)
   {
     t0 = timer_get_tick();
@@ -403,8 +444,14 @@ static void can_lp_hold_standby(void)
     }
   }
 
-  sit1145_wakeup_clear();
+  /* 5) Pin switch after mode change (TXD must not be GPIO in Normal) */
   can_driver_pins_standby();
+
+  /* 6) Final event wipe: last action touching wake flags, so any CW/WUP
+   *    flag latched during the mode/pin transition is covered before the
+   *    inhibit window starts. */
+  sit1145_wakeup_clear();
+
   g_can_awake = 0U;
   g_standby_since_ms = timer_get_tick();
   g_lp_ever_standby = 1U;
@@ -416,8 +463,16 @@ static void can_lp_enter_standby(void)
   {
     (void)can_driver_wait_tx_idle(20U);
     session_reset_to_default();
-    /* 进睡前打 06 41 53 42，总线上先看到 SB 再静音，才能确认真进了 Standby */
-    can_lp_tx_marker(LIFECYCLE_SHUTDOWN, 0x53U, 0x42U, g_lp_wup_count, 0U, 0U, 0U);
+    /* SB marker (06 41 53 42) must be confirmed on the wire before CAN goes
+     * offline, otherwise the bus never shows SB ahead of the silence. Send
+     * is handle-confirmed; retry once if enqueue/completion fails. */
+    if (can_lp_tx_marker(LIFECYCLE_SHUTDOWN, 0x53U, 0x42U,
+                         g_lp_wup_count, 0U, 0U, 0U) == 0U)
+    {
+      (void)can_driver_wait_tx_idle(20U);
+      (void)can_lp_tx_marker(LIFECYCLE_SHUTDOWN, 0x53U, 0x42U,
+                             g_lp_wup_count, 0U, 0U, 0U);
+    }
   }
   can_lp_hold_standby();
 }

@@ -779,10 +779,13 @@ void sit1145_wake_enable(void);
 uint8_t sit1145_wakeup_pending(void);
 
 /**
- * @brief  清除 CAN 唤醒事件标志（CW + WUF，写1清零）
- * @note   向 TRANSCEIVER_EVENT 寄存器的 CW 和 WUF 位写1，
- *         硬件自动清零（W1C 机制）。
- *         进入 Standby 前和唤醒后都应调用此函数。
+ * @brief  Clear all wake/event flags (official SleepMode_Set order)
+ * @note   Writes 0xFF to 0x61 System_event_status, 0x63 Transceiver_event
+ *         status and 0x64 Wake_event (W1C where implemented), plus CW|WUF
+ *         in 0x24 TRANSCEIVER_EVENT. Must cover every wake flag: a
+ *         leftover 0x64 event keeps RXD forced low in Standby and causes
+ *         an immediate self-wake. Call before enabling wake detection and
+ *         again as the last action before the standby inhibit window.
  */
 void sit1145_wakeup_clear(void);
 
