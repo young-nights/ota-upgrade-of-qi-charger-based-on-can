@@ -2405,10 +2405,18 @@ void can_protocol_poll(void)
   }
 
 #if (!defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)) && (CAN_LP_IDLE_TIMEOUT_MS > 0U)
+  /* No Standby while charging: refresh g_uds_last_ms as long as PB2 is high
+   * (same source as DID 0x2102 CHARGING read). This refresh-based gate gives
+   * a fresh 30s window after charge stops - once PB2 drops, the idle counter
+   * starts over from zero and the normal timeout applies unchanged. */
+  if (gpio_output_data_bit_read(GPIOB, GPIO_PINS_2) != RESET)
+  {
+    g_uds_last_ms = now;
+  }
   /* 有符号比较（同 g_announce_due_ms 判定风格）：同轮 poll 内 mark_uds（响应发送 /
    * 唤醒 enter_normal）刷新 g_uds_last_ms 后，过期 now 参与无符号减法会下溢成
    * 巨大值导致误进 Standby */
-  if ((int32_t)(now - g_uds_last_ms) >= (int32_t)CAN_LP_IDLE_TIMEOUT_MS)
+  else if ((int32_t)(now - g_uds_last_ms) >= (int32_t)CAN_LP_IDLE_TIMEOUT_MS)
   {
     can_lp_enter_standby();
     return;
