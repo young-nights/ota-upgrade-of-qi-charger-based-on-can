@@ -9,8 +9,10 @@ ZCANPRO 脚本 — 读取 APP 侧版本号 DID 0xF195 / 0xF180 / 0xF193
   本脚本期望值必须与固件编译常量一致。
 
 流程：
-  1. TesterPresent 0x3E 00 最多连发 8 次（覆盖 Boot→App CAN 黑窗；
-     第一帧可能只唤醒 SIT1145 Standby）
+  1. SIT1145 Standby 唤醒（2026-10-01）：raw 连发 3 帧 02 3E 80
+     （suppress，200ms 间隔）打破 Standby → _uds_init() → 嗅探
+     0x18FF260D 上的 AWK 帧(01 41 57 4B)作唤醒证据（1.5s，超时不拦截）
+     → TesterPresent 0x3E 00 最多连发 8 次（覆盖 Boot→App CAN 黑窗）
   2. 原始 CAN 发 03 22 F1xx，收 ISO-TP 多帧并按 SN 组包
   3. 失败再试 zcanpro.uds_request
 
@@ -20,6 +22,14 @@ ZCANPRO 脚本 — 读取 APP 侧版本号 DID 0xF195 / 0xF180 / 0xF193
   - P0: wake_mcu 重试 2→8 次、间隔 0.15→0.5s，覆盖最坏 ~5s Boot→App CAN 黑窗
   - P1: raw 嗅探路径改为嗅探前重新 _uds_init()（deinit 后 receive 恒空，嗅探失效）
   - P2: 旧架构文案（旧槽位/旧 Boot 尺寸表述）更新为当前单 App 架构口径
+
+2026-10-01 修复（Windows ZCANPRO 实测 0 帧）：
+  - TX 静默失败：transmit/send 用返回值报错而非抛异常，can_send 现检查
+    返回值（1/True=成功，0/False/负=失败；None/未知类型放行），失败落
+    具体错误日志并换下一种发送形式重试；每次发送打 发送方式+返回值 日志。
+  - Standby 唤醒不足：wake_mcu 先 raw 连发 3 帧 3E 80 打破 SIT1145
+    Standby（首帧被 WUP 吃掉后 UDS 层不重发的问题），再 init + 3E 00×8。
+  - 预期版本：QC_JYF_FW_1.1.1 → QC_JYF_FW_1.1.2（固件已升 1.1.2）。
 
 receive() 实际返回 (status, [frames])，不是帧字典列表。
 """
@@ -42,7 +52,7 @@ SID_PR   = 0x40
 # 期望值 = 固件编译常量：SW_VERSION_STR / BOOTLOADER_VER_STR / HW_VERSION_STR
 # （can_protocol.c）。镜像头不携带版本号，版本号唯一定义在固件编译常量。
 DID_LIST = [
-    (0xF195, "APP 软件版本", "QC_JYF_FW_1.1.1"),
+    (0xF195, "APP 软件版本", "QC_JYF_FW_1.1.2"),
     (0xF180, "Bootloader 版本", "QC_JYF_BL_1.0.0"),
     (0xF193, "硬件版本",     "QC_JYF_HW_1.1.5"),
 ]
@@ -115,7 +125,24 @@ def _make_frame(can_id, data):
     }
 
 
+def _tx_ret_ok(ret):
+    """transmit/send 返回值判定（宽松）。
+    ZLG 惯例：1/True=成功，0/False/负数=明显失败。
+    None 或未知类型（dict/str 等）不可判，放行（return None），只记日志，
+    避免误杀——是否上线由日志里的 返回值 肉眼可判。"""
+    if ret is None:
+        return None
+    if isinstance(ret, bool):
+        return ret
+    if isinstance(ret, int):
+        return ret > 0
+    return None
+
+
 def can_send(bus_id, can_id, data):
+    """发送一帧。ZCANPRO API 用返回值报错（不抛异常），必须检查返回值：
+    通道未开/帧格式错时旧代码照样"成功"，帧根本没上线。
+    每次发送日志记录 [发送方式 + 返回值]，供判断帧是否真的发出。"""
     global _tx_mode
     frame = _make_frame(can_id, data)
     attempts = [
@@ -125,21 +152,29 @@ def can_send(bus_id, can_id, data):
         ("send(dict)", "send", (bus_id, frame)),
     ]
     if _tx_mode:
-        attempts = [a for a in attempts if a[0] == _tx_mode] + attempts
+        attempts = ([a for a in attempts if a[0] == _tx_mode]
+                    + [a for a in attempts if a[0] != _tx_mode])
     last = None
     for label, name, args in attempts:
         fn = getattr(zcanpro, name, None)
         if fn is None:
             continue
         try:
-            fn(*args)
-            if _tx_mode != label:
-                _tx_mode = label
-                _log("CAN TX 使用 " + label)
-            return
+            ret = fn(*args)
         except Exception as e:
-            last = e
-    raise RuntimeError("无法发送 CAN: %s" % last)
+            last = "%s 抛异常: %s" % (label, e)
+            _log("CAN TX %s 失败: %s" % (label, e))
+            continue
+        if _tx_ret_ok(ret) is False:
+            last = "%s 返回失败值 %r" % (label, ret)
+            _log("CAN TX %s 返回失败值: %r（换下一种发送形式重试）" % (label, ret))
+            continue
+        if _tx_mode != label:
+            _tx_mode = label
+            _log("CAN TX 使用 " + label)
+        _log("CAN TX [%s] %s ret=%r" % (label, _hex(_pad8(data)), ret))
+        return
+    raise RuntimeError("无法发送 CAN: %s" % (last or "无可用发送 API"))
 
 
 def _as_int(x):
@@ -339,11 +374,50 @@ def _sniff(bus_id, seconds):
     return saw_boot, saw_app, saw_life, n
 
 
+def _sniff_wk_evidence(bus_id, seconds=1.5):
+    """唤醒证据嗅探（可选，不拦截主流程）：0x18FF260D 上的
+    01 41 57 4B（AWK 唤醒标识帧）= 唤醒成功。超时/异常只记日志。
+    前提：已 _uds_init()（deinit 后 receive 恒空，见 P1）。"""
+    try:
+        t_end = time.time() + float(seconds)
+        while time.time() < t_end:
+            if stopTask:
+                break
+            for cid, dat in can_recv(bus_id):
+                if cid == 0x18FF260D and len(dat) >= 4 and list(dat[:4]) == [0x01, 0x41, 0x57, 0x4B]:
+                    _log("[唤醒证据] 收到 AWK 帧 0x%08X %s（Standby 已打破）" % (cid, _hex(dat[:8])))
+                    return True
+            time.sleep(0.02)
+        _log("[唤醒证据] %.1fs 内未见 AWK 帧（不拦截，继续 3E 00 探测）" % seconds)
+    except Exception as e:
+        _log("[唤醒证据] sniff 异常（忽略）: %s" % e)
+    return False
+
+
 def wake_mcu(bus_id):
-    """3E 00 等 7E，最多重试 8 次（OTA-ARCH-0920-D3/P0）。
-    Boot→App CAN 黑窗最坏 ~5s（backup_valid=1 时 ECDSA 验签×2 + 48KB Flash 擦写）；
-    旧参数 2 次×0.15s 窗口临界不足。每次 UDS 应答超时 2s + 间隔 0.5s，
-    8 次累计覆盖 ~20s。第一帧可能被 SIT1145 Standby WUP 吃掉。"""
+    """唤醒链（2026-10-01）：
+    1. raw 连发 3 帧 02 3E 80（suppress，200ms 间隔）打破 SIT1145
+       Standby——旧实现只靠 uds 3E 00，首帧被 WUP 吃掉后 UDS 层不重发，
+       ECU 醒了也没人再问（参考 zcanpro_ext_ota_auto.wake_bus）；
+    2. _uds_init() 开接收通路，嗅探 AWK 帧作唤醒证据（1.5s，不拦截）；
+    3. uds 3E 00 等 7E，最多重试 8 次（OTA-ARCH-0920-D3/P0，覆盖
+       Boot→App CAN 黑窗最坏 ~5s；每次 UDS 超时 2s + 间隔 0.5s ≈ 20s）。"""
+    # 1) raw 3E 80 burst 打破 Standby
+    for i in range(1, 4):
+        if stopTask:
+            raise RuntimeError("用户停止")
+        try:
+            can_send(bus_id, UDS_REQ_ID, [0x02, 0x3E, 0x80])
+            _log("[Tx raw] 02 3E 80 (%d/3, 打破 Standby)" % i)
+        except Exception as e:
+            _log("Standby 唤醒帧 %d/3 发送失败: %s" % (i, e))
+        time.sleep(0.2)
+
+    # 2) 开接收 + AWK 证据嗅探（init 同时保证下面 uds 3E 00 可用）
+    _uds_init()
+    _sniff_wk_evidence(bus_id, 1.5)
+
+    # 3) uds 3E 00 等 7E
     ok = False
     for i in range(1, 9):
         if stopTask:
@@ -377,8 +451,8 @@ def run(bus_id):
     _log("zcanpro API: " + ", ".join(names))
     _log("")
 
-    # V1.0.0：必须先 uds_init，ZLG 才会开接收。不 init 时 receive 恒为 (1,[])。
-    _uds_init()
+    # 唤醒链：raw 3E 80 burst → _uds_init() → AWK 嗅探 → 3E 00×8
+    # （init 移入 wake_mcu；V1.0.0：必须 uds_init，ZLG 才会开接收）
     online = wake_mcu(bus_id)
     if online:
         _log("UDS 已通，直接 uds_request 读 DID")
@@ -454,7 +528,7 @@ def z_main():
     global stopTask
     stopTask = False
     _log("======== APP 版本读取工具 ========")
-    _log("预期版本: SW=QC_JYF_FW_1.1.1 / BL=QC_JYF_BL_1.0.0 / HW=QC_JYF_HW_1.1.5")
+    _log("预期版本: SW=QC_JYF_FW_1.1.2 / BL=QC_JYF_BL_1.0.0 / HW=QC_JYF_HW_1.1.5")
     _log("DID: 0xF195(SW) / 0xF180(BL) / 0xF193(HW)")
     _log("")
     buses = zcanpro.get_buses()
