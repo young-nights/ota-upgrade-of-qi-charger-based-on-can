@@ -2405,11 +2405,14 @@ void can_protocol_poll(void)
   }
 
 #if (!defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)) && (CAN_LP_IDLE_TIMEOUT_MS > 0U)
-  /* No Standby while charging: refresh g_uds_last_ms as long as PB2 is high
-   * (same source as DID 0x2102 CHARGING read). This refresh-based gate gives
-   * a fresh 30s window after charge stops - once PB2 drops, the idle counter
-   * starts over from zero and the normal timeout applies unchanged. */
-  if (gpio_output_data_bit_read(GPIOB, GPIO_PINS_2) != RESET)
+  /* No Standby while charging: judge straight from the Hall sensor chain
+   * (g_qi_charger_enable from DID 0x2101 + board_hall_open() on PA0) - the
+   * exact condition board_charge_poll() uses to drive the charge switch,
+   * so it never depends on Qi-chip state reporting (g_qi_charge_state via
+   * UART). Refresh-based gate: while charging, g_uds_last_ms is refreshed
+   * every poll; once charging stops the idle counter restarts from zero and
+   * the normal 30s timeout applies unchanged. */
+  if ((g_qi_charger_enable != 0U) && (board_hall_open() == 0U))
   {
     g_uds_last_ms = now;
   }
