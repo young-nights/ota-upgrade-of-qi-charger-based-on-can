@@ -32,6 +32,13 @@
 - 不存在打包脚本 `IMAGE_VERSION` 常量环节（已删除）；UDS DID `0xF195` 应答取固件编译常量，不读镜像头 / OTA metadata。
 - 独立版本族，不随 APP 版本联动：`BOOTLOADER_VER_STR`、`HW_VERSION_STR`、IAP log1/log2 的 `EXPECTED_FW_VERSION`（Qi 芯片固件）。
 
+## 文档读取规则（2026-09-30 用户规定）
+
+- **修改代码时不要读取 PDF 文档**：完整工程仓库下存在大量 .md 与 .pdf 文档（如 `docs/pdf/原理图.pdf`、`docs/pdf/SIT1145AQT_FD.pdf`），执行代码修改类任务时一律不读 PDF——PDF 解析耗时耗 token，且改代码所需的接口/寄存器/时序事实应以 `.md` 文档、头文件与源码注释为准。
+- 例外（仅在用户明确要求时才读 PDF）：需要原理图引脚核对、器件数据手册参数原文等 md/源码覆盖不了的信息时，先向用户说明再读。
+- 纯文档任务（如 PDF/docx 内容提炼）不受本规则限制，那是用户显式指定的处理对象。
+- 派发代码修改任务书时须内置本约束（同「修改范围边界」的任务书纪律）。
+
 ## log1 / log2 脚本同步规则
 
 - `zcanpro_qi_iap_log1.py` 和 `zcanpro_qi_iap_log2.py` 是同一套 IAP 脚本的不同固件版本副本。
