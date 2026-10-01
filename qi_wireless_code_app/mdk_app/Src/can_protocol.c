@@ -168,6 +168,10 @@ static uint8_t  g_lp_standby_fail = 0;
 /** 上电（trial/非 trial 同路径）推迟到 __enable_irq() 之后再 enter_normal：
  *  harvest/wait_cts 依赖 SysTick；init 统一置 1 */
 static uint8_t  g_lp_need_online = 0;
+/** one-shot stale wake-event cleanup at inhibit expiry; armed (=1) by
+ *  can_lp_hold_standby on every Standby entry, consumed by the first wake
+ *  poll after CAN_LP_WAKE_INHIBIT_MS elapses */
+static uint8_t  g_lp_wake_clr_due = 0;
 
 /** ignore self-wake for a short window after entering Standby */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
@@ -423,6 +427,8 @@ static void can_lp_hold_standby(void)
   g_can_awake = 0U;
   g_standby_since_ms = timer_get_tick();
   g_lp_ever_standby = 1U;
+  /* arm one-shot stale-event cleanup at inhibit expiry (first wake poll) */
+  g_lp_wake_clr_due = 1U;
 }
 
 static void can_lp_enter_standby(void)
@@ -2349,7 +2355,59 @@ void can_protocol_poll(void)
   {
     if ((now - g_standby_since_ms) >= CAN_LP_WAKE_INHIBIT_MS)
     {
-      uint8_t src = sit1145_wakeup_pending();
+      uint8_t src;
+
+      /* First poll after the inhibit window — one-shot stale-event cleanup
+       * per Standby entry (g_lp_wake_clr_due armed by can_lp_hold_standby).
+       *
+       * Bench evidence (TC-S002 2026-10-01, 3/3): self-wake fires exactly
+       * at inhibit+first-poll with src=1 (PA11/RXD held low) and zero
+       * frames on the bus, while a genuine CAN wake reports src=3 (0x63 CW
+       * set, PA11 already released). So a low RXD with NO CAN-wake flag
+       * (0x24 CW/WUF, 0x63 CW) is a stale non-CAN event — e.g. a 0x64
+       * WAKE-pin latch from entry/mode-switch settling — that outlives the
+       * in-entry clears; wipe it before the first real check.
+       * If a CAN-wake flag IS set it is a real frame: never clear it, fall
+       * through untouched (TC-S003 wake path unchanged, zero added
+       * latency). */
+      if (g_lp_wake_clr_due != 0U)
+      {
+        g_lp_wake_clr_due = 0U;
+        if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET)
+        {
+          uint8_t ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+          uint8_t ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+          uint8_t can_wake = 0U;
+
+          if ((ev24 != 0xFFU) && ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U))
+          {
+            can_wake = 1U;
+          }
+          if ((ev63 != 0xFFU) && ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U))
+          {
+            can_wake = 1U;
+          }
+          if (can_wake == 0U)
+          {
+            uint32_t t0;
+            sit1145_wakeup_clear();
+            /* Bounded RXD-release wait, same <=5 ms pattern as
+             * can_lp_enter_normal: a stale latch drops PA11 high here and
+             * the device keeps sleeping; if RXD never releases it is
+             * treated as a wake below — no worse than pre-fix behaviour. */
+            t0 = timer_get_tick();
+            while ((timer_get_tick() - t0) < 5U)
+            {
+              if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) != RESET)
+              {
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      src = sit1145_wakeup_pending();
       if (src != 0U)
       {
         g_lp_last_wake_src = src;
