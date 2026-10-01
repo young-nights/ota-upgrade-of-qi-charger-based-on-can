@@ -326,7 +326,16 @@ void can_driver_pins_standby(void)
 {
   gpio_init_type gpio_init_struct;
 
-  /* CAN 隐性 = TXD 高。拉低是显性，会把总线卡死并 bus-off。 */
+  /* CAN 隐性 = TXD 高。拉低是显性，会把总线卡死并 bus-off。
+   * Round-3 (H2): preload ODR=1 BEFORE the pin becomes an output —
+   * gpio_init() does not touch ODR (reset value 0), so the old order
+   * (gpio_init -> gpio_bits_set) drove PA12/TXD low for the few cycles
+   * between the two calls on every entry (dominant glitch on TXD while
+   * the transceiver is settling into Standby; bench 1.1.4 phantom-WUP
+   * evidence SB+124~141ms ev63=0x01 zero frames). Writing ODR while the
+   * pin is still in CAN AF mux is harmless; by the time cfgr switches to
+   * GPIO output the latch already reads recessive. */
+  gpio_bits_set(GPIOA, GPIO_PINS_12);
   gpio_default_para_init(&gpio_init_struct);
   gpio_init_struct.gpio_pins           = GPIO_PINS_12;
   gpio_init_struct.gpio_mode           = GPIO_MODE_OUTPUT;
@@ -334,7 +343,7 @@ void can_driver_pins_standby(void)
   gpio_init_struct.gpio_pull           = GPIO_PULL_UP;
   gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
   gpio_init(GPIOA, &gpio_init_struct);
-  gpio_bits_set(GPIOA, GPIO_PINS_12);
+  gpio_bits_set(GPIOA, GPIO_PINS_12);   /* idempotent re-assert after mode switch */
 
   /* RXD 作 GPIO 输入，Standby 唤醒时 SIT1145 强制拉低 */
   gpio_default_para_init(&gpio_init_struct);

@@ -168,28 +168,39 @@ static uint8_t  g_lp_standby_fail = 0;
 /** 上电（trial/非 trial 同路径）推迟到 __enable_irq() 之后再 enter_normal：
  *  harvest/wait_cts 依赖 SysTick；init 统一置 1 */
 static uint8_t  g_lp_need_online = 0;
-/* ---- Round-2 anti-self-wake wipe diagnostics (DID 0x211A) ----------------
- * Bench TC-S002 2026-10-01, 1.1.3 firmware, 6 rounds: 4 PASS / 2 FAIL;
- * every FAIL is WK 01 41 57 4B at SB+127~133ms (exactly inhibit expiry +
- * first wake poll), src=1 (PA11/RXD low), zero frames on the bus. These
- * statics snapshot the wake-flag reads at the last pin-low check (and at
- * the final wake decision) so one bench run can tell skip-clear (CAN flag
- * present) apart from clear-but-stuck (RXD never released) apart from
- * SPI-read-failed fall-through. Reset on every Standby entry.
+/* ---- Round-3 anti-phantom-wake diagnostics (DID 0x211A) ------------------
+ * Bench TC-S002 2026-10-01, 1.1.4 firmware (round-2 fix 9f4cf24), 6 rounds:
+ * 3 PASS / 3 FAIL; every FAIL is WK 01 41 57 4B at SB+124~141ms (inhibit
+ * expiry, first wake poll), src=1 (PA11/RXD low), ZERO frames on the bus,
+ * and the 0x211A wake snapshot shows ev63 CW=0x01 (r4 stat=0x81: PA11 high
+ * at pre-check then low inside wakeup_pending; r6 stat=0x83: CAN flag set at
+ * the first pin-low pre-check). CW set with no frame on the bus = PHANTOM
+ * latch: round-2's skip-clear-on-flag rule and wakeup_pending()'s PA11-first
+ * shortcut both waved it through (r6 took the flag path, r4 the pin path).
+ * 4B SF cap (0x2119 already fills the 7B single-frame payload) forces a
+ * stat-bit repack; per-phase fields below let ONE bench run separate
+ * pre-wipe latch / wipe-stuck / post-wipe relatch / clear+release outcomes.
+ * Bit positions 0x01/0x02/0x08/0x10/0x20/0x80 keep round-2 meanings;
+ * 0x04 (was STUCK) and 0x40 (was RELEASED) are repurposed. Reset per
+ * Standby entry.
  * ------------------------------------------------------------------------ */
 #define WIPE_STAT_VALID        0x01U  /* a diagnostic record exists */
-#define WIPE_STAT_FLAG_PRESENT 0x02U  /* CAN flag at pin-low pre-check (skip-clear path) */
-#define WIPE_STAT_STUCK        0x04U  /* RXD still low after clear + <=5ms wait */
-#define WIPE_STAT_SPI_FF       0x08U  /* SPI read back 0xFF during pin-low check */
-#define WIPE_STAT_FLAG_IN_WAIT 0x10U  /* CAN flag appeared during the <=5ms wait */
-#define WIPE_STAT_BLOCKED      0x20U  /* wake blocked at least once (stale pin-low) */
-#define WIPE_STAT_RELEASED     0x40U  /* RXD released after a clear attempt */
+#define WIPE_STAT_FLAG_PRESENT 0x02U  /* CAN flag at a pin-low check (round-3 always clears it, never skip-clears) */
+#define WIPE_STAT_PREW_FLAG    0x04U  /* CAN flag already set at the unconditional inhibit-expiry wipe (latched during entry/inhibit; was round-2 STUCK) */
+#define WIPE_STAT_SPI_FF       0x08U  /* SPI read back 0xFF during a check */
+#define WIPE_STAT_FLAG_IN_WAIT 0x10U  /* flag 0->1 AFTER a clear = real host frame retry caught */
+#define WIPE_STAT_BLOCKED      0x20U  /* wake blocked at least once (RXD stayed low, no proven-new event) */
+#define WIPE_STAT_POST_STICK   0x40U  /* flag STILL set right after a clear (wipe ineffective or instant re-latch; set by both the pre-wipe and pin-low clears; was round-2 RELEASED) */
 #define WIPE_STAT_WAKE_SNAP    0x80U  /* [ev24/ev63] overwritten at wake decision */
 static uint8_t  g_lp_wipe_ev24 = 0xFFU;   /* 0x24 TRANSCEIVER_EVENT snapshot */
 static uint8_t  g_lp_wipe_ev63 = 0xFFU;   /* 0x63 TRX_EVENT_STATUS snapshot */
 static uint8_t  g_lp_wipe_stat = 0U;      /* WIPE_STAT_* bit set */
-static uint8_t  g_lp_wipe_attempts = 0U;  /* clear attempts this Standby (sat.) */
+static uint8_t  g_lp_wipe_attempts = 0U;  /* clear+wait attempts this Standby (sat., includes one-shot wipe) */
 static uint32_t g_lp_wipe_last_ms = 0U;   /* tick of last clear attempt (throttle) */
+/** round-3: one-shot unconditional event wipe (0x24/0x63/0x64/0x61) runs on
+ *  the first poll at inhibit expiry; armed by can_lp_hold_standby() on every
+ *  Standby entry, consumed in can_protocol_poll() */
+static uint8_t  g_lp_pre_wipe_due = 0U;
 
 /** ignore self-wake for a short window after entering Standby */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
@@ -441,20 +452,39 @@ static void can_lp_hold_standby(void)
   /* 5) Pin switch after mode change (TXD must not be GPIO in Normal) */
   can_driver_pins_standby();
 
-  /* 6) Final event wipe: last action touching wake flags, so any CW/WUP
-   *    flag latched during the mode/pin transition is covered before the
-   *    inhibit window starts. */
+  /* 6) Settle + final event wipe: the mode/pin transition above can latch
+   *    CW asynchronously while the transceiver settles, AFTER a single
+   *    immediate clear — bench 1.1.4 (round-2, 6 rounds 3PASS/3FAIL,
+   *    FAIL@SB+124~141ms src=1 ev63=0x01 zero frames) is consistent with a
+   *    latch landing in that window. Round-3 nets:
+   *      6a) wipe whatever the transition already latched;
+   *      6b) bounded <=5ms settle/release wait (returns immediately when
+   *          RXD is already released — the clean common case, adds no
+   *          entry latency there);
+   *      6c) second wipe covering anything latched during the wait.
+   *    A latch still surviving 6c is caught by the one-shot unconditional
+   *    wipe at inhibit expiry (g_lp_pre_wipe_due in can_protocol_poll). */
+  sit1145_wakeup_clear();
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < 5U)
+  {
+    if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) != RESET)
+    {
+      break;
+    }
+  }
   sit1145_wakeup_clear();
 
   g_can_awake = 0U;
   g_standby_since_ms = timer_get_tick();
   g_lp_ever_standby = 1U;
-  /* reset round-2 wipe diagnostics for this Standby entry */
+  /* reset round-3 wipe diagnostics for this Standby entry */
   g_lp_wipe_ev24 = 0xFFU;
   g_lp_wipe_ev63 = 0xFFU;
   g_lp_wipe_stat = 0U;
   g_lp_wipe_attempts = 0U;
   g_lp_wipe_last_ms = 0U;
+  g_lp_pre_wipe_due = 1U;
 }
 
 static void can_lp_enter_standby(void)
@@ -1011,22 +1041,27 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 4U;
       return 0;
     case DID_SIT1145_LP_WIPE_DIAG:
-      /* Round-2 anti-self-wake wipe diagnostics (bench TC-S002 2026-10-01,
-       * 6 rounds 4PASS/2FAIL, FAIL@SB+127~133ms src=1). Kept SF-safe at 4B
+      /* Round-3 anti-phantom-wake diagnostics (bench TC-S002 2026-10-01,
+       * 1.1.4 fw, 6 rounds 3PASS/3FAIL, FAIL@SB+124~141ms src=1
+       * ev63=0x01 zero frames; 0x211A r4=0x81 r6=0x83). Kept SF-safe at 4B
        * because 0x2119 already fills the 7-byte single-frame payload and an
        * appended byte would force ISO-TP multi-frame (current bench reader
        * sends no Flow Control). [0]/[1] semantics:
-       * [0] 0x24 TRANSCEIVER_EVENT snapshot - last pin-low check, or the
-       *     wake decision if [2] bit7 is set
+       * [0] 0x24 TRANSCEIVER_EVENT snapshot - pre-wipe readback, then last
+       *     pin-low/clear-wait check, or the wake decision if [2] bit7 set
        * [1] 0x63 TRX_EVENT_STATUS   snapshot (same source as [0])
        * [2] stat bits (WIPE_STAT_* in can_protocol.c):
-       *     bit0 record valid | bit1 CAN flag at pre-check (skip-clear path)
-       *     bit2 RXD stuck low after clear+5ms | bit3 SPI read 0xFF
-       *     bit4 flag appeared during wait | bit5 wake blocked at least once
-       *     bit6 RXD released after clear | bit7 snapshot at wake decision
-       *     PA11 itself: only read inside the pin-low branch (bit0 record
-       *     implies PA11 low at check), PA11 at wake time = WK src byte
-       * [3] clear-attempt count this Standby (saturating) */
+       *     bit0 record valid | bit1 CAN flag at a pin-low check
+       *     bit2 (0x04) flag already set at the unconditional inhibit-expiry
+       *         wipe = latched during entry/inhibit (was round-2 STUCK)
+       *     bit3 SPI read 0xFF | bit4 flag 0->1 after a clear = real retry
+       *     bit5 wake blocked at least once
+       *     bit6 flag still set after the wipe = wipe ineffective/re-latch
+       *         (was round-2 RELEASED) | bit7 snapshot at wake decision
+       *     PA11 itself: flags are read first, PA11 second (round-3), so no
+       *     stat bit implies PA11 low; PA11 at wake time = WK src byte
+       * [3] clear+wait attempt count this Standby (saturating, includes
+       *     the one-shot unconditional wipe) */
       out[0] = g_lp_wipe_ev24;
       out[1] = g_lp_wipe_ev63;
       out[2] = g_lp_wipe_stat;
@@ -2404,88 +2439,205 @@ void can_protocol_poll(void)
   {
     if ((now - g_standby_since_ms) >= CAN_LP_WAKE_INHIBIT_MS)
     {
-      uint8_t src;
-      uint8_t allow_wake = 1U;
+      uint8_t src = 0U;
+      uint8_t allow_wake = 0U;
+      uint8_t ev24;
+      uint8_t ev63;
+      uint8_t spi_ok;
+      uint8_t can_wake;
+      uint8_t rx_low;
 
-      /* Round-2 stale pin-low policy (bench TC-S002 2026-10-01, 1.1.3, 6
-       * rounds: 4 PASS / 2 FAIL; every FAIL is WK at inhibit+first-poll,
-       * SB+127~133ms, src=1 with zero frames on the bus - byte-identical
-       * to pre-fix behaviour, i.e. the round-1 (79a0b78) one-shot wipe ran
-       * but RXD never released within the <=5ms wait and the designed
-       * fall-through still woke the MCU on a pure pin level.
-       *
-       * Release condition is now strict:
-       *   - CAN wake flag set (0x24 CW/WUF or 0x63 CW) -> real wake: never
-       *     cleared, wake proceeds untouched. TC-S003 (real 3E frame wake,
-       *     observed src=3 from 0x63 CW with RXD already released) is
-       *     unaffected.
-       *   - SPI unhealthy (either read back 0xFF) -> unknown: keep the
-       *     historical fall-through so a bus wake can never be lost to a
-       *     dead SPI.
-       *   - RXD low with NO CAN flag and healthy SPI -> stale pin event:
-       *     clear (0x61/0x63/0x64/0x24) and wait <=5ms for release; if
-       *     RXD is still low, BLOCK the wake this poll and retry the wipe
-       *     on later polls (throttled to CAN_LP_WIPE_RETRY_MS) until RXD
-       *     releases or a CAN flag proves a real wake. A pin-low level
-       *     alone (WK src=1, no CAN flag) must never wake again. */
-      if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET)
+      /* Round-3 anti-phantom wake policy (bench TC-S002, 1.1.4 firmware =
+       * round-2 fix 9f4cf24, 6 rounds 3 PASS / 3 FAIL; every FAIL is WK
+       * 01 41 57 4B at SB+124~141ms = inhibit expiry + first wake poll,
+       * src=1, ZERO frames on the bus, and DID 0x211A wake snapshot shows
+       * ev63 CW=0x01 — r4 stat=0x81 (PA11 high at pre-check, low µs later
+       * inside wakeup_pending), r6 stat=0x83 (CAN flag already set at the
+       * first pin-low pre-check). CW set with no frame anywhere = PHANTOM
+       * CAN-wake latch: round-2's "flag set => real wake, skip the clear"
+       * rule walked straight through it (r6) and wakeup_pending()'s
+       * PA11-first shortcut walked through it before flags were even
+       * consulted (r4). Round-3:
+       *   (b) ONE-SHOT UNCONDITIONAL wipe of 0x24/0x63/0x64/0x61 on the
+       *       first poll at inhibit expiry — no flag-state test; pre/post
+       *       readback recorded for 0x211A (PREW_FLAG/POST_STICK). Anything
+       *       latched during entry/settle/0..100ms is erased; only events
+       *       AFTER this wipe can authorize a wake.
+       *   (c) flags are read FIRST, then PA11 (a latch landing between the
+       *       two reads falls into the pin-low branch, never wakes on the
+       *       pin alone):
+       *       - CAN flag set + RXD released => real wake (bench genuine
+       *         wakes: src=3, RXD already released). Wake immediately,
+       *         zero added latency, src computed from these same flags
+       *         (ev24 CW/WUF->2 else ev63 CW->3, byte-identical to
+       *         wakeup_pending's result). TC-S003 path untouched.
+       *       - RXD low (flag or not, healthy SPI) => suspected phantom:
+       *         clear + bounded <=5ms release wait; flag 0->1 AFTER the
+       *         clear = host frame retry (CAN auto-retransmit / 3E burst)
+       *         => real wake, allow (FLAG_IN_WAIT). RXD released and
+       *         silent => phantom consumed, keep sleeping. RXD stuck low
+       *         => block this poll, throttled retry (CAN_LP_WIPE_RETRY_MS).
+       *         A pin-low level alone (WK src=1) can never wake again.
+       *       - SPI 0xFF => historical fall-through via wakeup_pending (a
+       *         dead SPI must never swallow a bus wake) — the ONLY remaining
+       *         path where the raw pin decides, kept byte-identical to
+       *         round-2 (SPI-dead + pin low => src=1 wake).
+       * Direction (d) raw-RX sniff rejected: in Standby the SIT1145 RXD
+       * carries wake-event levels, not frame data — sniffing frames requires
+       * the transceiver in Normal, which already means we committed to the
+       * wake; delaying WK by 1-5ms would also eat TC-S003's verified
+       * sub-ms/100ms wake timing. */
+
+      /* (b) one-shot unconditional event wipe at inhibit expiry */
+      if (g_lp_pre_wipe_due != 0U)
       {
-        uint8_t ev24   = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
-        uint8_t ev63   = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
-        uint8_t spi_ok = ((ev24 != 0xFFU) && (ev63 != 0xFFU)) ? 1U : 0U;
-        uint8_t can_wake = 0U;
-
-        if ((ev24 != 0xFFU) && ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U))
-        {
-          can_wake = 1U;
-        }
-        if ((ev63 != 0xFFU) && ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U))
-        {
-          can_wake = 1U;
-        }
-
-        /* DID 0x211A snapshot: last pin-low check of this Standby */
-        g_lp_wipe_ev24  = ev24;
+        g_lp_pre_wipe_due = 0U;
+        ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+        ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+        g_lp_wipe_ev24  = ev24;   /* pre-wipe snapshot (r6-type evidence) */
         g_lp_wipe_ev63  = ev63;
         g_lp_wipe_stat |= WIPE_STAT_VALID;
-        if (spi_ok == 0U)
+        if (((ev24 != 0xFFU) && ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U)) ||
+            ((ev63 != 0xFFU) && ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U)))
+        {
+          g_lp_wipe_stat |= WIPE_STAT_PREW_FLAG;
+        }
+        if ((ev24 == 0xFFU) || (ev63 == 0xFFU))
         {
           g_lp_wipe_stat |= WIPE_STAT_SPI_FF;
         }
+        sit1145_wakeup_clear();    /* 0x61/0x63/0x64/0x24, unconditional */
+        if (g_lp_wipe_attempts < 0xFFU)
+        {
+          g_lp_wipe_attempts++;    /* counted for 0x211A [3] */
+        }
+        /* readback: flag must be gone; still set = wipe ineffective or
+         * instant re-latch during transceiver settle — retry once, then
+         * record so the next bench run can tell the two apart */
+        ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+        ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+        if (((ev24 != 0xFFU) && ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U)) ||
+            ((ev63 != 0xFFU) && ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U)))
+        {
+          sit1145_wakeup_clear();
+          ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+          ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+          if (((ev24 != 0xFFU) && ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U)) ||
+              ((ev63 != 0xFFU) && ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U)))
+          {
+            g_lp_wipe_stat |= WIPE_STAT_POST_STICK;
+          }
+        }
+        /* deliberately NOT stamping g_lp_wipe_last_ms: the first pin-low
+         * clear+wait after this wipe must be allowed immediately */
+      }
 
+      /* decision: flags first, then PA11 — one consistent snapshot; the
+       * r4 µs race (PA11 high at pre-check, low inside wakeup_pending) now
+       * lands in the pin-low branch below instead of waking on the pin */
+      ev24   = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+      ev63   = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+      spi_ok = ((ev24 != 0xFFU) && (ev63 != 0xFFU)) ? 1U : 0U;
+      can_wake = 0U;
+      if (spi_ok != 0U)
+      {
+        if ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U)
+        {
+          can_wake = 1U;
+        }
+        if ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U)
+        {
+          can_wake = 1U;
+        }
+      }
+      rx_low = (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET) ? 1U : 0U;
+
+      if (spi_ok == 0U)
+      {
+        /* SPI unhealthy (either read 0xFF): historical fall-through,
+         * unchanged from round-2 — wakeup_pending decides (PA11-first), so
+         * a dead SPI can never swallow a bus wake. */
+        g_lp_wipe_stat |= WIPE_STAT_VALID | WIPE_STAT_SPI_FF;
+        g_lp_wipe_ev24  = ev24;
+        g_lp_wipe_ev63  = ev63;
+        src = sit1145_wakeup_pending();
+        allow_wake = (src != 0U) ? 1U : 0U;
+      }
+      else if ((can_wake != 0U) && (rx_low == 0U))
+      {
+        /* Real-wake signature: CAN flag set AND RXD already released —
+         * every genuine wake on the bench (r5 baseline: ev63=0x01,
+         * src=3). Wake with zero added latency; src from THIS snapshot
+         * (ev24 CW/WUF -> 2 else ev63 CW -> 3) — byte-identical to what
+         * sit1145_wakeup_pending() would return, no pin race possible. */
+        g_lp_wipe_stat |= WIPE_STAT_VALID;
+        g_lp_wipe_ev24  = ev24;
+        g_lp_wipe_ev63  = ev63;
+        allow_wake = 1U;
+        src = ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U) ? 2U : 3U;
+      }
+      else if (rx_low != 0U)
+      {
+        uint8_t flag_now = 0U;
+
+        /* RXD low, healthy SPI — phantom suspect (flag set: r6-type) or
+         * round-2 stale pin-low (no flag). Never wake on the level alone.
+         * Throttle rationale unchanged from round-2: while RXD is stuck the
+         * main loop is tight; an unthrottled <=5ms busy-wait would starve
+         * the UART and CAN polls. Throttled polls do cheap flag re-reads
+         * only (already done above) and block. */
+        g_lp_wipe_stat |= WIPE_STAT_VALID;
+        g_lp_wipe_ev24  = ev24;
+        g_lp_wipe_ev63  = ev63;
         if (can_wake != 0U)
         {
-          /* CAN flag present: real wake, never wipe it (TC-S003) */
           g_lp_wipe_stat |= WIPE_STAT_FLAG_PRESENT;
         }
-        else if (spi_ok == 0U)
-        {
-          /* SPI reads failed: cannot tell stale from real - historical
-           * fall-through (allow_wake stays 1) so a bus wake is never lost */
-        }
-        else
-        {
-          uint8_t attempt = 0U;
 
-          /* Throttle the clear+<=5ms wait: while RXD is stuck the main
-           * loop is tight, an unthrottled busy-wait would starve the UART
-           * and CAN polls. Between attempts only the cheap flag re-reads
-           * above run, so a genuine CAN flag is still caught immediately. */
-          if ((g_lp_wipe_last_ms == 0U) ||
-              ((now - g_lp_wipe_last_ms) >= CAN_LP_WIPE_RETRY_MS))
+        /* Attempt immediately when a CAN flag is set (possible real wake
+         * mid-latch: RXD held low until the event is cleared, and TC-S003
+         * allows only 30ms to ACK the host retransmit — the CPU-starvation
+         * throttle must not delay that case); otherwise throttle to
+         * CAN_LP_WIPE_RETRY_MS. A phantom flag is consumed by this clear,
+         * so the bypass is self-limiting unless the noise re-latches every
+         * poll (not observed: bench phantoms latch once per entry). */
+        if ((g_lp_wipe_last_ms == 0U) ||
+            ((now - g_lp_wipe_last_ms) >= CAN_LP_WIPE_RETRY_MS) ||
+            (can_wake != 0U))
+        {
+          uint32_t t0;
+
+          g_lp_wipe_last_ms = now;
+          if (g_lp_wipe_attempts < 0xFFU)
           {
-            uint32_t t0;
+            g_lp_wipe_attempts++;
+          }
+          sit1145_wakeup_clear();
 
-            g_lp_wipe_last_ms = now;
-            attempt = 1U;
-            if (g_lp_wipe_attempts < 0xFFU)
-            {
-              g_lp_wipe_attempts++;
-            }
-            sit1145_wakeup_clear();
+          /* Immediate post-clear read: separates a true 0->1 transition
+           * (real host retry relatched during the wait) from a flag that
+           * never left (wipe ineffective / instant re-latch). The latter
+           * must NOT wait and must NOT wake — waiting would busy-loop every
+           * poll (CPU starvation), waking would reopen the round-2 r6 hole.
+           * A real wake recovers anyway: next poll sees flag+RXD-released
+           * (fast path) or the host retransmit relatches within its own
+           * auto-retry cadence. */
+          ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+          ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+          g_lp_wipe_ev24 = ev24;
+          g_lp_wipe_ev63 = ev63;
+          if (((ev24 != 0xFFU) && ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U)) ||
+              ((ev63 != 0xFFU) && ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U)))
+          {
+            /* flag survived the clear: record and fall through to block
+             * (flag_now stays 0; no 5ms wait below) */
+            g_lp_wipe_stat |= WIPE_STAT_POST_STICK;
+          }
+          else
+          {
             /* Bounded RXD-release wait, same <=5ms pattern as
-             * can_lp_enter_normal: a stale latch drops PA11 high here and
-             * the device keeps sleeping. */
+             * can_lp_enter_normal: a stale/phantom latch drops PA11 high
+             * here and the device keeps sleeping. */
             t0 = timer_get_tick();
             while ((timer_get_tick() - t0) < 5U)
             {
@@ -2494,54 +2646,58 @@ void can_protocol_poll(void)
                 break;
               }
             }
-            /* A genuine wake landing during the wait re-sets a CAN flag:
-             * re-read once so it is never swallowed by the block below. */
+            /* Re-read after the clear+wait: a flag that went 0->1 here was
+             * set AFTER our clear = a real host frame retry landed (CAN
+             * auto-retransmit of the un-ACKed frame / 3E×3 burst), which a
+             * consumed phantom cannot produce. */
             ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
             ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+            g_lp_wipe_ev24 = ev24;
+            g_lp_wipe_ev63 = ev63;
             if (((ev24 != 0xFFU) && ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U)) ||
                 ((ev63 != 0xFFU) && ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U)))
             {
-              can_wake = 1U;
+              flag_now = 1U;
               g_lp_wipe_stat |= WIPE_STAT_FLAG_IN_WAIT;
             }
           }
-
-          if (can_wake == 0U)
-          {
-            if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET)
-            {
-              /* RXD stuck low with no CAN flag - the round-2 FAIL
-               * signature. Do NOT wake; keep retrying the wipe until a
-               * CAN flag proves a real wake or RXD releases. */
-              allow_wake = 0U;
-              g_lp_wipe_stat |= WIPE_STAT_BLOCKED;
-              if (attempt != 0U)
-              {
-                g_lp_wipe_stat |= WIPE_STAT_STUCK;
-              }
-            }
-            else if (attempt != 0U)
-            {
-              g_lp_wipe_stat |= WIPE_STAT_RELEASED;
-            }
-          }
         }
+
+        if (flag_now != 0U)
+        {
+          /* new event after our clear = real wake retry; src from the new
+           * flags (2/3), never the bare-pin 1 */
+          allow_wake = 1U;
+          src = ((ev24 != 0xFFU) &&
+                 ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U)) ? 2U : 3U;
+        }
+        else if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) == RESET)
+        {
+          /* RXD still low with no proven-new event — block this poll,
+           * keep retrying the wipe (throttled). A real wake is caught by
+           * the flag+RXD-released path above once RXD releases, or by the
+           * 0->1 re-read on a later attempt while the host retransmits. */
+          allow_wake = 0U;
+          g_lp_wipe_stat |= WIPE_STAT_BLOCKED;
+        }
+        /* else: RXD released and silent after the clear — phantom
+         * consumed, fall through with allow_wake=0 and keep sleeping */
       }
+      /* else: flags clean + RXD released — normal quiet standby, sleep */
 
       if (allow_wake != 0U)
       {
-        src = sit1145_wakeup_pending();
-        if (src != 0U)
+        if (src == 0U)
         {
-          g_lp_last_wake_src = src;
-          /* wake-decision snapshot: decisive ev24/ev63 values for DID
-           * 0x211A (overwrites the pin-low check snapshot; the WK frame's
-           * src byte already encodes PA11 at this instant) */
-          g_lp_wipe_ev24  = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
-          g_lp_wipe_ev63  = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
-          g_lp_wipe_stat |= WIPE_STAT_VALID | WIPE_STAT_WAKE_SNAP;
-          can_lp_enter_normal();
+          src = 1U;   /* SPI-dead fall-through edge: wakeup_pending said pin */
         }
+        g_lp_last_wake_src = src;
+        /* wake-decision snapshot: decisive ev24/ev63 values for DID
+         * 0x211A (the WK frame's src byte already encodes the source) */
+        g_lp_wipe_ev24  = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+        g_lp_wipe_ev63  = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+        g_lp_wipe_stat |= WIPE_STAT_VALID | WIPE_STAT_WAKE_SNAP;
+        can_lp_enter_normal();
       }
     }
   }
