@@ -189,7 +189,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_FW_1.1.1** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_FW_1.1.6** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -199,6 +199,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-02 | **版本号联动新规则 + 版本升至 QC_JYF_FW_1.1.6**：新增「代码变更版本递增规则」（每次代码修改同一提交内递增 `SW_VERSION_STR`，默认 patch 位 +1，同步 README/docs 当前版本值），写入 AGENTS.md 版本号联动规则段；`SW_VERSION_STR` 由 `QC_JYF_FW_1.1.1` 升至 `QC_JYF_FW_1.1.6`（修正历史上版本串只在 Windows 侧构建时临时改动、仓库源码停留在 1.1.1 的脱节）；docs/3（§19 闸门表、§21 DID 0xF195、§26 常量表）与 docs/11 示例同步当前值 |
 | 2026-09-23 | **恢复 0x37 升级完成自复位 + 删除 11 01 ECUReset 服务**：升级完成后 APP 自动复位（`0x77`→SHUTDOWN→`NVIC_SystemReset`），主机无需 `11 01`；`0x11` 服务删除（不再应答 `51 01`/不再应答后复位，请求回 NRC serviceNotSupported）；OTA 脚本删除 `uds_ecu_reset` 步骤，升级完成信号后直接等待复位重启并验证 |
 | 2026-09-23 | **README 测试用例数量对齐**：目录树（§2）与文档索引（§7）两处「62 条测试用例」更正为 **69 条**，与 docs/10 实际清点一致（69 个唯一 TC 编号，分项表 5+11+6+6+5+7+10+5+6+8=69）；docs/10 本身已为 69 无需改动 |
 | 2026-09-19 | **OTA 恢复包移植批**（移植自 `backup/fix-package-0f4583f`，终审 PASS_WITH_RISKS 85，适配基线 f933c2d）：**0x37 收尾自复位切槽**——APP 在 verify+commit_trial 成功后先发 77、等 TX 空闲→SHUTDOWN→NVIC_SystemReset，Boot 按 trial PENDING 切槽，主机 11 01 保留为旧 APP 兼容/复位未生效补发；**擦除路径有界等待**（`flash_sector_erase_bounded` 局部轮询上限 `OTA_ERASE_POLLS_MAX`，超时 `flash_lock`+`__enable_irq` 恢复后回 NRC 0x72 可观测失败）；OTA 脚本判定闭环三条件（APP 应答+0x2113==目标槽+0xF195==预期版本，缺一即 FAIL+差异明细）+ 非 suppress 11 01 + 重定位宿主自检 + 版本感知拒闪 + 失败日志 0x37 NRC 语义输出；注释同步 can_protocol.c/h；docs/3 工作流同步 0x37 自复位语义；**`SW_VERSION_STR` 保持 `QC_JYF_FW_1.1.1`**（1.1.2 升级载荷由用户按需自行构建） |
