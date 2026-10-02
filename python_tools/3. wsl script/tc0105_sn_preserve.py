@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""TC-0106 SN 保留验证测试 —— WSL2 独立执行。
+"""TC-0105 SN 保留验证测试 —— WSL2 独立执行。
 
-用例 TC-0106（P2）：SN 已写入前置下，执行完整 OTA 升级，复位后读
+用例 TC-0105（P2）：SN 已写入前置下，执行完整 OTA 升级，复位后读
 DID 0xF18C（SN）与 0xF195（SW 版本），断言：
   ① SN == OTA 前记录值（严格逐字节，含尾部填充/空格差异都如实打印）；
   ② 复位后 0xF195 == 载荷版本（判定闭环）；
@@ -19,7 +19,7 @@ DID 0xF18C（SN）与 0xF195（SW 版本），断言：
   → 复位后 22 F18C / 22 F195 / 0x2113 → 三断言判定 → RESULT PASS/FAIL。
 
 用法（仓库任意位置）：
-  python3 "python_tools/3. wsl script/tc0106_sn_preserve.py" [--firmware "路径.bin"]
+  python3 "python_tools/3. wsl script/tc0105_sn_preserve.py" [--firmware "路径.bin"]
   默认载荷：python_tools/app bin/app_image_v1_1_2.bin（设备当前 1.1.1，本次刷 1.1.2）
 退出码：0=PASS，1=FAIL。
 
@@ -48,14 +48,14 @@ import zcanpro_ext_ota_auto as ext  # noqa: E402
 
 DEFAULT_FIRMWARE = os.path.join(PT, "app bin", "app_image_v1_1_2.bin")
 
-TRANSFER_BLOCK = 128    # 36 每块字节数（≤0x400，与 ext/tc0104 一致）
+TRANSFER_BLOCK = 128    # 36 每块字节数（≤0x400，与 ext/tc0103 一致）
 
 # SN 前置门禁：这些形态视为"未写入/无效"
 SN_NOT_WRITTEN_STATES = ("empty", "all_zero", "all_ff", "all_space")
 
 
 class TestFail(RuntimeError):
-    """TC-0106 判定 FAIL（带失败步骤标签）。"""
+    """TC-0105 判定 FAIL（带失败步骤标签）。"""
 
 
 BUS = None
@@ -159,7 +159,7 @@ def diff_bytes(before, after):
 
 # ---------------------------------------------------------------- 主流程
 
-def run_tc0106(fw_path):
+def run_tc0105(fw_path):
     global BUS
     # ---- 1. 载荷与签名准备（不触碰硬件）----
     if not os.path.isfile(fw_path):
@@ -334,7 +334,7 @@ def run_tc0106(fw_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="TC-0106 SN 保留验证测试")
+    parser = argparse.ArgumentParser(description="TC-0105 SN 保留验证测试")
     parser.add_argument("--firmware", default=DEFAULT_FIRMWARE,
                         help="OTA 载荷 bin（默认 app bin/app_image_v1_1_2.bin）")
     args = parser.parse_args()
@@ -343,17 +343,17 @@ def main():
         fw = os.path.abspath(os.path.join(os.getcwd(), fw))
         if not os.path.isfile(fw):
             fw = os.path.abspath(os.path.join(HERE, args.firmware))
-    _log("======== TC-0106 SN 保留验证测试 ========")
+    _log("======== TC-0105 SN 保留验证测试 ========")
     _log("判定：OTA 前后 SN(F18C) 逐字节一致 + 复位后 F195==载荷版本 + 0x2113=0x00")
     t0 = time.time()
     try:
-        run_tc0106(fw)
+        run_tc0105(fw)
     except TestFail as e:
-        _log("TC-0106 RESULT: FAIL —— %s" % e)
+        _log("TC-0105 RESULT: FAIL —— %s" % e)
         _log("失败步骤: %s（总耗时 %.0fs）" % (FAILED_STEP or "未知", time.time() - t0))
         return 1
     except Exception as e:
-        _log("TC-0106 RESULT: FAIL —— 未预期异常: %s" % e)
+        _log("TC-0105 RESULT: FAIL —— 未预期异常: %s" % e)
         _log("失败步骤: %s（总耗时 %.0fs）" % (FAILED_STEP or "准备阶段", time.time() - t0))
         return 1
     finally:
@@ -362,7 +362,7 @@ def main():
         except Exception:
             pass
         shim.close()  # 释放 /dev/ttyACM0
-    _log("TC-0106 RESULT: PASS —— OTA 升级复位后 SN 逐字节保留、"
+    _log("TC-0105 RESULT: PASS —— OTA 升级复位后 SN 逐字节保留、"
          "0xF195==载荷版本、0x2113=0x00（总耗时 %.0fs）" % (time.time() - t0))
     return 0
 

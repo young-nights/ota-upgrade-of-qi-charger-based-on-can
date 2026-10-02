@@ -100,7 +100,7 @@ ota-upgrade-of-qi-charger-based-on-can/
     ├── 合并-CAN协议-UDS-OTA工作流.md        ← CAN 协议与 OTA 完整工作流
     ├── 2. Flash 分配方案.md                 ← Flash 分区细节
     ├── 9. APP镜像打包与产线烧录.md          ← 打包脚本用法
-    ├── 10. CAN-UDS OTA 测试用例表.md        ← 69 条测试用例
+    ├── 10. CAN-UDS OTA 测试用例表.md        ← 92 条测试用例
     ├── 11~14. 签名 / IAP 对比 / 宏定义      ← 专题文档
     ├── 15. 计划安排表.md
     ├── keys/                               ← ECDSA P-256 密钥对
@@ -189,7 +189,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_FW_1.1.7** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_FW_1.1.8** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -199,6 +199,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-02 | **docs/10 测试用例 TC 编号全表重排**：数字段按文档顺序连续化（组内 01..N 连续、补回 TC-0103 空洞），映射 01xx→01xx（0104/0105/0106→0103/0104/0105）、05xx→02xx、06xx→03xx、08xx→04xx、13xx→05xx、10xx→06xx、11xx→07xx、12xx→08xx、07xx→09xx、09xx→10xx；TC-B/D/S 三段不变；总览表按文档顺序重排+补编号列；交叉引用同步（ota_download.c 注释、.agent-notes.md）；测试脚本改名 tc0104/0105/0106→tc0103/0104/0105（含内部标识符）；勾选状态逐条随迁（21 条已勾不变）。固件源码注释引用变更按规则递增 `SW_VERSION_STR` 1.1.7→1.1.8 |
 | 2026-10-02 | **验签强制使能（OTA_VERIFY_ENFORCE 0→1）**：解除 2026-09-23 测试期临时开关（验签失败强制放行+g_verify_bypass_hit 标记），恢复严格校验——0x37 验签失败回 NRC 0x72 拒绝提交、不复位；复核公钥一致性（`g_app_ecdsa_pubkey` == `docs/keys/private.pem` 派生公钥，正常签名镜像升级不受影响）；BOOT 侧 ECDSA 复验已于 2026-09-24 移除（签名由 App 层 0x37 验签把关），如需恢复另行派单；`SW_VERSION_STR` 1.1.6→1.1.7（按代码变更版本递增规则） |
 | 2026-10-02 | **版本号联动新规则 + 版本升至 QC_JYF_FW_1.1.6**：新增「代码变更版本递增规则」（每次代码修改同一提交内递增 `SW_VERSION_STR`，默认 patch 位 +1，同步 README/docs 当前版本值），写入 AGENTS.md 版本号联动规则段；`SW_VERSION_STR` 由 `QC_JYF_FW_1.1.1` 升至 `QC_JYF_FW_1.1.6`（修正历史上版本串只在 Windows 侧构建时临时改动、仓库源码停留在 1.1.1 的脱节）；docs/3（§19 闸门表、§21 DID 0xF195、§26 常量表）与 docs/11 示例同步当前值 |
 | 2026-09-23 | **恢复 0x37 升级完成自复位 + 删除 11 01 ECUReset 服务**：升级完成后 APP 自动复位（`0x77`→SHUTDOWN→`NVIC_SystemReset`），主机无需 `11 01`；`0x11` 服务删除（不再应答 `51 01`/不再应答后复位，请求回 NRC serviceNotSupported）；OTA 脚本删除 `uds_ecu_reset` 步骤，升级完成信号后直接等待复位重启并验证 |
@@ -282,7 +283,7 @@ python merge_prod_bin.py
 | [合并-CAN协议-UDS-OTA工作流](docs/合并-CAN协议-UDS-OTA工作流.md) | CAN 协议与 UDS OTA 完整工作流实操手册 |
 | [2. Flash 分配方案](docs/2.%20Flash%20分配方案.md) | 128KB Flash 分区、Metadata 结构、XATO 头 |
 | [9. APP镜像打包与产线烧录](docs/9.%20APP镜像打包与产线烧录.md) | 打包脚本用法、Keil IROM 配置 |
-| [10. CAN-UDS OTA 测试用例表](docs/10.%20CAN-UDS%20OTA%20测试用例表.md) | 69 条测试用例 (P0/P1/P2) |
+| [10. CAN-UDS OTA 测试用例表](docs/10.%20CAN-UDS%20OTA%20测试用例表.md) | 92 条测试用例 (P0/P1/P2) |
 | [11. 签名校验与脚本使用](docs/11.%20签名校验与脚本使用.md) | 签名工具使用说明 |
 | [12. 签名原理与Seed机制](docs/12.%20签名原理与Seed机制.md) | ECDSA P-256 + SHA-256 原理 |
 | [13. 官方IAP例程vs自定义Bootloader对比](docs/13.%20官方IAP例程vs自定义Bootloader对比.md) | 官方 IAP 方案与本项目 Bootloader 对比 |

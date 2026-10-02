@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""TC-0104 TesterPresent (3E 80) 保活下载测试 —— WSL2 独立执行。
+"""TC-0103 TesterPresent (3E 80) 保活下载测试 —— WSL2 独立执行。
 
-用例 TC-0104（P1）TesterPresent 保活：执行完整下载流程，关键步骤间插入
+用例 TC-0103（P1）TesterPresent 保活：执行完整下载流程，关键步骤间插入
 3E 80（suppress，不等应答），预期全流程无 S3 超时。
 
 核心证明点 —— 蓄意超 S3 停顿：
@@ -24,7 +24,7 @@
 并打印失败步骤。
 
 用法（仓库任意位置）：
-  python3 "python_tools/3. wsl script/tc0104_tp_keepalive.py" [--firmware "路径.bin"]
+  python3 "python_tools/3. wsl script/tc0103_tp_keepalive.py" [--firmware "路径.bin"]
   默认载荷：python_tools/app bin/app_image_v1_1_2.bin
 退出码：0=PASS，1=FAIL。
 
@@ -53,7 +53,7 @@ import zcanpro_ext_ota_auto as ext  # noqa: E402
 
 DEFAULT_FIRMWARE = os.path.join(PT, "app bin", "app_image_v1_1_2.bin")
 
-# TC-0104 保活停顿参数（核心证明点）
+# TC-0103 保活停顿参数（核心证明点）
 S3_MS = 5000            # can_protocol.h SESSION_TIMEOUT_MS
 PAUSE_S = 10.0          # 蓄意停顿时长（> S3）
 PAUSE_TP_INTERVAL_S = 2  # 停顿期间 3E 80 发送间隔
@@ -62,7 +62,7 @@ TP_EVERY_N_BLOCKS = 8   # 36 每 N 块插一帧 3E 80（N≤16）
 
 
 class TestFail(RuntimeError):
-    """TC-0104 判定 FAIL（带失败步骤标签）。"""
+    """TC-0103 判定 FAIL（带失败步骤标签）。"""
 
 
 BUS = None
@@ -144,7 +144,7 @@ def s3_pause_with_keepalive():
          "继续 34 ========" % (elapsed, n))
 
 
-def run_tc0104(fw_path):
+def run_tc0103(fw_path):
     global BUS
     # ---- 载荷与签名准备（不触碰硬件） ----
     if not os.path.isfile(fw_path):
@@ -286,7 +286,7 @@ def run_tc0104(fw_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="TC-0104 TP 保活下载测试")
+    parser = argparse.ArgumentParser(description="TC-0103 TP 保活下载测试")
     parser.add_argument("--firmware", default=DEFAULT_FIRMWARE,
                         help="OTA 载荷 bin（默认 app bin/app_image_v1_1_2.bin）")
     args = parser.parse_args()
@@ -295,18 +295,18 @@ def main():
         fw = os.path.abspath(os.path.join(os.getcwd(), fw))
         if not os.path.isfile(fw):
             fw = os.path.abspath(os.path.join(HERE, args.firmware))
-    _log("======== TC-0104 TesterPresent 保活下载测试 ========")
+    _log("======== TC-0103 TesterPresent 保活下载测试 ========")
     _log("S3=%dms，蓄意停顿 %.1fs，停顿期间每 %.0fs 一帧 3E 80"
          % (S3_MS, PAUSE_S, PAUSE_TP_INTERVAL_S))
     t0 = time.time()
     try:
-        run_tc0104(fw)
+        run_tc0103(fw)
     except TestFail as e:
-        _log("TC-0104 RESULT: FAIL —— %s" % e)
+        _log("TC-0103 RESULT: FAIL —— %s" % e)
         _log("失败步骤: %s（总耗时 %.0fs）" % (FAILED_STEP or "未知", time.time() - t0))
         return 1
     except Exception as e:
-        _log("TC-0104 RESULT: FAIL —— 未预期异常: %s" % e)
+        _log("TC-0103 RESULT: FAIL —— 未预期异常: %s" % e)
         _log("失败步骤: %s（总耗时 %.0fs）" % (FAILED_STEP or "准备阶段", time.time() - t0))
         return 1
     finally:
@@ -315,7 +315,7 @@ def main():
         except Exception:
             pass
         shim.close()  # 释放 /dev/ttyACM0
-    _log("TC-0104 RESULT: PASS —— 8s+ S3 停顿（期间 3E 80 连发）后全流程"
+    _log("TC-0103 RESULT: PASS —— 8s+ S3 停顿（期间 3E 80 连发）后全流程"
          "正响应，复位后 0x2113=0x00、0xF195==载荷版本，保活有效"
          "（总耗时 %.0fs）" % (time.time() - t0))
     return 0

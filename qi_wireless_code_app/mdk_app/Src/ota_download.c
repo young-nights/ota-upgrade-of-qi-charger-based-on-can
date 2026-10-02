@@ -48,7 +48,7 @@ static volatile uint8_t g_verify_bypass_hit = 0U;
 #define FLASH_PHYSICAL_END  0x08020000U
 #define VERIFY_CHUNK        256U
 
-/* Bounded erase budget (TC-1307 hardening): the library erase timeout is
+/* Bounded erase budget (TC-0507 hardening): the library erase timeout is
  * effectively unbounded; a wedged flash BUSY with IRQs masked would hang
  * the whole tree. ~25ms/sector typical -> 4M polls ~4x margin. Healthy
  * path unaffected; wedged path degrades to bounded timeout -> NRC 0x72. */
