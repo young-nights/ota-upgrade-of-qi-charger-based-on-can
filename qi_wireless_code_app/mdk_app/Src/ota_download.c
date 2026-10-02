@@ -31,8 +31,10 @@
 #include "at32f422_426.h"
 #include <string.h>
 
-/* VERIFY ENFORCE SWITCH: 1 = strict check (normal), 0 = force pass on failure (TEMPORARY for testing, added 2026-09-23) */
-#define OTA_VERIFY_ENFORCE  0
+/* VERIFY ENFORCE SWITCH: 1 = strict check (normal), 0 = force pass on failure
+ * (TEMPORARY for testing, added 2026-09-23; re-enabled=1 on 2026-10-02 per
+ * user instruction: 验签失能屏蔽必须解除) */
+#define OTA_VERIFY_ENFORCE  1
 
 #if (OTA_VERIFY_ENFORCE == 0)
 /* Bypass-hit marker (debugger-watchable): nonzero = at least one verify
