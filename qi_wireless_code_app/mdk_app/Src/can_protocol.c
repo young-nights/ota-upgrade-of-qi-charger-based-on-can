@@ -50,7 +50,9 @@
 /*  改版本号只改本常量 + docs 文档，无打包脚本联动环节。                     */
 /* ========================================================================== */
 
-static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.8";   /*!< 运行版本唯一真相源 */
+/* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
+/* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
+static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.11";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -924,14 +926,12 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 32U;
       return 0;
     case DID_HW_VERSION:
-      if (device_info_read(&di) == 0)
-      {
-        device_info_pad32(out, di.hw_version);
-      }
-      else
-      {
-        device_info_pad32(out, HW_VERSION_STR);
-      }
+      /* HW_VERSION_STR 是 F193 唯一真相源（对齐 F195/SW_VERSION_STR 规约）。
+       * NVM device_info.hw_version 已弃用：字段仅 8B，装不下 15B 全串
+       * "QC_JYF_HW_1.1.5"，且 device_info_write_sn / device_info_write_pubkey
+       * 建块分支会 memset 清零该字段（首写 SN/pubkey 后 NVM 读回全空）。
+       * 此处恒定返回编译时常量，任何写入（SN/pubkey 等）都无法改变 F193 读值。 */
+      device_info_pad32(out, HW_VERSION_STR);
       *olen = 32U;
       return 0;
     case DID_SERIAL_NUMBER:

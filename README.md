@@ -189,7 +189,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_FW_1.1.8** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_FW_1.1.11** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -199,6 +199,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-05 | **fix F193 硬件版本读取恒读常量**：`fill_did_payload` DID_HW_VERSION 分支改为恒定 `device_info_pad32(out, HW_VERSION_STR)`，删除 NVM 优先逻辑（NVM `device_info.hw_version` 弃用：8B 装不下全串 + 写 SN/pubkey 建块分支 memset 清零，首写后 F193 恒读 32B 空格，TC-0903 FAIL）；device_info.c 两处 hw_version 置零处补注释。`SW_VERSION_STR` 1.1.8→1.1.11（跳过 1.1.9/1.1.10：版本串已被 TC-0508 十个测试镜像占用，且 `app_image_vX_Y_Z.bin` 打包输出名会冲突，故保版本唯一性跳至 1.1.11） |
 | 2026-10-02 | **docs/10 测试用例 TC 编号全表重排**：数字段按文档顺序连续化（组内 01..N 连续、补回 TC-0103 空洞），映射 01xx→01xx（0104/0105/0106→0103/0104/0105）、05xx→02xx、06xx→03xx、08xx→04xx、13xx→05xx、10xx→06xx、11xx→07xx、12xx→08xx、07xx→09xx、09xx→10xx；TC-B/D/S 三段不变；总览表按文档顺序重排+补编号列；交叉引用同步（ota_download.c 注释、.agent-notes.md）；测试脚本改名 tc0104/0105/0106→tc0103/0104/0105（含内部标识符）；勾选状态逐条随迁（21 条已勾不变）。固件源码注释引用变更按规则递增 `SW_VERSION_STR` 1.1.7→1.1.8 |
 | 2026-10-02 | **验签强制使能（OTA_VERIFY_ENFORCE 0→1）**：解除 2026-09-23 测试期临时开关（验签失败强制放行+g_verify_bypass_hit 标记），恢复严格校验——0x37 验签失败回 NRC 0x72 拒绝提交、不复位；复核公钥一致性（`g_app_ecdsa_pubkey` == `docs/keys/private.pem` 派生公钥，正常签名镜像升级不受影响）；BOOT 侧 ECDSA 复验已于 2026-09-24 移除（签名由 App 层 0x37 验签把关），如需恢复另行派单；`SW_VERSION_STR` 1.1.6→1.1.7（按代码变更版本递增规则） |
 | 2026-10-02 | **版本号联动新规则 + 版本升至 QC_JYF_FW_1.1.6**：新增「代码变更版本递增规则」（每次代码修改同一提交内递增 `SW_VERSION_STR`，默认 patch 位 +1，同步 README/docs 当前版本值），写入 AGENTS.md 版本号联动规则段；`SW_VERSION_STR` 由 `QC_JYF_FW_1.1.1` 升至 `QC_JYF_FW_1.1.6`（修正历史上版本串只在 Windows 侧构建时临时改动、仓库源码停留在 1.1.1 的脱节）；docs/3（§19 闸门表、§21 DID 0xF195、§26 常量表）与 docs/11 示例同步当前值 |

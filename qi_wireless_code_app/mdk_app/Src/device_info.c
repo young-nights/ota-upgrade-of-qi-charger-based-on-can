@@ -97,6 +97,7 @@ int8_t device_info_write_sn(const uint8_t *sn32)
     info.magic            = DEVICE_INFO_MAGIC;
     info.version          = DEVICE_INFO_VERSION;
     info.production_date  = 0U;
+    /* hw_version 已不作为版本来源（F193 恒读 HW_VERSION_STR），此处置零仅为初始化保留字段 */
     memset((void *)info.hw_version, 0, sizeof(info.hw_version));
     info.pubkey_valid     = 0xFFU;
     memset((void *)info.reserved, 0xFF, sizeof(info.reserved));
@@ -151,6 +152,7 @@ int8_t device_info_write_pubkey(const uint8_t *pubkey65)
     info.magic            = DEVICE_INFO_MAGIC;
     info.version          = DEVICE_INFO_VERSION;
     info.production_date  = 0U;
+    /* hw_version 已不作为版本来源（F193 恒读 HW_VERSION_STR），此处置零仅为初始化保留字段 */
     memset((void *)info.hw_version, 0, sizeof(info.hw_version));
     memset((void *)info.reserved, 0xFF, sizeof(info.reserved));
   }
