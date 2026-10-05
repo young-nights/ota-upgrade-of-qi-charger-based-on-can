@@ -63,7 +63,9 @@ void qi_uart_init(void)
   gpio_init_struct.gpio_pull           = GPIO_PULL_NONE;
   gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_STRONGER;
   gpio_init(GPIOA, &gpio_init_struct);
-  gpio_pin_mux_config(GPIOA, GPIO_PINS_SOURCE2, GPIO_MUX_7);
+  /* AT32F422/426 表6-1：PA2 MUX1=USART2_TX、PA3 MUX1=USART2_RX
+   * （MUX7 无功能空接）——1.1.14 修复 GPIO_MUX_7→GPIO_MUX_1 */
+  gpio_pin_mux_config(GPIOA, GPIO_PINS_SOURCE2, GPIO_MUX_1);
 
   /* configure PA3 (USART2_RX) as input with pull-up */
   gpio_default_para_init(&gpio_init_struct);
@@ -73,7 +75,8 @@ void qi_uart_init(void)
   gpio_init_struct.gpio_pull           = GPIO_PULL_UP;
   gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_STRONGER;
   gpio_init(GPIOA, &gpio_init_struct);
-  gpio_pin_mux_config(GPIOA, GPIO_PINS_SOURCE3, GPIO_MUX_7);
+  /* AT32F422/426 表6-1：PA3 MUX1=USART2_RX（MUX7 无功能空接） */
+  gpio_pin_mux_config(GPIOA, GPIO_PINS_SOURCE3, GPIO_MUX_1);
 
   /* configure USART2: 9600 baud, 8N1 */
   usart_init(USART2, QI_UART_BAUDRATE, USART_DATA_8BITS, USART_STOP_1_BIT);
