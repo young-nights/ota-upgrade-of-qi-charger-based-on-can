@@ -34,6 +34,8 @@
 #include "device_info.h"
 #include "board_gpio.h"
 #include "qi_protocol.h"
+#include "qi_uart.h"
+#include "qi_uart_sniff.h"
 #include "nvm_drv.h"
 #include "sha256.h"
 #include "uECC.h"
@@ -52,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.11";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.12";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -1275,6 +1277,27 @@ static void handle_read_data_by_id(uint8_t *data, uint16_t len)
     return;
   }
 
+  /* DID 0x2140 Qi UART 抓取读取：应答变长（flags+len+最多 240B 数据，
+   * 总长可达 245B）且 siphon 语义每次读消耗缓冲，不进同步 fill 路径
+   * （fill 载荷缓冲仅 32B）。仅支持单独读；组合读含 0x2140 回 NRC 0x22
+   * （对齐 0x2013 组合读拒绝口径）。任意会话、无需安全访问。 */
+  if ((len == 3U) &&
+      ((((uint16_t)data[1] << 8) | (uint16_t)data[2]) == DID_QI_UART_SNIFF))
+  {
+    uint8_t flags = 0U;
+    uint16_t n;
+
+    resp[0] = UDS_SID_READ_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+    resp[1] = data[1];
+    resp[2] = data[2];
+    /* siphon：只清已返回部分，缓冲多于 240B 时下次续读；空回 [00][00] */
+    n = qi_sniff_read(&resp[5], 240U, &flags);
+    resp[3] = flags;              /* bit0=自上次读以来发生过溢出丢弃，其余 0 */
+    resp[4] = (uint8_t)n;
+    proto_send_response(resp, (uint16_t)(5U + n));
+    return;
+  }
+
   resp[0] = UDS_SID_READ_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
   pos = 1U;
   for (i = 1U; i < len; i += 2U)
@@ -1286,6 +1309,13 @@ static void handle_read_data_by_id(uint8_t *data, uint16_t len)
     if (did == DID_QI_VERSION_QUERY)
     {
       /* 组合读含 0x2013：延迟应答无法服务 → NRC 0x22 */
+      proto_send_nrc(UDS_SID_READ_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
+      return;
+    }
+
+    if (did == DID_QI_UART_SNIFF)
+    {
+      /* 组合读含 0x2140：变长应答 + siphon 消耗语义无法服务 → NRC 0x22 */
       proto_send_nrc(UDS_SID_READ_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
       return;
     }
@@ -1358,6 +1388,7 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
     case DID_ECDSA_PUBKEY:
     case DID_QI_IAP_CONTROL:
     case DID_QI_IAP_DATA:
+    case DID_QI_UART_TX:
       if (current_session != SESSION_PROGRAMMING)
       {
         proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
@@ -1544,6 +1575,33 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         g_qi_iap_wait_start_ms = timer_get_tick();
         g_qi_iap_pending_did[0] = data[1];
         g_qi_iap_pending_did[1] = data[2];
+        break;
+      }
+
+      case DID_QI_UART_TX:
+      {
+        /* Qi UART 透传发送：payload 1~64B 原样逐字节发给 Qi 芯片。
+         * 会话+安全门禁已在上方 case 分组检过（同 0x2130/0x2131）；
+         * 这里只做长度校验 + Qi IAP 进行中拒绝（避免 UART 命令交叉，
+         * NRC 对齐 0x2130 拒绝条件）。 */
+        uint16_t n = (uint16_t)(len - 3U);
+
+        if ((n < 1U) || (n > 64U))
+        {
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
+          return;
+        }
+        if (g_qi_iap_state != QI_IAP_IDLE)
+        {
+          /* Qi IAP 升级中：避免 UART 命令交叉 */
+          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
+          return;
+        }
+        qi_uart_send(&data[3], (uint8_t)n);
+        resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+        resp[1] = data[1];
+        resp[2] = data[2];
+        proto_send_response(resp, 3);
         break;
       }
 

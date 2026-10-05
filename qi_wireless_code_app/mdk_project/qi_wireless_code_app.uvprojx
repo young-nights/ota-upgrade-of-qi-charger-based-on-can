@@ -549,6 +549,11 @@
               <FilePath>..\mdk_app\Src\qi_uart.c</FilePath>
             </File>
             <File>
+              <FileName>qi_uart_sniff.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\mdk_app\Src\qi_uart_sniff.c</FilePath>
+            </File>
+            <File>
               <FileName>qi_protocol.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\mdk_app\Src\qi_protocol.c</FilePath>

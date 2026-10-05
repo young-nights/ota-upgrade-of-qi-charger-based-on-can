@@ -25,6 +25,7 @@
 
 /* includes ------------------------------------------------------------------*/
 #include "qi_uart.h"
+#include "qi_uart_sniff.h"
 
 /* private variables ---------------------------------------------------------*/
 
@@ -231,6 +232,9 @@ void qi_uart_poll(void)
   {
     if (qi_uart_rx_read(&byte) == 0)
     {
+      /* 旁路抓取：原始字节喂入 0x2140 抓取缓冲（零侵入，
+       * 不改变下方 qi_protocol 回调解析路径与 USART2 ISR 行为） */
+      qi_sniff_feed(byte);
       ((qi_uart_rx_callback_t)rx_callback)(&byte, 1);
     }
   }

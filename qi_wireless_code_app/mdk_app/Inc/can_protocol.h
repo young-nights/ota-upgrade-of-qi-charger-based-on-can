@@ -159,6 +159,8 @@ extern "C" {
 #define DID_QI_IAP_DATA             0x2131U   /*!< Qi IAP 数据（写）：固件数据包 */
 #define DID_QI_IAP_STATUS           0x2132U   /*!< Qi IAP 状态（读）：state/progress/版本/已发/总长 */
 #define DID_QI_FW_VERSION           0x2133U   /*!< Qi 芯片固件版本（读）：来自 UART 0x01 上报 */
+#define DID_QI_UART_SNIFF           0x2140U   /*!< Qi UART 抓取读取（读，任意会话）：62 21 40 [flags][len][data...]，siphon 分次 */
+#define DID_QI_UART_TX              0x2141U   /*!< Qi UART 透传发送（写）：payload 1~64B 原样经 UART 发给 Qi 芯片；门禁同 0x2130/0x2131 */
 
 /* ========================================================================== */
 /*  Session management constants                                             */

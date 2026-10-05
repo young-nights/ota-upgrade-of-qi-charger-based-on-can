@@ -100,7 +100,7 @@ ota-upgrade-of-qi-charger-based-on-can/
     ├── 合并-CAN协议-UDS-OTA工作流.md        ← CAN 协议与 OTA 完整工作流
     ├── 2. Flash 分配方案.md                 ← Flash 分区细节
     ├── 9. APP镜像打包与产线烧录.md          ← 打包脚本用法
-    ├── 10. CAN-UDS OTA 测试用例表.md        ← 93 条测试用例
+    ├── 10. CAN-UDS OTA 测试用例表.md        ← 95 条测试用例
     ├── 11~14. 签名 / IAP 对比 / 宏定义      ← 专题文档
     ├── 15. 计划安排表.md
     ├── keys/                               ← ECDSA P-256 密钥对
@@ -180,6 +180,7 @@ python merge_prod_bin.py
 | `zcanpro_qi_read_status.py` | 读取 Qi 芯片状态 |
 | `zcanpro_qi_read_version.py` | 读取 Qi 芯片版本 |
 | `zcanpro_qi_set_power.py` | 设置 Qi 充电功率 |
+| `zcanpro_qi_uart_bridge.py` | Qi UART 桥：`--listen` 抓取 0x2140 + 帧解析/状态位解码；`--send` 解锁后 0x2141 透传 |
 
 ---
 
@@ -189,7 +190,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_FW_1.1.11** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_FW_1.1.12** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -199,6 +200,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-05 | **Qi UART 抓取/透传桥**：新增 qi_uart_sniff.c/h（256B 环形抓取缓冲+溢出标志，qi_uart_poll 收字节处旁路 feed，零侵入不改解析路径/ISR）；新 DID `0x2140` 抓取读取（任意会话，`62 21 40 [flags][len][data]`，siphon 分次 ≤240B）与 `0x2141` 透传发送（门禁同 0x2130/0x2131，payload 1~64B，Qi IAP 进行中拒 0x22）；上位机桥 `zcanpro_qi_uart_bridge.py`（--listen 轮询+docs/4 帧解析/Δt/状态位解码，--send 解锁透传，可组合）；docs/3 §21 DID 表、docs/10 TC-0613/0614 同步；用例总数 93→95；`SW_VERSION_STR` 1.1.11→1.1.12 |
 | 2026-10-05 | **docs/10 测试验证批 + 涉 Qi 归类约定**：TC-0401~0508（13/13）、TC-0901~0910（10/10，TC-0903 经 F193 修复后复测通过）、TC-1001~1006（6/6）实测勾选；识别 DID（读取信息）凡涉 Qi 一律归 Qi 组，补 TC-0612（0x2013 Qi 版本主动问询），用例总数 92→93；测试进度累计 57/93 |
 | 2026-10-05 | **fix F193 硬件版本读取恒读常量**：`fill_did_payload` DID_HW_VERSION 分支改为恒定 `device_info_pad32(out, HW_VERSION_STR)`，删除 NVM 优先逻辑（NVM `device_info.hw_version` 弃用：8B 装不下全串 + 写 SN/pubkey 建块分支 memset 清零，首写后 F193 恒读 32B 空格，TC-0903 FAIL）；device_info.c 两处 hw_version 置零处补注释。`SW_VERSION_STR` 1.1.8→1.1.11（跳过 1.1.9/1.1.10：版本串已被 TC-0508 十个测试镜像占用，且 `app_image_vX_Y_Z.bin` 打包输出名会冲突，故保版本唯一性跳至 1.1.11） |
 | 2026-10-02 | **docs/10 测试用例 TC 编号全表重排**：数字段按文档顺序连续化（组内 01..N 连续、补回 TC-0103 空洞），映射 01xx→01xx（0104/0105/0106→0103/0104/0105）、05xx→02xx、06xx→03xx、08xx→04xx、13xx→05xx、10xx→06xx、11xx→07xx、12xx→08xx、07xx→09xx、09xx→10xx；TC-B/D/S 三段不变；总览表按文档顺序重排+补编号列；交叉引用同步（ota_download.c 注释、.agent-notes.md）；测试脚本改名 tc0104/0105/0106→tc0103/0104/0105（含内部标识符）；勾选状态逐条随迁（21 条已勾不变）。固件源码注释引用变更按规则递增 `SW_VERSION_STR` 1.1.7→1.1.8 |
@@ -283,10 +285,10 @@ python merge_prod_bin.py
 | TC-D 驱动层 | 2/10 |
 | TC-S 低功耗/唤醒 | 3/3 |
 | TC-01xx~05xx（基本下载/会话/安全/固件管理/升级验证） | 30/30 |
-| TC-06xx~08xx（Qi 充电 DID / Qi IAP / 充电控制） | 0/24 |
+| TC-06xx~08xx（Qi 充电 DID / Qi IAP / 充电控制） | 0/26 |
 | TC-09xx 识别 DID | 10/10 |
 | TC-10xx UDS 响应与 NRC | 6/6 |
-| **合计** | **57/93** |
+| **合计** | **57/95** |
 
 ---
 
@@ -298,7 +300,7 @@ python merge_prod_bin.py
 | [合并-CAN协议-UDS-OTA工作流](docs/合并-CAN协议-UDS-OTA工作流.md) | CAN 协议与 UDS OTA 完整工作流实操手册 |
 | [2. Flash 分配方案](docs/2.%20Flash%20分配方案.md) | 128KB Flash 分区、Metadata 结构、XATO 头 |
 | [9. APP镜像打包与产线烧录](docs/9.%20APP镜像打包与产线烧录.md) | 打包脚本用法、Keil IROM 配置 |
-| [10. CAN-UDS OTA 测试用例表](docs/10.%20CAN-UDS%20OTA%20测试用例表.md) | 93 条测试用例 (P0/P1/P2) |
+| [10. CAN-UDS OTA 测试用例表](docs/10.%20CAN-UDS%20OTA%20测试用例表.md) | 95 条测试用例 (P0/P1/P2) |
 | [11. 签名校验与脚本使用](docs/11.%20签名校验与脚本使用.md) | 签名工具使用说明 |
 | [12. 签名原理与Seed机制](docs/12.%20签名原理与Seed机制.md) | ECDSA P-256 + SHA-256 原理 |
 | [13. 官方IAP例程vs自定义Bootloader对比](docs/13.%20官方IAP例程vs自定义Bootloader对比.md) | 官方 IAP 方案与本项目 Bootloader 对比 |
