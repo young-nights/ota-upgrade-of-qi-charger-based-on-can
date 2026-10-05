@@ -33,6 +33,7 @@
 #include "ota_trigger.h"
 #include "nvm_drv.h"
 #include "qi_uart.h"
+#include "qi_protocol.h"
 #include "board_gpio.h"
 
 /* private define ------------------------------------------------------------*/
@@ -52,7 +53,10 @@ int main(void)
   nvm_drv_init();
   can_driver_init();
   can_protocol_init();
-  qi_uart_init();
+  /* qi_protocol_init 内含 qi_uart_init + register uart_rx_handler + rx_reset
+   * + tx_seq=0；回调未注册时 0x2140 抓取/解析路径均收不到字节（1.1.13 修复）
+   * （can_protocol_init 在前不动——不清 frame_callback，顺序安全） */
+  qi_protocol_init();
   __enable_irq();
 
   /* SIT1145 powers up in Normal; enters Standby after 30 s UDS idle.

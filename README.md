@@ -190,7 +190,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_FW_1.1.12** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_FW_1.1.13** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -200,6 +200,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-06 | **fix Qi UART 抓取路径死代码 + 回调注册链断裂（DID 0x2140 恒回空）**：根因① `qi_protocol_init()` 全工程无调用点（main.c 只调 `qi_uart_init()`）→ `rx_callback` 恒 NULL；② feed 错挂在 `qi_uart_poll` 的回调门内 → 喂入从未执行、0x2140 恒回 `62 21 40 00 00`（实测假阴性，曾误判硬件问题）；③ 次要：主循环 `can_protocol_poll()` 先于 `qi_uart_poll()` 抽干软环，回调注册了也会饿死喂入点。修复：main.c `qi_uart_init()`→`qi_protocol_init()`（含 uart_init+register+rx_reset+tx_seq=0）；feed 移入 ISR 级 `qi_uart_rx_irq_handler` 读出后立即喂（线上真字节，含 64B 软环丢弃字节），qi_uart_sniff 读侧 `__disable_irq()` 临界区（并发模型 ISR 写/主循环读）；`SW_VERSION_STR` 1.1.12→1.1.13 |
 | 2026-10-05 | **Qi UART 抓取/透传桥**：新增 qi_uart_sniff.c/h（256B 环形抓取缓冲+溢出标志，qi_uart_poll 收字节处旁路 feed，零侵入不改解析路径/ISR）；新 DID `0x2140` 抓取读取（任意会话，`62 21 40 [flags][len][data]`，siphon 分次 ≤240B）与 `0x2141` 透传发送（门禁同 0x2130/0x2131，payload 1~64B，Qi IAP 进行中拒 0x22）；上位机桥 `zcanpro_qi_uart_bridge.py`（--listen 轮询+docs/4 帧解析/Δt/状态位解码，--send 解锁透传，可组合）；docs/3 §21 DID 表、docs/10 TC-0613/0614 同步；用例总数 93→95；`SW_VERSION_STR` 1.1.11→1.1.12 |
 | 2026-10-05 | **docs/10 测试验证批 + 涉 Qi 归类约定**：TC-0401~0508（13/13）、TC-0901~0910（10/10，TC-0903 经 F193 修复后复测通过）、TC-1001~1006（6/6）实测勾选；识别 DID（读取信息）凡涉 Qi 一律归 Qi 组，补 TC-0612（0x2013 Qi 版本主动问询），用例总数 92→93；测试进度累计 57/93 |
 | 2026-10-05 | **fix F193 硬件版本读取恒读常量**：`fill_did_payload` DID_HW_VERSION 分支改为恒定 `device_info_pad32(out, HW_VERSION_STR)`，删除 NVM 优先逻辑（NVM `device_info.hw_version` 弃用：8B 装不下全串 + 写 SN/pubkey 建块分支 memset 清零，首写后 F193 恒读 32B 空格，TC-0903 FAIL）；device_info.c 两处 hw_version 置零处补注释。`SW_VERSION_STR` 1.1.8→1.1.11（跳过 1.1.9/1.1.10：版本串已被 TC-0508 十个测试镜像占用，且 `app_image_vX_Y_Z.bin` 打包输出名会冲突，故保版本唯一性跳至 1.1.11） |
