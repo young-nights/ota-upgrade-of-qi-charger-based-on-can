@@ -100,7 +100,7 @@ ota-upgrade-of-qi-charger-based-on-can/
     ├── 合并-CAN协议-UDS-OTA工作流.md        ← CAN 协议与 OTA 完整工作流
     ├── 2. Flash 分配方案.md                 ← Flash 分区细节
     ├── 9. APP镜像打包与产线烧录.md          ← 打包脚本用法
-    ├── 10. CAN-UDS OTA 测试用例表.md        ← 92 条测试用例
+    ├── 10. CAN-UDS OTA 测试用例表.md        ← 93 条测试用例
     ├── 11~14. 签名 / IAP 对比 / 宏定义      ← 专题文档
     ├── 15. 计划安排表.md
     ├── keys/                               ← ECDSA P-256 密钥对
@@ -283,7 +283,7 @@ python merge_prod_bin.py
 | [合并-CAN协议-UDS-OTA工作流](docs/合并-CAN协议-UDS-OTA工作流.md) | CAN 协议与 UDS OTA 完整工作流实操手册 |
 | [2. Flash 分配方案](docs/2.%20Flash%20分配方案.md) | 128KB Flash 分区、Metadata 结构、XATO 头 |
 | [9. APP镜像打包与产线烧录](docs/9.%20APP镜像打包与产线烧录.md) | 打包脚本用法、Keil IROM 配置 |
-| [10. CAN-UDS OTA 测试用例表](docs/10.%20CAN-UDS%20OTA%20测试用例表.md) | 92 条测试用例 (P0/P1/P2) |
+| [10. CAN-UDS OTA 测试用例表](docs/10.%20CAN-UDS%20OTA%20测试用例表.md) | 93 条测试用例 (P0/P1/P2) |
 | [11. 签名校验与脚本使用](docs/11.%20签名校验与脚本使用.md) | 签名工具使用说明 |
 | [12. 签名原理与Seed机制](docs/12.%20签名原理与Seed机制.md) | ECDSA P-256 + SHA-256 原理 |
 | [13. 官方IAP例程vs自定义Bootloader对比](docs/13.%20官方IAP例程vs自定义Bootloader对比.md) | 官方 IAP 方案与本项目 Bootloader 对比 |
