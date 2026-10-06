@@ -201,6 +201,7 @@ python merge_prod_bin.py
 | 日期 | 变更内容 |
 |------|----------|
 | 2026-10-06 | **fix Qi UART 波特率 9600→19200 匹配（并列根因）**：用户 2026-10-06 确认 Qi 芯片实际波特率为 19200，此前固件/文档按 9600 配置系文档口径错误——即使 AF 修对（1.1.14 MUX_7→MUX_1），波特率不匹配也会收到乱码帧，为链路不通的并列因素之一。`qi_uart.h` `QI_UART_BAUDRATE 9600U→19200U`（8N1 不变），qi_uart.c/qi_protocol.h 注释、README 硬件接口表、.agent-notes 同步；`SW_VERSION_STR` 1.1.14→1.1.15 |
+| 2026-10-06 | **TC-0613 实测通过勾选**（SW 1.1.15，六项预期全达标：充电使能后 8s 抓 22 帧 0x01 定时上报 CS 全对/SEQ 连续、空回 `00 00`、原始字节含跨读分裂、siphon 240+28、静默后溢出 bit0 1→0、组合读 `7F 22 22`）；测试进度 57→58/95，Qi 组 0→1/26 |
 | 2026-10-06 | **fix Qi UART PA2/PA3 复用号错误（第三根因）**：`qi_uart.c:66/:76` 给 PA2(USART2_TX)/PA3(USART2_RX) 配的 `GPIO_MUX_7` 与 AT32F422/426 IOMUX 表（表6-1）不符——PA2 MUX1=USART2_TX、PA3 MUX1=USART2_RX，**MUX7 不在两脚功能清单内（空接）** → USART2 TX/RX 与引脚完全断开（RX 永远收不到字节：0x2140 恒空、0x2133 恒 0x0000；TX 波形上不了线：0x2141 透传、0x2013 问询、IAP prepare 全部无回包/NRC 0x72 超时）——此前所有「Qi 无声」现象由此闭环，与硬件无关（交叉验证：PA5/6/7=SPI1 用 MUX0、PA11/12=CAN1 用 MUX4 均正确且工作）。修复 `GPIO_MUX_7`→`GPIO_MUX_1`（引脚模式/上下拉不动）；`SW_VERSION_STR` 1.1.13→1.1.14 |
 | 2026-10-06 | **fix Qi UART 抓取路径死代码 + 回调注册链断裂（DID 0x2140 恒回空）**：根因① `qi_protocol_init()` 全工程无调用点（main.c 只调 `qi_uart_init()`）→ `rx_callback` 恒 NULL；② feed 错挂在 `qi_uart_poll` 的回调门内 → 喂入从未执行、0x2140 恒回 `62 21 40 00 00`（实测假阴性，曾误判硬件问题）；③ 次要：主循环 `can_protocol_poll()` 先于 `qi_uart_poll()` 抽干软环，回调注册了也会饿死喂入点。修复：main.c `qi_uart_init()`→`qi_protocol_init()`（含 uart_init+register+rx_reset+tx_seq=0）；feed 移入 ISR 级 `qi_uart_rx_irq_handler` 读出后立即喂（线上真字节，含 64B 软环丢弃字节），qi_uart_sniff 读侧 `__disable_irq()` 临界区（并发模型 ISR 写/主循环读）；`SW_VERSION_STR` 1.1.12→1.1.13 |
 | 2026-10-05 | **Qi UART 抓取/透传桥**：新增 qi_uart_sniff.c/h（256B 环形抓取缓冲+溢出标志，qi_uart_poll 收字节处旁路 feed，零侵入不改解析路径/ISR）；新 DID `0x2140` 抓取读取（任意会话，`62 21 40 [flags][len][data]`，siphon 分次 ≤240B）与 `0x2141` 透传发送（门禁同 0x2130/0x2131，payload 1~64B，Qi IAP 进行中拒 0x22）；上位机桥 `zcanpro_qi_uart_bridge.py`（--listen 轮询+docs/4 帧解析/Δt/状态位解码，--send 解锁透传，可组合）；docs/3 §21 DID 表、docs/10 TC-0613/0614 同步；用例总数 93→95；`SW_VERSION_STR` 1.1.11→1.1.12 |
@@ -280,7 +281,7 @@ python merge_prod_bin.py
 | | | 超时 30s 为硬编码（`CAN_LP_IDLE_TIMEOUT_MS`），非 SRS 要求的 DID 0x2117 可配（该 DID 未实现） |
 | UDS 业务流程 | F1~F6 | 待实现 |
 
-### 6.4 测试进度（2026-10-05）
+### 6.4 测试进度（2026-10-06）
 
 | 分组 | 已测/总数 |
 |------|-----------|
@@ -288,10 +289,10 @@ python merge_prod_bin.py
 | TC-D 驱动层 | 2/10 |
 | TC-S 低功耗/唤醒 | 3/3 |
 | TC-01xx~05xx（基本下载/会话/安全/固件管理/升级验证） | 30/30 |
-| TC-06xx~08xx（Qi 充电 DID / Qi IAP / 充电控制） | 0/26 |
+| TC-06xx~08xx（Qi 充电 DID / Qi IAP / 充电控制） | 1/26 |
 | TC-09xx 识别 DID | 10/10 |
 | TC-10xx UDS 响应与 NRC | 6/6 |
-| **合计** | **57/95** |
+| **合计** | **58/95** |
 
 ---
 
