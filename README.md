@@ -202,6 +202,7 @@ python merge_prod_bin.py
 |------|----------|
 | 2026-10-06 | **fix Qi IAP ACK 短帧兼容 + docs/4 短 ACK/取消帧定义**：实测（0x2140 ISR 级全字节抓取）Qi 芯片对 IAP prepare 只发短帧 `55 AA 02 CC 01 CE`（仅子命令回显、无状态字节，CS 验证过），docs/4 §5.2 标准应答 `55 AA 04 CC 01 00 00 CS` 线上从未出现；固件 `qi_iap_frame_cb` 0xCC 分支对 `data_len==1` 且子命令 0x01/0x02 误判 data[0]（0x01）≠ ACK_OK(0x00) 为 NAK → 0x2130 回 NRC 0x72（芯片实际 ACK 成功）。修复：data_len==1 且子命令回显 → 短 ACK=成功（data_len≥2 现行逻辑/else 兤底不动；与 0x00 通用 ACK 分支区分）；qi_protocol.c 解析层核对一致无需改（0xCC 已按无 SEQ 切分）。docs/4 §5.2/§9.4 补实测短 ACK 形态、§5.4 补取消升级子命令 0x03（协议预留/待芯片确认 + 现状：0x2E 21 30 0x02 中止仅清 AT32 侧、芯片退出需 12V 断电）。`SW_VERSION_STR` 1.1.15→1.1.16 |
 | 2026-10-06 | **fix Qi UART 波特率 9600→19200 匹配（并列根因）**：用户 2026-10-06 确认 Qi 芯片实际波特率为 19200，此前固件/文档按 9600 配置系文档口径错误——即使 AF 修对（1.1.14 MUX_7→MUX_1），波特率不匹配也会收到乱码帧，为链路不通的并列因素之一。`qi_uart.h` `QI_UART_BAUDRATE 9600U→19200U`（8N1 不变），qi_uart.c/qi_protocol.h 注释、README 硬件接口表、.agent-notes 同步；`SW_VERSION_STR` 1.1.14→1.1.15 |
+| 2026-10-06 | **TC-0614 实测通过勾选**（SW 1.1.16：`2E 21 41` 发数据包正响应 `6E 21 41`，芯片 5s 内回 `55 AA 04 CC 02 00 16 E7` 经 `22 21 40` 抓到，透传回包闭环；门禁项 `7F 2E 22`/`7F 2E 33`/`7F 2E 13` 此前已实测）；测试进度 58→59/95，Qi 组 1→2/26 |
 | 2026-10-06 | **TC-0613 实测通过勾选**（SW 1.1.15，六项预期全达标：充电使能后 8s 抓 22 帧 0x01 定时上报 CS 全对/SEQ 连续、空回 `00 00`、原始字节含跨读分裂、siphon 240+28、静默后溢出 bit0 1→0、组合读 `7F 22 22`）；测试进度 57→58/95，Qi 组 0→1/26 |
 | 2026-10-06 | **fix Qi UART PA2/PA3 复用号错误（第三根因）**：`qi_uart.c:66/:76` 给 PA2(USART2_TX)/PA3(USART2_RX) 配的 `GPIO_MUX_7` 与 AT32F422/426 IOMUX 表（表6-1）不符——PA2 MUX1=USART2_TX、PA3 MUX1=USART2_RX，**MUX7 不在两脚功能清单内（空接）** → USART2 TX/RX 与引脚完全断开（RX 永远收不到字节：0x2140 恒空、0x2133 恒 0x0000；TX 波形上不了线：0x2141 透传、0x2013 问询、IAP prepare 全部无回包/NRC 0x72 超时）——此前所有「Qi 无声」现象由此闭环，与硬件无关（交叉验证：PA5/6/7=SPI1 用 MUX0、PA11/12=CAN1 用 MUX4 均正确且工作）。修复 `GPIO_MUX_7`→`GPIO_MUX_1`（引脚模式/上下拉不动）；`SW_VERSION_STR` 1.1.13→1.1.14 |
 | 2026-10-06 | **fix Qi UART 抓取路径死代码 + 回调注册链断裂（DID 0x2140 恒回空）**：根因① `qi_protocol_init()` 全工程无调用点（main.c 只调 `qi_uart_init()`）→ `rx_callback` 恒 NULL；② feed 错挂在 `qi_uart_poll` 的回调门内 → 喂入从未执行、0x2140 恒回 `62 21 40 00 00`（实测假阴性，曾误判硬件问题）；③ 次要：主循环 `can_protocol_poll()` 先于 `qi_uart_poll()` 抽干软环，回调注册了也会饿死喂入点。修复：main.c `qi_uart_init()`→`qi_protocol_init()`（含 uart_init+register+rx_reset+tx_seq=0）；feed 移入 ISR 级 `qi_uart_rx_irq_handler` 读出后立即喂（线上真字节，含 64B 软环丢弃字节），qi_uart_sniff 读侧 `__disable_irq()` 临界区（并发模型 ISR 写/主循环读）；`SW_VERSION_STR` 1.1.12→1.1.13 |
@@ -290,10 +291,10 @@ python merge_prod_bin.py
 | TC-D 驱动层 | 2/10 |
 | TC-S 低功耗/唤醒 | 3/3 |
 | TC-01xx~05xx（基本下载/会话/安全/固件管理/升级验证） | 30/30 |
-| TC-06xx~08xx（Qi 充电 DID / Qi IAP / 充电控制） | 1/26 |
+| TC-06xx~08xx（Qi 充电 DID / Qi IAP / 充电控制） | 2/26 |
 | TC-09xx 识别 DID | 10/10 |
 | TC-10xx UDS 响应与 NRC | 6/6 |
-| **合计** | **58/95** |
+| **合计** | **59/95** |
 
 ---
 
