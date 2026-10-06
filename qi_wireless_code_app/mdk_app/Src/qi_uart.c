@@ -43,7 +43,7 @@ static volatile qi_uart_rx_callback_t rx_callback = (qi_uart_rx_callback_t)0;
 /**
  * @brief  initialize USART2 for Qi chip communication
  * @note   configures PA2(TX) and PA3(RX) with AF mux,
- *         sets up USART2 at 9600 baud, 8N1, enables RX interrupt.
+ *         sets up USART2 at 19200 baud, 8N1, enables RX interrupt.
  * @param  none
  * @retval none
  */
@@ -78,7 +78,7 @@ void qi_uart_init(void)
   /* AT32F422/426 表6-1：PA3 MUX1=USART2_RX（MUX7 无功能空接） */
   gpio_pin_mux_config(GPIOA, GPIO_PINS_SOURCE3, GPIO_MUX_1);
 
-  /* configure USART2: 9600 baud, 8N1 */
+  /* configure USART2: 19200 baud, 8N1 (Qi chip measured 19200, confirmed 2026-10-06) */
   usart_init(USART2, QI_UART_BAUDRATE, USART_DATA_8BITS, USART_STOP_1_BIT);
   usart_parity_selection_config(USART2, USART_PARITY_NONE);
 

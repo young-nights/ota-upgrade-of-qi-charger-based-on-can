@@ -66,7 +66,7 @@
 |------|---------|-----|------|
 | ZQWL-CANFD | COM9 / usbipd BUSID **`7-2`** | attach 后 `/dev/ttyACM0`（或以 `ls` 为准） | **同一时刻只能给一边**：attach 后 Windows 上看不到 COM9 |
 | AT-Link-Plus | COM7 / BUSID **`7-4`** | **禁止 attach** | Keil/SWD 会掉 |
-| CH340 | 另一 COM | Qi UART 9600 | 不是 CAN |
+| CH340 | 另一 COM | Qi UART 19200（2026-10-06 确认；旧口径 9600 错） | 不是 CAN |
 
 CAN 总线：**250 kbps、Classical、29-bit 扩展帧**。终端电阻 120Ω。CANH/CANL/GND 接充电器。
 

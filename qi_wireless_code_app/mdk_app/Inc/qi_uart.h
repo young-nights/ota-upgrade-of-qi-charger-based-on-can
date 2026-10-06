@@ -37,7 +37,8 @@ extern "C" {
 /* exported constants --------------------------------------------------------*/
 
 /** @brief  Qi UART configuration */
-#define QI_UART_BAUDRATE        9600U          /*!< default baud rate */
+/* Qi 芯片实测 19200，2026-10-06 用户确认，此前 9600 系文档口径错误 */
+#define QI_UART_BAUDRATE        19200U         /*!< Qi UART baud (19200, user-confirmed 2026-10-06) */
 #define QI_UART_RX_BUF_SIZE     64U            /*!< software RX ring buffer size */
 
 /* exported types ------------------------------------------------------------*/
@@ -54,7 +55,7 @@ typedef void (*qi_uart_rx_callback_t)(uint8_t *data, uint8_t len);
 /**
  * @brief  initialize USART2 for Qi chip communication
  * @note   configures PA2(TX) and PA3(RX) with AF mux,
- *         sets up USART2 at 9600 baud, 8N1, enables RX interrupt.
+ *         sets up USART2 at 19200 baud, 8N1, enables RX interrupt.
  * @param  none
  * @retval none
  */
