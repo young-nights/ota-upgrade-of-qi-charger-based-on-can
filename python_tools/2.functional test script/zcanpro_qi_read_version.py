@@ -11,6 +11,7 @@ ZCANPRO 脚本 — 读取 Qi 芯片固件版本
 """
 
 import sys
+import time
 
 try:
     import zcanpro
@@ -70,7 +71,7 @@ def uds_req(bus_id, sid, payload, wait_pending_s=0):
         "src_addr": UDS_REQ_ID, "dst_addr": UDS_RESP_ID,
         "suppress_response": 0, "sid": sid, "data": list(payload),
     }
-    t_end = _time() + float(wait_pending_s)
+    t_end = time.time() + float(wait_pending_s)
     logged = False
     while True:
         if stopTask:
@@ -84,25 +85,19 @@ def uds_req(bus_id, sid, payload, wait_pending_s=0):
             _log("[Rx] " + _hex(data[:24]))
         if len(data) >= 3 and data[0] == SID_NRC:
             if data[2] == NRC_RCRRP:
-                if wait_pending_s <= 0 or _time() >= t_end:
+                if wait_pending_s <= 0 or time.time() >= t_end:
                     raise RuntimeError("NRC 0x78 超时")
                 _log("NRC 0x78，等待中...")
-                _sleep(1.0)
+                time.sleep(1.0)
                 continue
             raise RuntimeError("NRC 0x%02X" % data[2])
         if not resp or not resp.get("result"):
             raise RuntimeError("无应答")
+        if not data:
+            raise RuntimeError("空响应")
         if data[0] != (sid + SID_PR):
             raise RuntimeError("非正响应: " + _hex(data))
         return data
-
-
-def _time():
-    return __import__("time").time()
-
-
-def _sleep(s):
-    __import__("time").sleep(s)
 
 
 # ======== 主流程 ========
@@ -122,8 +117,8 @@ def run(bus_id):
     version = ver_lo | (ver_hi << 8)
 
     _log("DID 0x%04X = %04X" % (DID_QI_FW_VERSION, version))
-    _log("Qi 芯片固件版本: v%d.%d.%d (raw 0x%04X)" % (
-        (version >> 8) & 0xFF, (version >> 4) & 0x0F, version & 0x0F, version))
+    # 渲染与固件 0x2013 一致：整数 X 拼 "QC_JYF_MCU2_FW_1.1.X"，非 BCD 拆分
+    _log("Qi 芯片固件版本: QC_JYF_MCU2_FW_1.1.%d (raw 0x%04X)" % (version, version))
 
     if version == 0x0000:
         _log("提示: 版本为 0，MCU 尚未收到 Qi 芯片 UART 0x01 上报")

@@ -67,6 +67,15 @@ SID_NRC  = 0x7F
 SID_PR   = 0x40
 
 NRC_RCRRP = 0x78
+NRC_EXCEEDED_ATTEMPTS   = 0x36  # 27 02 验签失败超限（fail_count≥3，固件锁定约30s）
+NRC_REQUIRED_TIME_DELAY = 0x37  # 锁定期内 27 01 的应答（requiredTimeDelay）
+NRC_CONDITIONS_NOT_CORRECT = 0x22   # 写门禁：会话不满足（S3 超时回 default）
+NRC_SECURITY_ACCESS_DENIED = 0x33   # 写门禁：security_unlocked=0
+
+# ======== S3/锁定防护参数（与 zcanpro_qi_set_power.py 同构）========
+S3_KEEPALIVE_INTERVAL_S = 3.0   # keepalive 周期：3s < SESSION_TIMEOUT_MS 5s
+S3_SIGN_GAP_GUARD_S     = 3.0   # 签名耗时超过该值：先发 3E 再进 27 03 分片
+SA_LOCKOUT_WAIT_S       = 31.0  # SA 锁定等待总时长（固件 SECURITY_LOCKOUT_MS=30s）
 
 DID_QI_SNIFF = 0x2140
 DID_QI_UART_TX = 0x2141
@@ -89,6 +98,15 @@ STATUS1_BITS = [
 SA_SIG_CHUNK = 4
 
 stopTask = False
+
+
+class UdsNrcError(RuntimeError):
+    """带 NRC 码的 UDS 异常；SA 锁定/写门禁分支按 e.nrc 判别。"""
+
+    def __init__(self, sid, nrc):
+        RuntimeError.__init__(self, "NRC SID=0x%02X NRC=0x%02X" % (sid, nrc))
+        self.sid = sid
+        self.nrc = nrc
 
 
 def z_notify(type, obj):
@@ -143,7 +161,8 @@ def _jp_double(x, y, z):
     ysq = (y * y) % _P
     s = (4 * x * ysq) % _P
     m = (3 * x * x + (_P - 3) * pow(z, 4, _P)) % _P
-    return (m * m - 2 * s) % _P, (m * (s - (m * (s - 2 * m) % _P) - 8 * pow(ysq, 2, _P)) % _P), (2 * y * z) % _P
+    # y3 = m*(s - x3) - 8*y^4，x3 = m^2 - 2s（与 zcanpro_qi_set_power.py 验证过的实现一致）
+    return (m * m - 2 * s) % _P, (m * (s - (m * m - 2 * s) % _P) - 8 * pow(ysq, 2, _P)) % _P, (2 * y * z) % _P
 
 
 def _jp_add(x1, y1, z1, x2, y2, z2):
@@ -183,7 +202,8 @@ def _jp_mul(k, x, y):
         return 0, 0
     zinv = _inv(rz, _P)
     z2 = zinv * zinv % _P
-    return rx * z2 % _P, ry * z2 % zinv % _P
+    # y_affine = ry * zinv^3 = ry * z2 * zinv（此前写成 ry*z2%zinv 为取模误写，签名必验失败）
+    return rx * z2 % _P, ry * z2 % _P * zinv % _P
 
 
 def ecdsa_sign_msg(priv, msg):
@@ -294,9 +314,11 @@ def uds_req(bus_id, sid, payload, suppress=0, wait_pending_s=0):
                 _log("NRC 0x78，等待中...")
                 time.sleep(1.0)
                 continue
-            raise RuntimeError("NRC 0x%02X" % data[2])
+            raise UdsNrcError(data[1], data[2])
         if not resp or not resp.get("result"):
             raise RuntimeError("无应答")
+        if not data:
+            raise RuntimeError("空响应")
         if data[0] != (sid + SID_PR):
             raise RuntimeError("非正响应: " + _hex(data))
         return data
@@ -327,7 +349,11 @@ def _sa_send_sig(bus_id, sig):
 
 
 def send_security_key(bus_id, priv):
-    """完整解锁流程：27 01 → 签名 → 27 03 分片 → 27 02；最多 5 次。"""
+    """完整解锁流程：27 01 → 重签 → 27 03 分片 → 27 02；最多 5 次。
+    NRC 0x36/0x37 = 固件 SecurityAccess 锁定（fail_count≥3，约 30s，
+    can_protocol.c handle_security_access）：S3 keepalive 等待 31s 后完整重试；
+    签名耗时 >3s 时先发 3E 80 刷新 S3 计时再进 27 03 分片（防会话超时）。"""
+    last = None
     for attempt in range(1, 6):
         if stopTask:
             raise RuntimeError("用户停止脚本")
@@ -338,13 +364,39 @@ def send_security_key(bus_id, priv):
             if seed == b"\x00" * 32:
                 _log("27 01 seed=0（32B 全 0），已解锁")
                 return rx
+            t_sign = time.time()
             sig = ecdsa_sign_msg(priv, seed)
+            if time.time() - t_sign > S3_SIGN_GAP_GUARD_S:
+                _log("ECDSA 签名耗时较长：先发 3E 80 刷新 S3 计时再进 27 03 分片")
+                uds_req(bus_id, SID_TP, [0x80], suppress=1)
             _sa_send_sig(bus_id, sig)
             return uds_req(bus_id, SID_SA, [0x02], wait_pending_s=45)
+        except UdsNrcError as e:
+            last = e
+            if e.nrc in (NRC_EXCEEDED_ATTEMPTS, NRC_REQUIRED_TIME_DELAY):
+                _log("NRC 0x%02X：设备 SecurityAccess 锁定（约30s），S3 keepalive 等待 %.0fs 后完整重试"
+                     % (e.nrc, SA_LOCKOUT_WAIT_S))
+                _s3_keepalive_wait(bus_id)
+                continue
+            _log("解锁尝试失败: %s（重试将重新取 seed 重签重发分片）" % e)
+            time.sleep(1.0)
         except RuntimeError as e:
+            last = e
             _log("解锁尝试失败: %s" % e)
             time.sleep(1.0)
-    raise RuntimeError("SecurityAccess 5 次尝试全部失败")
+    raise last if last is not None else RuntimeError("SecurityAccess 5 次尝试全部失败")
+
+
+def _s3_keepalive_wait(bus_id, total_s=SA_LOCKOUT_WAIT_S, interval_s=S3_KEEPALIVE_INTERVAL_S):
+    """SA 锁定等待期间周期发 3E 80 suppress 刷新 S3 计时，防会话回 default。"""
+    t_end = time.time() + float(total_s)
+    _log("S3 keepalive 等待 %.0fs（每 %.0fs 发 3E 80 suppress）" % (total_s, interval_s))
+    while time.time() < t_end:
+        if stopTask:
+            raise RuntimeError("用户停止")
+        remain = t_end - time.time()
+        time.sleep(interval_s if remain > interval_s else remain)
+        keepalive(bus_id)
 
 
 def unlock_programming(bus_id, priv):
@@ -452,8 +504,9 @@ class QiFrameParser(object):
         """状态上报解码（docs/4 §2.1/2.2/2.3）：
         content = 01 st1 st2 pw(2) ver(2) [SEQ]"""
         st1, st2 = content[1], content[2]
-        pw = (content[3] << 8) | content[4]
-        ver = (content[5] << 8) | content[6]
+        # 实时功率/版本号均为 uint16 LE（固件解析 data[2-3]/data[4-5] 同为 LE）
+        pw = content[3] | (content[4] << 8)
+        ver = content[5] | (content[6] << 8)
         bits = [name for b, name in STATUS1_BITS if (st1 >> b) & 1]
         _log("        状态1=0x%02X[%s] 状态2=0x%02X(充电次数低8=%d) "
              "实时功率=0x%04X Qi版本=0x%04X"
@@ -463,9 +516,12 @@ class QiFrameParser(object):
 # ======== 模式 A：--listen ========
 
 def run_listen(bus_id, interval_s=LISTEN_INTERVAL_S):
+    """--listen 主循环：轮询 22 2140；每 3s 发 3E 80 保活（S3 超时防护，
+    22 2140 轮询本身也会刷新 S3，keepalive 仅兜底 send 后会话存活）。"""
     _log("======== 模式A --listen：轮询 22 21 40（间隔 %.0fms，Ctrl+C 停止）========"
          % (interval_s * 1000))
     parser = QiFrameParser()
+    last_ka = time.time()
     while not stopTask:
         try:
             flags, data = sniff_read(bus_id)
@@ -475,6 +531,9 @@ def run_listen(bus_id, interval_s=LISTEN_INTERVAL_S):
             _log("读取失败: %s" % e)
             time.sleep(interval_s)
             continue
+        if time.time() - last_ka > 3.0:
+            keepalive(bus_id)
+            last_ka = time.time()
         overflow = flags & 0x01
         if overflow:
             _log("[%s] 溢出丢弃发生（bit0），缓冲曾满，部分字节已丢失" % _ts())
@@ -509,10 +568,21 @@ def parse_send_hex(s):
 def run_send(bus_id, payload, priv):
     _log("======== 模式B --send：%s ========" % _hex(payload))
     unlock_programming(bus_id, priv)
-    rx = uds_req(bus_id, SID_WDBI,
-                 [(DID_QI_UART_TX >> 8) & 0xFF, DID_QI_UART_TX & 0xFF] + payload)
+    frame = [(DID_QI_UART_TX >> 8) & 0xFF, DID_QI_UART_TX & 0xFF] + payload
+    try:
+        rx = uds_req(bus_id, SID_WDBI, frame)
+    except UdsNrcError as e:
+        # 固件 0x2141 门禁（handle_write_data_by_id）：10 02 编程会话 + SA；
+        # 0x22=会话不满足（S3 超时回 default），0x33=安全态被清 → 重建后重试一次
+        if e.nrc not in (NRC_CONDITIONS_NOT_CORRECT, NRC_SECURITY_ACCESS_DENIED):
+            raise
+        _log("2E 写 NRC 0x%02X：疑似 S3 超时——重发 10 02 + 重解锁 + 重试写一次" % e.nrc)
+        uds_req(bus_id, SID_DSC, [0x02])
+        send_security_key(bus_id, priv)
+        rx = uds_req(bus_id, SID_WDBI, frame)
+        _log("S3 超时恢复：会话+安全态重建后重试写成功")
     _log("透传发送成功: %s" % _hex(rx))
-    # 发完每 3s 3E 80 保活（会话 5s 超时），由调用方 listen 期间继续
+    # 后续 listen 期间每 3s 3E 80 保活（且 22 2140 轮询本身也刷新 S3）
 
 
 def keepalive(bus_id):
@@ -549,7 +619,6 @@ def _parse_args(argv):
 
 def run(mode_listen, send_hex):
     uds_init()
-    last_ka = time.time()
     if send_hex is not None:
         payload = parse_send_hex(send_hex)
         if not os.path.isfile(PRIVATE_KEY_PATH):
@@ -559,32 +628,7 @@ def run(mode_listen, send_hex):
         if not mode_listen:
             return
     # listen 主循环（与 send 组合时先发后听；期间每 3s 3E 保活）
-    _log("======== 模式A --listen：轮询 22 21 40（间隔 %.0fms，Ctrl+C 停止）========"
-         % (LISTEN_INTERVAL_S * 1000))
-    parser = QiFrameParser()
-    while not stopTask:
-        try:
-            flags, data = sniff_read(_BUS_ID)
-        except RuntimeError as e:
-            if stopTask:
-                break
-            _log("读取失败: %s" % e)
-            time.sleep(LISTEN_INTERVAL_S)
-            continue
-        if time.time() - last_ka > 3.0:
-            keepalive(_BUS_ID)
-            last_ka = time.time()
-        overflow = flags & 0x01
-        if overflow:
-            _log("[%s] 溢出丢弃发生（bit0），缓冲曾满，部分字节已丢失" % _ts())
-        if data:
-            _log("[%s] 抓取 %dB flags=0x%02X: %s"
-                 % (_ts(), len(data), flags, _hex(data)))
-            for frame, ok in parser.feed(data):
-                parser.report(frame, ok, overflow)
-                overflow = False
-        time.sleep(LISTEN_INTERVAL_S)
-    _log("listen 结束：帧统计 OK=%d BAD=%d" % (parser.ok_cnt, parser.bad_cnt))
+    run_listen(_BUS_ID)
 
 
 _BUS_ID = None

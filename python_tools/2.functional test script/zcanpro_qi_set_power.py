@@ -6,8 +6,9 @@ ZCANPRO 脚本 — 设置 Qi 芯片功率
   0x01 = 5W (500mW), 0x02 = 10W (1000mW), 0x03 = 15W (1500mW)
 
 需要：扩展会话（10 03）+ SecurityAccess
-固件门禁（can_protocol.c:1035-1045）：写 0x210D DID_POWER_LIMIT 要求
-  current_session==SESSION_EXTENDED 且 security_unlocked，否则 NRC 0x22/0x33
+固件门禁（can_protocol.c handle_write_data_by_id 的 DID_POWER_LIMIT case）：
+写 0x210D DID_POWER_LIMIT 要求 current_session==SESSION_EXTENDED 且
+security_unlocked，否则 NRC 0x22/0x33
 
 运行前先探测运行侧（唤醒收敛 + 正证据判定）：设备在 Boot safe mode 或
 无应答（已排除 Standby）时直接退出，绝不猜测继续。
@@ -66,12 +67,12 @@ NRC_CONDITIONS_NOT_CORRECT = 0x22  # 固件写门禁：会话不满足（S3 超�
 NRC_SECURITY_ACCESS_DENIED = 0x33  # 固件写门禁：security_unlocked=0（S3 超时/会话切换被清）
 
 # ======== S3 会话超时防护参数（三脚本同构）========
-# 固件：SESSION_TIMEOUT_MS=5000（can_protocol.h:167）；UDS 交换间隙>5s 时
+# 固件：SESSION_TIMEOUT_MS=5000（can_protocol.h SESSION_TIMEOUT_MS）；UDS 交换间隙>5s 时
 # isotp_message_received / can_protocol_poll 会把会话回 default+清 security
-# （can_protocol.c:1844-1853 / 2094-2096），后续 2E 写撞 NRC 0x22/0x33。
+# （can_protocol.c isotp_message_received / can_protocol_poll 会话超时回落），后续 2E 写撞 NRC 0x22/0x33。
 # 固件验证结论：3E 80（suppress）与 3E 00 均刷新 S3 计时——uds_process_message
-# 派发前对任何诊断请求统一刷新 last_tester_present_tick（can_protocol.c:1770），
-# handle_tester_present 对 suppress 帧同样刷新计时且不回响应（:1509）→
+# 派发前对任何诊断请求统一刷新 last_tester_present_tick（can_protocol.c uds_process_message），
+# handle_tester_present 对 suppress 帧同样刷新计时且不回响应（can_protocol.c handle_tester_present）→
 # keepalive 优先 3E 80（无响应帧干扰，ZCANPRO suppress 请求立即返回）。
 S3_KEEPALIVE_INTERVAL_S = 3.0      # keepalive 周期：3s < 5s 超时窗，留 2s 余量
 S3_SIGN_GAP_GUARD_S     = 3.0      # 签名耗时超过该值：先发 3E 再进 27 03 分片
@@ -327,8 +328,8 @@ def send_security_key(bus_id, priv):
     NRC 0x36/0x37 = 设备 SecurityAccess 锁定（fail_count≥3，约 30s）：
     0x36 是 27 02 验签失败超限当次的应答；0x37 是锁定期内 27 01 的应答
     （requiredTimeDelay）。锁定期内的 27 02 固件因验签失败已清
-    g_seed_generated，先撞序检查回 NRC 0x24（can_protocol.c:1430-1433,
-    1469），不是 0x37——脚本每轮先发 27 01，锁定仍由 0x37 捕获，重试逻辑
+    g_seed_generated，先撞序检查回 NRC 0x24（can_protocol.c handle_security_access
+    的 g_seed_generated 序检查），不是 0x37——脚本每轮先发 27 01，锁定仍由 0x37 捕获，重试逻辑
     不变：两者都日志明确提示并经 _s3_keepalive_wait（每 3s 发 3E 80 suppress
     刷新 S3 计时，总等待 31s，防等待期会话超时）后继续完整流程。
     """
@@ -385,10 +386,10 @@ def _s3_keepalive_wait(bus_id, total_s=SA_LOCKOUT_WAIT_S, interval_s=S3_KEEPALIV
     """S3 会话超时防护：SA 锁定等待期间周期发送 3E 80 keepalive。
 
     固件验证（can_protocol.c）：uds_process_message 对任何诊断请求（含
-    3E suppress 帧）在派发前刷新 last_tester_present_tick（:1770）；
-    handle_tester_present 对 suppress 帧同样刷新计时且不回响应（:1509）
+    3E suppress 帧）在派发前刷新 last_tester_present_tick（can_protocol.c uds_process_message）；
+    handle_tester_present 对 suppress 帧同样刷新计时且不回响应（can_protocol.c handle_tester_present）
     → 3E 80 与 3E 00 同样续期 S3，优先 3E 80（无响应帧干扰，库立即返回）。
-    周期 3s < SESSION_TIMEOUT_MS 5s（can_protocol.h:167）；总等待时长与原
+    周期 3s < SESSION_TIMEOUT_MS 5s（can_protocol.h SESSION_TIMEOUT_MS）；总等待时长与原
     sleep(31) 一致。走既有 uds_try 通道，不碰探测/raw 路径；keepalive
     失败只记录，不中断等待。
     """
@@ -412,10 +413,10 @@ def _wdbi_with_s3_guard(bus_id, payload, priv, wait_pending_s=0):
     """2E 写步 S3 超时兜底（三脚本同构）：写收到 NRC 0x22/0x33 →
     重发本脚本会话控制 10 03 + 既有 send_security_key 完整重解锁 + 重试写一次。
 
-    固件门禁（can_protocol.c:1035-1045）：写 0x210D DID_POWER_LIMIT 要求
+    固件门禁（can_protocol.c handle_write_data_by_id 的 DID_POWER_LIMIT case）：写 0x210D 要求
     SESSION_EXTENDED+security_unlocked——NRC 0x22=会话不满足（S3 超时回
-    default 的典型表现），0x33=安全态被清。0x210D 值域校验失败回 0x31、
-    长度不足回 0x13（:1261-1275），不会误入本兜底。会话字节与本脚本业务链
+    default 的典型表现），0x33=安全态被清。0x210D 值域（非 500/1000/1500）回 0x31、
+    长度不足回 0x13（同 case 内校验），不会误入本兜底。会话字节与本脚本业务链
     一致（10 03 扩展会话，blocking#2 修复后）。日志注明「S3 超时恢复」。
     """
     try:
@@ -460,8 +461,8 @@ FAIL_STEP_DESC = {
     2: "image_length 为 0 或超出槽范围",
     3: "镜像 CRC32 校验失败",
     4: "Reset handler 不在槽内（跨槽链接镜像）",
-    5: "ECDSA 公钥缺失/无效（Device Info 与内置公钥均不可用）",
-    6: "ECDSA P-256 验签失败",
+    5: "已废弃（ECDSA 验签已于 2026-09-24 移除，boot_verify 不再产生 5/6）",
+    6: "已废弃（ECDSA 验签已于 2026-09-24 移除，boot_verify 不再产生 5/6）",
 }
 
 
@@ -741,11 +742,11 @@ def run(bus_id):
         raise RuntimeError("设备无应答（已排除 Standby），无法确定运行侧。"
                            "取证见上方日志（burst 轮次 / 监听时长 / 收帧明细）")
 
-    # 1. 扩展会话（blocking#2 修复）：固件门禁 can_protocol.c:1035-1045 写
-    #    0x210D DID_POWER_LIMIT 要求 SESSION_EXTENDED+security_unlocked——
+    # 1. 扩展会话（blocking#2 修复）：固件门禁 handle_write_data_by_id 的
+    #    DID_POWER_LIMIT case——写 0x210D 要求 SESSION_EXTENDED+security_unlocked——
     #    10 02 编程会话写此 DID 必撞 NRC 0x22；10 02 另有副作用
-    #    board_5v_set(0)（can_protocol.c:895，编程会话关 5V）。顺序保持
-    #    会话→SA→写：session_switch（:575-591）默认→非默认不清 security，
+    #    board_5v_set(0)（can_protocol.c handle_diag_session_ctrl，编程会话关 5V）。顺序保持
+    #    会话→SA→写：session_switch（can_protocol.c session_switch）默认→非默认不清 security，
     #    重复发相同非默认会话也不清，SA 在会话切换之后不受影响。
     _log("---- 进入扩展会话（10 03）----")
     uds_req(bus_id, SID_DSC, [0x03])

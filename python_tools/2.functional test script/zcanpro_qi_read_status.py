@@ -11,7 +11,8 @@ ZCANPRO 脚本 — 查询 Qi 芯片 IAP 升级状态
 
 不需要编程会话或安全解锁，任意会话可读。
 
-用法: ZCANPRO → 高级功能 → 扩展脚本 → 打开本文件
+用法: ZCANPRO → 高级功能 → 扩展脚本 → 打开本文件（默认单次查询）
+      附加 --poll 进入轮询模式（每 1s 一次，直到升级成功/失败）
 """
 
 import sys
@@ -109,6 +110,8 @@ def uds_req(bus_id, sid, payload, wait_pending_s=0):
             raise RuntimeError("NRC 0x%02X" % data[2])
         if not resp or not resp.get("result"):
             raise RuntimeError("无应答")
+        if not data:
+            raise RuntimeError("空响应")
         if data[0] != (sid + SID_PR):
             raise RuntimeError("非正响应: " + _hex(data))
         return data
@@ -151,8 +154,9 @@ def run_once(bus_id):
     state_str = STATE_NAMES.get(state, "未知 (0x%02X)" % state)
     _log("状态:     %s" % state_str)
     _log("进度:     %d%%" % progress)
-    _log("Qi 版本:  0x%04X (v%d.%d.%d)" % (
-        version, (version >> 8) & 0xFF, (version >> 4) & 0x0F, version & 0x0F))
+    # 版本渲染与固件 0x2013 一致：整数 X 直接拼 "QC_JYF_MCU2_FW_1.1.X"
+    # （can_protocol.c qi_ver_send_full_response），不是 BCD 拆 nibble
+    _log("Qi 版本:  0x%04X (QC_JYF_MCU2_FW_1.1.%d)" % (version, version))
     _log("已发送:   %d / %d 字节" % (sent, total))
 
     if total > 0:
@@ -205,8 +209,10 @@ def z_main():
         return
 
     try:
-        # 单次查询
-        run_once(buses[0]["busID"])
+        if "--poll" in sys.argv[1:]:
+            run_poll(buses[0]["busID"])
+        else:
+            run_once(buses[0]["busID"])
     except Exception as e:
         _log("失败: " + str(e))
     finally:
