@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.16";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.17";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -103,6 +103,8 @@ static uint8_t  g_sa_sig_block_seq        = 0;
 /** @brief  Qi chip prepare/erase timeout (ms) for DID 0x2130 start */
 #define QI_IAP_PREPARE_TIMEOUT_MS  2500U
 #define QI_VER_QUERY_TIMEOUT_MS    500U   /*!< DID 0x2013 Qi 版本查询回复超时 */
+#define QI_VER_PROBE_POWERUP_MS    200U   /*!< 上电版本探测：Qi 芯片启动等待 */
+#define QI_VER_PROBE_LISTEN_MS    1000U   /*!< 上电版本探测：被动监听 CMD 0x01 超时 */
 
 /* DID 0x2013 应答版本串：固定前缀 "QC_JYF_MCU2_FW_1.1."（19B）+
  * Qi 版本号十进制数字（1~5B）。Qi 读回版本为整数（0~任意值，2B LE
@@ -2881,4 +2883,71 @@ uint8_t can_protocol_get_session(void)
 uint8_t can_protocol_is_security_unlocked(void)
 {
   return security_unlocked;
+}
+
+/**
+ * @brief  上电版本探测：PB2 上电 → 被动监听 CMD 0x01 → 缓存+持久化 → PB2 关闭
+ * @note   在 __enable_irq() 之后、lifecycle_init() 之前调用。
+ *         CAN 尚未 online（g_can_awake=0），不影响总线。
+ */
+void can_proto_qi_version_probe(void)
+{
+  uint32_t t0;
+
+  /* 如果 Flash 中已有缓存版本，直接加载到 RAM */
+  if (g_qi_fw_version_valid == 0U)
+  {
+    uint16_t cached;
+    if (device_info_read_qi_version(&cached) == 0)
+    {
+      g_qi_fw_version = cached;
+      g_qi_fw_version_valid = 1U;
+    }
+  }
+
+  /* PB2 上电给 Qi 芯片供电 */
+  board_5v_set(1U);
+
+  /* Qi 芯片上电启动时间 */
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < QI_VER_PROBE_POWERUP_MS)
+  { __NOP(); }
+
+  /* 被动监听 CMD 0x01 上报（不主动发 CMD 0x03）*/
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < QI_VER_PROBE_LISTEN_MS)
+  {
+    qi_protocol_poll();
+    if (g_qi_fw_version_valid != 0U)
+    {
+      break;
+    }
+  }
+
+  /* 持久化到 Flash（仅当 RAM 版本有效且与 Flash 不同时写入） */
+  if (g_qi_fw_version_valid != 0U)
+  {
+    uint16_t cached;
+    if ((device_info_read_qi_version(&cached) != 0) ||
+        (cached != g_qi_fw_version))
+    {
+      (void)device_info_write_qi_version(g_qi_fw_version);
+    }
+  }
+
+  /* 清空残余 UART 数据 */
+  qi_protocol_rx_flush();
+
+  /* 关闭 Qi 供电 */
+  board_5v_set(0U);
+}
+
+uint16_t qi_fw_version_get(void)
+{
+  return g_qi_fw_version;
+}
+
+uint8_t qi_fw_version_valid(void)
+{
+  return g_qi_fw_version_valid;
 }

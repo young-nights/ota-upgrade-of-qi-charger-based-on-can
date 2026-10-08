@@ -266,6 +266,13 @@ uint8_t can_protocol_get_session(void);
  */
 uint8_t can_protocol_is_security_unlocked(void);
 
+/**
+ * @brief  上电版本探测：PB2 上电 → 被动监听 CMD 0x01 → 缓存+持久化 → PB2 关闭
+ */
+void     can_proto_qi_version_probe(void);
+uint16_t qi_fw_version_get(void);
+uint8_t  qi_fw_version_valid(void);
+
 #ifdef __cplusplus
 }
 #endif
