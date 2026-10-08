@@ -274,7 +274,7 @@ def z_notify(type, obj):
 
 def _log(msg):
     text = str(msg)
-    if zcanpro is not None:
+    if zcanpro is not None and hasattr(zcanpro, "write_log"):
         zcanpro.write_log(text)
     else:
         sys.stdout.write(text + "\n")
