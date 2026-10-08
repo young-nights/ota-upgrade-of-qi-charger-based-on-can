@@ -34,6 +34,8 @@ ZCANPRO 脚本 — 读取 APP 侧版本号 DID 0xF195 / 0xF180 / 0xF193
 receive() 实际返回 (status, [frames])，不是帧字典列表。
 """
 
+import os
+import re
 import time
 
 try:
@@ -51,8 +53,38 @@ SID_PR   = 0x40
 
 # 期望值 = 固件编译常量：SW_VERSION_STR / BOOTLOADER_VER_STR / HW_VERSION_STR
 # （can_protocol.c）。镜像头不携带版本号，版本号唯一定义在固件编译常量。
+# APP 版本从 app bin/ 最新 .bin 文件名自动识别（app_image_v{x}_{y}_{z}.bin），
+# 识别失败 fallback 到硬编码值。
+_EXPECTED_APP_FALLBACK = "QC_JYF_FW_1.1.17"
+
+
+def _detect_app_version_from_binscript():
+    """从 app bin/ 最新 .bin 文件名提取版本号。
+    文件名格式：app_image_v{x}_{y}_{z}.bin → QC_JYF_FW_{x}.{y}.{z}
+    识别失败返回 fallback。"""
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # 从 zcanpro/non-qi/ 回到 python_tools/
+        app_bin_dir = os.path.join(script_dir, "..", "..", "app bin")
+        if not os.path.isdir(app_bin_dir):
+            return _EXPECTED_APP_FALLBACK
+        bins = [f for f in os.listdir(app_bin_dir) if f.endswith(".bin")]
+        if not bins:
+            return _EXPECTED_APP_FALLBACK
+        # 按 mtime 降序，取最新
+        bins.sort(key=lambda f: os.path.getmtime(os.path.join(app_bin_dir, f)), reverse=True)
+        m = re.match(r'app_image_v(\d+)_(\d+)_(\d+)\.bin', bins[0])
+        if m:
+            return "QC_JYF_FW_%s.%s.%s" % (m.group(1), m.group(2), m.group(3))
+    except Exception:
+        pass
+    return _EXPECTED_APP_FALLBACK
+
+
+_EXPECTED_APP_VER = _detect_app_version_from_binscript()
+
 DID_LIST = [
-    (0xF195, "APP 软件版本", "QC_JYF_FW_1.1.2"),
+    (0xF195, "APP 软件版本", _EXPECTED_APP_VER),
     (0xF180, "Bootloader 版本", "QC_JYF_BL_1.0.0"),
     (0xF193, "硬件版本",     "QC_JYF_HW_1.1.5"),
 ]
@@ -528,7 +560,7 @@ def z_main():
     global stopTask
     stopTask = False
     _log("======== APP 版本读取工具 ========")
-    _log("预期版本: SW=QC_JYF_FW_1.1.2 / BL=QC_JYF_BL_1.0.0 / HW=QC_JYF_HW_1.1.5")
+    _log("预期版本: SW=%s / BL=QC_JYF_BL_1.0.0 / HW=QC_JYF_HW_1.1.5" % _EXPECTED_APP_VER)
     _log("DID: 0xF195(SW) / 0xF180(BL) / 0xF193(HW)")
     _log("")
     buses = zcanpro.get_buses()
