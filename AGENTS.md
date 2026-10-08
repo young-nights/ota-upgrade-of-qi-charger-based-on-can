@@ -81,7 +81,7 @@ CAN 总线：**250 kbps、Classical、29-bit 扩展帧**。终端电阻 120Ω。
 | AT-Link-Plus | Windows COM4 / BUSID **`3-2`**，**禁止 attach** |
 | 用户组 | `xuanxuan` 已在 `dialout`，开串口命令无需 `sg dialout` 包裹 |
 
-新增工具：`python_tools/3. wsl script/zqwl_can_send.py`（单帧发送 + 窗口抓包，ISO-TP 首帧自动回 FC），
+新增工具：`python_tools/wsl/zqwl_can_send.py`（单帧发送 + 窗口抓包，ISO-TP 首帧自动回 FC），
 与 `zqwl_can_listen.py` 互斥（同一串口只能一个进程打开）。
 
 ### 把盒子交给 WSL（Windows 管理员 PowerShell）
@@ -111,7 +111,7 @@ USB 读空、盒子哑了：先 `detach` 再 `attach`，然后重新开监听。
 
 ```bash
 cd /home/whites/embedded_item/ota-upgrade-of-qi-charger-based-on-can
-python3 "python_tools/3. wsl script/zqwl_can_listen.py" --port /dev/ttyACM0 \
+python3 "python_tools/wsl/zqwl_can_listen.py" --port /dev/ttyACM0 \
   --log /tmp/can_boot_listen.log --event /tmp/can_boot_events.log
 ```
 

@@ -7,11 +7,11 @@
 
 用法（在仓库根目录执行）:
   # 读 APP 版本（DID 0xF195，ISO-TP 多帧自动回 FC）
-  python3 "python_tools/3. wsl script/zqwl_can_send.py" --id 18DA0D03 --data "03 22 F1 95 CC CC CC CC" --wait 2
+  python3 "python_tools/wsl/zqwl_can_send.py" --id 18DA0D03 --data "03 22 F1 95 CC CC CC CC" --wait 2
   # Safe mode 探测（裸帧 22 21 13，TC-B004）
-  python3 "python_tools/3. wsl script/zqwl_can_send.py" --id 18DA0D03 --data "22 21 13" --wait 2
+  python3 "python_tools/wsl/zqwl_can_send.py" --id 18DA0D03 --data "22 21 13" --wait 2
   # 只抓不发（如 Safe mode 心跳计时，TC-B006）
-  python3 "python_tools/3. wsl script/zqwl_can_send.py" --no-send --wait 3
+  python3 "python_tools/wsl/zqwl_can_send.py" --no-send --wait 3
 """
 from __future__ import print_function
 import argparse

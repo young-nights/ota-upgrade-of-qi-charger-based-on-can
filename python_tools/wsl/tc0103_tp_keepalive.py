@@ -24,7 +24,7 @@
 并打印失败步骤。
 
 用法（仓库任意位置）：
-  python3 "python_tools/3. wsl script/tc0103_tp_keepalive.py" [--firmware "路径.bin"]
+  python3 "python_tools/wsl/tc0103_tp_keepalive.py" [--firmware "路径.bin"]
   默认载荷：python_tools/app bin/app_image_v1_1_2.bin
 退出码：0=PASS，1=FAIL。
 
@@ -41,11 +41,11 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# 本脚本已移入 python_tools/3. wsl script/：同级 shim 用 HERE，
-# 上一级 python_tools/（zcanpro_ext_ota_auto 与 app bin）用 PT。
+# 同级 shim 脚本用 HERE，zcanpro_ext_ota_auto 在 zcanpro/non-qi/。
 PT = os.path.dirname(HERE)
+ZCANPRO_NONQI = os.path.join(PT, "zcanpro", "non-qi")
 sys.path.insert(0, HERE)
-sys.path.insert(0, PT)
+sys.path.insert(0, ZCANPRO_NONQI)
 
 import zcanpro_shim_zqwl as shim  # noqa: E402
 sys.modules["zcanpro"] = shim

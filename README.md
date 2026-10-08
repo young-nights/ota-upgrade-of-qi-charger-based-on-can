@@ -80,12 +80,12 @@ ota-upgrade-of-qi-charger-based-on-can/
 │   └── libraries/                          ← CMSIS + AT32 SPL 驱动库
 │
 ├── python_tools/                           ← Python 工具集
-│   ├── 1.packaging script/                 ← 打包签名子目录
+│   ├── packaging/                 ← 打包签名子目录
 │   │   ├── pack_image.py                    ← 裸 bin → XATO 头 .ota.bin
 │   │   ├── merge_prod_bin.py               ← Boot + APP 合并产线镜像
 │   │   ├── verify_image.py                 ← 镜像完整性 + 签名校验
 │   │   └── sign_seed.py                    ← SecurityAccess seed 签名
-│   ├── 2.functional test script/           ← 功能测试子目录（6 个脚本）
+│   ├── zcanpro/non-qi/           ← 功能测试子目录（6 个脚本）
 │   ├── iap bin/                            ← Qi 芯片 IAP 固件 (log1.BIN / log2.BIN)
 │   ├── zcanpro_ext_ota_auto.py             ← 一键 OTA（APP 内擦写 + 重定位 + 重签）
 │   ├── zcanpro_qi_iap_log1.py              ← Qi 芯片 IAP 刷写 (V1.1)
@@ -135,7 +135,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 ### 3.4 产线烧录
 
 ```bash
-cd "python_tools/1.packaging script"
+cd "python_tools/packaging"
 
 # 1. 打包 APP 镜像（加 XATO 头 + CRC32 + ECDSA 签名）
 python pack_image.py
@@ -153,7 +153,7 @@ python merge_prod_bin.py
 
 ## 4. Python 工具集
 
-### 4.1 打包与签名（`python_tools/1.packaging script/`）
+### 4.1 打包与签名（`python_tools/packaging/`）
 
 | 脚本 | 功能 |
 |------|------|
@@ -170,7 +170,7 @@ python merge_prod_bin.py
 | `zcanpro_qi_iap_log1.py` | Qi 芯片 IAP 刷写 (固件包 log1.BIN, V1.1) |
 | `zcanpro_qi_iap_log2.py` | Qi 芯片 IAP 刷写 (固件包 log2.BIN, V1.2) |
 
-### 4.3 功能测试（`python_tools/2.functional test script/`）
+### 4.3 功能测试（`python_tools/zcanpro/non-qi/`）
 
 | 脚本 | 功能 |
 |------|------|
@@ -228,7 +228,7 @@ python merge_prod_bin.py
 | 2026-09-16 | Bootloader Safe Mode 改为挂起（`while(1)`），空片 / 双槽无效靠产线 `merge_prod_bin.py` 救砖 |
 | 2026-09-15 | SecurityAccess seed 4 字节 → 32 字节；CAN 采样点改 75%（BTS1=54, BTS2=18, 18MHz÷72Tq） |
 | 2026-09-15 | Qi 芯片 IAP：拆分 log1 / log2 两版脚本，实现完整 ACK 链路 + NRC 重试 |
-| 2026-09-15 | 版本号统一加 QC_JYF 前缀；打包脚本迁移至 `1.packaging script/` 子目录 |
+| 2026-09-15 | 版本号统一加 QC_JYF 前缀；打包脚本迁移至 `packaging/` 子目录 |
 | 2026-09-14 | 项目初始化：Bootloader + 双槽 APP + Python 工具链 |
 
 > 完整提交历史见 `git log`。

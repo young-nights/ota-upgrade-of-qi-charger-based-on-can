@@ -19,7 +19,7 @@ DID 0xF18C（SN）与 0xF195（SW 版本），断言：
   → 复位后 22 F18C / 22 F195 / 0x2113 → 三断言判定 → RESULT PASS/FAIL。
 
 用法（仓库任意位置）：
-  python3 "python_tools/3. wsl script/tc0105_sn_preserve.py" [--firmware "路径.bin"]
+  python3 "python_tools/wsl/tc0105_sn_preserve.py" [--firmware "路径.bin"]
   默认载荷：python_tools/app bin/app_image_v1_1_2.bin（设备当前 1.1.1，本次刷 1.1.2）
 退出码：0=PASS，1=FAIL。
 
@@ -36,11 +36,11 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# 本脚本已移入 python_tools/3. wsl script/：同级 shim 用 HERE，
-# 上一级 python_tools/（zcanpro_ext_ota_auto 与 app bin）用 PT。
+# 同级 shim 脚本用 HERE，zcanpro_ext_ota_auto 在 zcanpro/non-qi/。
 PT = os.path.dirname(HERE)
+ZCANPRO_NONQI = os.path.join(PT, "zcanpro", "non-qi")
 sys.path.insert(0, HERE)
-sys.path.insert(0, PT)
+sys.path.insert(0, ZCANPRO_NONQI)
 
 import zcanpro_shim_zqwl as shim  # noqa: E402
 sys.modules["zcanpro"] = shim
@@ -206,7 +206,7 @@ def run_tc0105(fw_path):
                        "device_info_read 失败（magic/version/CRC32 不符，"
                        "device_info.c:57-79 → can_protocol.c:994）→ SN 未写入/"
                        "Device Info 块无效；本脚本绝不写 SN，请先用 "
-                       "python_tools/2.functional test script/zcanpro_sn_write.py "
+                       "python_tools/zcanpro/non-qi/zcanpro_sn_write.py "
                        "写入 SN 后重跑本用例")
         _fail("前置门禁", "SN 读取失败=前置不满足（不写 SN，直接 FAIL）: %s" % detail)
     _log("OTA 前 SN(F18C): %s" % fmt_sn(sn_before))
