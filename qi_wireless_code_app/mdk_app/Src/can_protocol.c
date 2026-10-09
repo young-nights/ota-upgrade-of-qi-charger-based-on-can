@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.17";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.18";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2379,34 +2379,40 @@ void can_protocol_init(void)
 
 /**
  * @brief  Qi IAP ACK poll: non-blocking check for Qi chip UART ACK
- * @note   Called from can_protocol_poll() when state == WAIT_ACK.
- *         On ACK: sends deferred UDS positive response, resumes IAP_IN_PROGRESS.
- *         On NAK: sends NRC 0x72, resumes IAP_IN_PROGRESS (allow host retry).
- *         On timeout: sends NRC 0x72, resumes IAP_IN_PROGRESS (allow host retry).
+ * @note   Deferred UDS response is owed whenever g_qi_iap_pending_did is set.
+ *         ACK may be consumed by qi_uart_poll()'s rx_callback after this
+ *         function already ran in the same main-loop iteration; must still
+ *         send 6E/7F on the next call even when state has left WAIT_ACK.
+ *         On ACK: sends deferred UDS positive response.
+ *         On NAK/timeout: sends NRC 0x72, resumes IAP_IN_PROGRESS (host retry).
  */
 static void qi_iap_ack_poll(void)
 {
   uint32_t now;
 
-  if (g_qi_iap_state != QI_IAP_WAIT_ACK)
+  if (g_qi_iap_state == QI_IAP_WAIT_ACK)
+  {
+    /* flush any pending UART bytes from Qi chip */
+    qi_protocol_poll();
+  }
+
+  /* no deferred UDS response owed */
+  if ((g_qi_iap_pending_did[0] == 0U) && (g_qi_iap_pending_did[1] == 0U))
   {
     return;
   }
 
-  /* flush any pending UART bytes from Qi chip */
-  qi_protocol_poll();
-
   now = timer_get_tick();
 
-  /* check if callback already received an ACK or FAILED */
+  /* ACK already applied (possibly via qi_uart_poll callback) */
   if ((g_qi_iap_state == QI_IAP_IN_PROGRESS) || (g_qi_iap_state == QI_IAP_SUCCESS))
   {
-    /* ACK received (callback left WAIT_ACK)
-     * Send deferred positive response */
     uint8_t resp[3];
     resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
     resp[1] = g_qi_iap_pending_did[0];
     resp[2] = g_qi_iap_pending_did[1];
+    g_qi_iap_pending_did[0] = 0U;
+    g_qi_iap_pending_did[1] = 0U;
     proto_send_response(resp, 3);
     return;
   }
@@ -2414,15 +2420,20 @@ static void qi_iap_ack_poll(void)
   {
     /* NAK from Qi chip — allow host retry */
     g_qi_iap_state = QI_IAP_IN_PROGRESS;
+    g_qi_iap_pending_did[0] = 0U;
+    g_qi_iap_pending_did[1] = 0U;
     proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
     return;
   }
 
   /* timeout: no response from Qi chip */
-  if ((now - g_qi_iap_wait_start_ms) >= g_qi_iap_ack_timeout_ms)
+  if (g_qi_iap_state == QI_IAP_WAIT_ACK &&
+      (now - g_qi_iap_wait_start_ms) >= g_qi_iap_ack_timeout_ms)
   {
     g_qi_iap_state = QI_IAP_IN_PROGRESS;
     g_qi_iap_pending_chunk = 0U;
+    g_qi_iap_pending_did[0] = 0U;
+    g_qi_iap_pending_did[1] = 0U;
     proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
   }
 }

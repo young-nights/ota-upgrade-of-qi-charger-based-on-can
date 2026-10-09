@@ -28,7 +28,6 @@ except ImportError:
 
 # ======== 用户配置 ========
 _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
-FIRMWARE_DIR = os.path.join(_TOOLS_DIR, "iap bin")
 
 # 本脚本专用 log2.BIN（Qi 芯片版本 V1.2）
 # 请勿与 zcanpro_qi_iap_log1.py（log1.BIN）混用
@@ -92,6 +91,8 @@ def _find_repo_root(start):
 
 REPO_ROOT = _find_repo_root(_TOOLS_DIR)
 PRIVATE_KEY_PATH = os.path.join(REPO_ROOT, "docs", "keys", "private.pem")
+# 固件在仓库 python_tools/iap bin/（不随脚本目录走）
+FIRMWARE_DIR = os.path.join(REPO_ROOT, "python_tools", "iap bin")
 
 stopTask = False
 
