@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.18";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.19";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2019,12 +2019,15 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
   }
 
   /* ---- Qi IAP ACK ----
-   * 0xCC: data[0]=sub_cmd (0x01/0x02), data[1]=status; reserved optional
-   * 0x00: generic ACK, data[0]=status
-   * Some chips omit the reserved 0x00, so accept data_len >= 1.
-   * 实测 2026-10-06：prepare 应答仅短帧 55 AA 02 CC 01 CE（仅子命令回显、
-   * 无状态字节）→ data_len==1 且子命令 0x01/0x02 视为短 ACK=成功；
-   * data_len>=2 的 status=data[1] 现行逻辑不变。 */
+   * 实测（2026-10-09）ACK 格式为：
+   *   55 AA 04 CC [subcmd] [next_addr_hi] [next_addr_lo] CS
+   * next_addr = 芯片期望的下一包写地址（纯地址，不是 status！）。
+   * 例：写完 addr=0x0000 后 ACK `CC 02 00 16` → 下一包 0x0016；
+   *     写完 addr=0x00F2 后 ACK `CC 02 01 08` → 下一包 0x0108。
+   * 旧逻辑把 data[1] 当 status，地址一进 0x01xx 就把 addr_hi=0x01
+   * 误判为失败 → NRC 0x72，sent 卡死在 242。正确语义：subcmd
+   * 0x01/0x02 回显即 ACK 成功；data[1..2] 仅为 next_addr。
+   * 短 ACK `55 AA 02 CC 01 CS`（无地址）同判成功。 */
   if (frame->cmd == QI_CMD_IAP)
   {
     uint8_t status;
@@ -2033,15 +2036,9 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
     {
       return;
     }
-    if ((frame->data_len >= 2U) &&
-        ((frame->data[0] == QI_IAP_PREPARE) || (frame->data[0] == QI_IAP_DATA)))
+    if ((frame->data[0] == QI_IAP_PREPARE) || (frame->data[0] == QI_IAP_DATA))
     {
-      status = frame->data[1];
-    }
-    else if ((frame->data_len == 1U) &&
-             ((frame->data[0] == QI_IAP_PREPARE) || (frame->data[0] == QI_IAP_DATA)))
-    {
-      /* 短 ACK：仅子命令回显、无状态字节（芯片实发形态）→ 判成功 */
+      /* 子命令回显 = 成功；data[1..2] 是 next_addr，不参与 status */
       status = QI_IAP_ACK_OK;
     }
     else

@@ -1,0 +1,31 @@
+======== Qi IAP FULL transfer log ========
+time: 2026-10-09 18:16:22
+firmware: python_tools/iap bin/log1.BIN  size=12824 (0x3218)
+ACK format: 55 AA 04 CC 02 [next_addr_hi] [next_addr_lo] CS
+MCU fw<=1.1.18 misreads addr_hi as status -> NRC 0x72 after addr>=0x0100
+host continues anyway; chip UART ACK proves data is accepted
+
+[zcanpro-shim] 串口 /dev/ttyACM0 已开，CAN0 250kbps 扩展帧（device_info 22 B）
+[INIT] ZQWL /dev/ttyACM0 CAN0 250k ext
+---- 1. charge enable ----
+[TX] 10 02 -> 50 02 00 32 01 F4
+[TX] 10 03 -> 50 03 00 32 01 F4
+[SA] 27 02 -> 67 02
+[TX] 2E 21 01 01 -> 6E 21 01
+[TX] 22 21 02 -> 62 21 02 04
+[TX] 22 21 33 -> 62 21 33 00 00
+[UART-pre] 55 AA 04 CC 01 00 00 D0 55 AA 04 CC 02 00 16 E7 55 AA 04 CC 02 00 2C FD 55 AA 04 CC 02 00 42 13 55 AA 04 CC 02 00 58 29 55 AA 04 CC 02 00 6E 3F 55 AA 04 CC 02 00 84 55 55 AA 04 CC 02 00 9A 6B 55 AA 04 CC 02 00 B0 81 55 AA 04 CC 02 00 C6 97 55 AA 04 CC 02 00 DC AD 55 AA 04 CC 02 00 F2 C3 55 AA 04 CC 02 01 08 DA 55 AA 04 CC 02 01 1E F0 55 AA 04 CC 02 01 34 06 55 AA 04 CC 02 01 4A 1C 55 AA 04 CC 02 01 60 32 55 AA 04 CC 02 01 76 48 55 AA 04 CC 02 01 8C 5E 55 AA 04 CC 02 01 A2 74 55 AA 04 CC 02 01 B8 8A 55 AA 04 CC 02 01 CE A0 55 AA 04 CC 02 01 E4 B6 55 AA 04 CC 02 01 FA CC
+---- 2. programming + start ----
+[TX] 10 02 -> 50 02 00 32 01 F4
+[SA] 27 02 -> 67 02
+[TX] abort -> 6E 21 30
+[ST] {'state': 0, 'progress': 0, 'ver': 0, 'sent': 0, 'total': 0}
+[TX] 2E 21 30 01 32 18 size=12824
+[RX] 
+[ST] {'state': 1, 'progress': 0, 'ver': 0, 'sent': 0, 'total': 12824}
+[UART-start] 55 AA 04 CC 01 00 00 D0
+---- 3. data packets (22B, sequential from 0) ----
+[P0000] addr=0x0000 n=22  UDS=6E 21 31 POS  UART=55 AA 04 CC 02 00 16 E7  next=0x0016 ok=True  dt=0.16s
+[P0001] addr=0x0016 n=22  UDS=6E 21 31 POS  UART=55 AA 04 CC 02 00 2C FD  next=0x002C ok=True  dt=0.16s
+[P0002] addr=0x002C n=22  UDS=6E 21 31 POS  UART=55 AA 04 CC 02 00 42 13  next=0x0042 ok=True  dt=0.16s
+[P0003] addr=0x0042 n=22  UDS=6E 21 31 POS  UART=55 AA 04 CC 02 00 58 29  next=0x0058 ok=True  dt=0.16s
