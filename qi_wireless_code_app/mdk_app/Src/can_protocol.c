@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.19";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.20";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -580,7 +580,8 @@ static void proto_send_nrc(uint8_t service_id, uint8_t nrc)
  *         兼容两种载荷形态：
  *         1) ASCII 十进制数字串（如 "12"）：全字节为 '0'~'9' 时按十进制
  *            解析（溢出饱和到 65535）；
- *         2) 小端整数：规格形态 2B LE；1B 退化为该字节数值。
+ *         2) 大端整数：实测 Qi 芯片版本字段高位在前（2026-10-10 修正 LE→BE）；
+ *            1B 退化为该字节数值。
  * @param  data: 回复数据指针
  * @param  len:  数据字节数
  * @retval 版本整数值 0~65535（len==0 或空指针返回 0）
@@ -610,16 +611,20 @@ static uint16_t qi_ver_parse_value(const uint8_t *data, uint8_t len)
       v = (v * 10U) + (uint32_t)(data[i] - (uint8_t)'0');
       if (v > 0xFFFFU)
       {
-        return 0xFFFFU;                 /* 饱和：规格 2B LE，超出按上限 */
+        return 0xFFFFU;                 /* 饱和：规格 2B，超出按上限 */
       }
     }
     return (uint16_t)v;
   }
-  /* 小端整数（规格 2B LE）：取低 2B */
-  v = (uint32_t)data[0];
+  /* 大端整数（实测 Qi 芯片版本字段高位在前，2026-10-10 修正 LE→BE） */
+  v = (uint32_t)((uint32_t)data[0] << 8);
   if (len >= 2U)
   {
-    v |= (uint32_t)((uint32_t)data[1] << 8);
+    v |= (uint32_t)data[1];
+  }
+  else
+  {
+    v = (uint32_t)data[0];               /* 单字节：直接取值 */
   }
   return (uint16_t)v;
 }
@@ -2174,18 +2179,19 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
     /* 帧布局（docs/4. IAP数据通信协议规范.md §2.1，0 基帧偏移）：
      *   data[0-1] = status1/status2（帧偏移 4-5）
      *   data[2-3] = 实时功率 LE mW（帧偏移 6-7）
-     *   data[4-5] = 版本号 LE（帧偏移 8-9，与 DID 0x2133 一致）
+     *   data[4-5] = 版本号 BE（帧偏移 8-9，高位在前；2026-10-10 修正 LE→BE）
      * 扩展帧 (≥13B) 额外字段：
      *   data[6]   = voltage, data[7] = current, data[8] = temp
      *   data[9]   = FOD, data[10] = reserved, data[11] = fault
      *   data[12]  = thermal derate
      *
      * NOTE: 曾按 data[2-3]=version/data[4-5]=power 解析（与规格书
-     *       装反），2026-09-22 对齐规格书修正。 */
+     *       装反），2026-09-22 对齐规格书修正。
+     * NOTE: 版本字段曾按 LE 解析，2026-10-10 实测 Qi 芯片上报 BE（高位在前）。 */
     g_qi_output_power_mw = (uint16_t)frame->data[2]
                          | ((uint16_t)frame->data[3] << 8);
-    g_qi_fw_version = (uint16_t)frame->data[4]
-                    | ((uint16_t)frame->data[5] << 8);
+    g_qi_fw_version = ((uint16_t)frame->data[4] << 8U)
+                    | (uint16_t)frame->data[5];
     g_qi_fw_version_valid = 1U;
 
     /* 扩展帧额外字段 */

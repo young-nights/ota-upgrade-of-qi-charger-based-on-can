@@ -32,7 +32,7 @@ _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 # 本脚本专用 log1.BIN（Qi 芯片版本 V1.1）
 # 请勿与 zcanpro_qi_iap_log2.py（log2.BIN）混用
 FIRMWARE_NAME = "log1.BIN"
-EXPECTED_FW_VERSION = 0x0101
+EXPECTED_FW_VERSION = 0x0001
 
 # Qi IAP 每包数据长度（协议定义最大 22 字节）
 QI_IAP_DATA_LEN = 22
