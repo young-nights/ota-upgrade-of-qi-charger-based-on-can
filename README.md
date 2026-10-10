@@ -190,7 +190,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_FW_1.1.20** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_FW_1.1.21** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -200,6 +200,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-10 | **feat low-power: Standby / Sleep 二选一编译开关**：新增 `CAN_LP_SLEEP_ENABLE`（can_protocol.h）与 `CAN_LP_STANDBY_ENABLE` 互斥（同时=1 编译报错）；派生宏 `CAN_LP_LOW_POWER_ENABLE` 统一控制编译段。Sleep 调 `sit1145_sleep_mode_set()`（SPI 断开，跳过进入后 wakeup_clear/settle）。`SW_VERSION_STR` 1.1.20→1.1.21 |
 | 2026-10-10 | **fix Qi 版本字段字节序 LE→BE 修正**：实测 Qi 芯片 0x01 状态上报帧版本字段为大端序（data[4]=高字节, data[5]=低字节），原代码按小端解析导致 DID 0x2133 读出 0x0100 而非实际 0x0001。修复 `qi_iap_frame_cb` 状态上报解析为 `((data[4]<<8)|data[5])`；同步修正 `qi_ver_parse_value` 非 ASCII 整数路径。log1 `EXPECTED_FW_VERSION` 更正为 0x0001。`SW_VERSION_STR` 1.1.19→1.1.20。log1 + log2 已同步（log2 版本常量待确认） |
 | 2026-10-06 | **fix Qi IAP ACK 短帧兼容 + docs/4 短 ACK/取消帧定义**：实测（0x2140 ISR 级全字节抓取）Qi 芯片对 IAP prepare 只发短帧 `55 AA 02 CC 01 CE`（仅子命令回显、无状态字节，CS 验证过），docs/4 §5.2 标准应答 `55 AA 04 CC 01 00 00 CS` 线上从未出现；固件 `qi_iap_frame_cb` 0xCC 分支对 `data_len==1` 且子命令 0x01/0x02 误判 data[0]（0x01）≠ ACK_OK(0x00) 为 NAK → 0x2130 回 NRC 0x72（芯片实际 ACK 成功）。修复：data_len==1 且子命令回显 → 短 ACK=成功（data_len≥2 现行逻辑/else 兤底不动；与 0x00 通用 ACK 分支区分）；qi_protocol.c 解析层核对一致无需改（0xCC 已按无 SEQ 切分）。docs/4 §5.2/§9.4 补实测短 ACK 形态、§5.4 补取消升级子命令 0x03（协议预留/待芯片确认 + 现状：0x2E 21 30 0x02 中止仅清 AT32 侧、芯片退出需 12V 断电）。`SW_VERSION_STR` 1.1.15→1.1.16 |
 | 2026-10-06 | **fix Qi UART 波特率 9600→19200 匹配（并列根因）**：用户 2026-10-06 确认 Qi 芯片实际波特率为 19200，此前固件/文档按 9600 配置系文档口径错误——即使 AF 修对（1.1.14 MUX_7→MUX_1），波特率不匹配也会收到乱码帧，为链路不通的并列因素之一。`qi_uart.h` `QI_UART_BAUDRATE 9600U→19200U`（8N1 不变），qi_uart.c/qi_protocol.h 注释、README 硬件接口表、.agent-notes 同步；`SW_VERSION_STR` 1.1.14→1.1.15 |
