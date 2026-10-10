@@ -46,36 +46,24 @@ extern "C" {
 #define CAN_ID_LIFECYCLE_BROADCAST   0x18FF260DU
 
 /* ========================================================================== */
-/*  CAN low-power compile switches (Standby / Sleep 二选一)                   */
+/*  CAN low-power (Standby) compile switch                                    */
 /* ========================================================================== */
 
 /**
- * @brief  SIT1145 Standby 进入开关
- * @note   =1：空闲 CAN_LP_IDLE_TIMEOUT_MS 后进 Standby（低功耗监听，SPI 可用，
- *             CAN WUP 唤醒）。与 CAN_LP_SLEEP_ENABLE 互斥，同时=1 编译报错。
- *         =0：不进 Standby（若 Sleep 也=0 则 CAN 常在线）。
+ * @brief  SIT1145 Standby 进入总开关（编译期单一开关）
+ * @note   =1：空闲 CAN_LP_IDLE_TIMEOUT_MS（UDS 无收发）后进 Standby；
+ *             上电即 Normal，sit1145_init() 不进 Standby，由首次
+ *             can_protocol_poll 的 can_lp_enter_normal 完成
+ *             sit1145_normal_mode_set + can_driver_online。
+ *         =0：空闲停机整段不编译（can_lp_hold_standby / can_lp_enter_standby
+ *             定义与空闲超时判定），CAN 常在线；唤醒/恢复代码仍编译，无入口触发。
+ *         未定义时默认=启用空闲超时进 Standby（生产语义，防误配）；
+ *         各调用点统一用
+ *         #if !defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)
+ *         形式判定。受控调用点：can_protocol.c can_lp_hold_standby /
+ *         can_lp_enter_standby 定义与调用点、can_protocol.c 空闲超时判定。
  */
 #define CAN_LP_STANDBY_ENABLE        1
-
-/**
- * @brief  SIT1145 Sleep 进入开关
- * @note   =1：空闲 CAN_LP_IDLE_TIMEOUT_MS 后进 Sleep（最低功耗，SPI 断开，
- *             唤醒源：INH 引脚 / 重新上电）。与 CAN_LP_STANDBY_ENABLE 互斥。
- *         =0：不进 Sleep。
- */
-#define CAN_LP_SLEEP_ENABLE          0
-
-/* 互斥检查：两者不可同时启用 */
-#if (CAN_LP_STANDBY_ENABLE != 0U) && (CAN_LP_SLEEP_ENABLE != 0U)
-#error "CAN_LP_STANDBY_ENABLE and CAN_LP_SLEEP_ENABLE are mutually exclusive — pick one"
-#endif
-
-/** 派生：任一低功耗模式启用 = 空闲超时进低功耗（受控调用点统一用此宏） */
-#if (CAN_LP_STANDBY_ENABLE != 0U) || (CAN_LP_SLEEP_ENABLE != 0U)
-#define CAN_LP_LOW_POWER_ENABLE  1
-#else
-#define CAN_LP_LOW_POWER_ENABLE  0
-#endif
 
 /* ========================================================================== */
 /*  UDS service identifiers                                                  */

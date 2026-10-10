@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.21";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.20";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -220,7 +220,7 @@ static uint8_t  g_lp_pre_wipe_due = 0U;
 #define CAN_LP_RX_HARVEST_MS      30U
 
 /** 30 s with no UDS RX/TX → SIT1145 Standby (ISO 11898-2 WUP can wake)
- *  受 CAN_LP_LOW_POWER_ENABLE 总开关控制（can_protocol.h，Standby/Sleep 二选一）：
+ *  受 CAN_LP_STANDBY_ENABLE 总开关控制（can_protocol.h）：
  *  =1（含未定义，生产语义）：上电即 Normal，仅空闲超时进 Standby；
  *  =0：空闲停机整段不编译 */
 #define CAN_LP_IDLE_TIMEOUT_MS  (30UL * 1000UL)
@@ -415,11 +415,10 @@ static void can_lp_enter_normal(void)
   }
 }
 
-/* 低功耗进入函数：受 CAN_LP_LOW_POWER_ENABLE 总开关控制（can_protocol.h）。
- * CAN_LP_STANDBY_ENABLE=1 → SIT1145 Standby（SPI 可用，CAN WUP 唤醒）；
- * CAN_LP_SLEEP_ENABLE=1   → SIT1145 Sleep（SPI 断开，INH/上电唤醒）。
- * =0 且 Sleep=0：空闲停机整段不编译，CAN 常在线。 */
-#if CAN_LP_LOW_POWER_ENABLE != 0U
+/* Standby 进入函数：受 CAN_LP_STANDBY_ENABLE 总开关控制（can_protocol.h）。
+ * =1（含未定义，生产语义）：仅空闲超时进 Standby，上电即 Normal；
+ * =0：空闲停机整段不编译，源码完整保留，唤醒/恢复路径不受影响。 */
+#if !defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)
 static void can_lp_hold_standby(void)
 {
   uint32_t t0;
@@ -441,21 +440,11 @@ static void can_lp_hold_standby(void)
   /* 3) Enable standard CAN wake (CWE @0x23) only after the flags are clean */
   sit1145_wake_enable();
 
-  /* 4) Switch to low-power mode: write + readback inside sit1145_set_mode.
-   *    Sleep: SPI 断开后无法回读，sit1145_set_mode 对 Sleep 直接信任写入。
-   *    On failure retry once after 1 ms. Two failures still continue teardown
-   *    and raise sticky flag g_lp_standby_fail (DID 0x2119 flags bit2). */
-#if CAN_LP_SLEEP_ENABLE != 0U
-  if (sit1145_sleep_mode_set() == 0U)
-  {
-    t0 = timer_get_tick();
-    while ((timer_get_tick() - t0) < 1U) { __NOP(); }
-    if (sit1145_sleep_mode_set() == 0U)
-    {
-      g_lp_standby_fail = 1U;
-    }
-  }
-#else
+  /* 4) Switch to Standby: write + readback inside sit1145_set_mode. On
+   *    failure retry once after 1 ms (same pattern as the old init step 10).
+   *    Two failures still continue teardown (transceiver state unknown, but
+   *    the MCU side must go offline) and raise the sticky flag
+   *    g_lp_standby_fail, observable via DID 0x2119 flags bit2. */
   if (sit1145_standby_mode_set() == 0U)
   {
     t0 = timer_get_tick();
@@ -465,16 +454,22 @@ static void can_lp_hold_standby(void)
       g_lp_standby_fail = 1U;
     }
   }
-#endif
 
   /* 5) Pin switch after mode change (TXD must not be GPIO in Normal) */
   can_driver_pins_standby();
 
-#if CAN_LP_SLEEP_ENABLE == 0U
-  /* 6) Settle + final event wipe (Standby only — SPI still alive).
-   *    Sleep 模式 SPI 已断开，跳过。A latch still surviving is caught by
-   *    the one-shot unconditional wipe at inhibit expiry
-   *    (g_lp_pre_wipe_due in can_protocol_poll). */
+  /* 6) Settle + final event wipe: the mode/pin transition above can latch
+   *    CW asynchronously while the transceiver settles, AFTER a single
+   *    immediate clear — bench 1.1.4 (round-2, 6 rounds 3PASS/3FAIL,
+   *    FAIL@SB+124~141ms src=1 ev63=0x01 zero frames) is consistent with a
+   *    latch landing in that window. Round-3 nets:
+   *      6a) wipe whatever the transition already latched;
+   *      6b) bounded <=5ms settle/release wait (returns immediately when
+   *          RXD is already released — the clean common case, adds no
+   *          entry latency there);
+   *      6c) second wipe covering anything latched during the wait.
+   *    A latch still surviving 6c is caught by the one-shot unconditional
+   *    wipe at inhibit expiry (g_lp_pre_wipe_due in can_protocol_poll). */
   sit1145_wakeup_clear();
   t0 = timer_get_tick();
   while ((timer_get_tick() - t0) < 5U)
@@ -485,7 +480,6 @@ static void can_lp_hold_standby(void)
     }
   }
   sit1145_wakeup_clear();
-#endif /* CAN_LP_SLEEP_ENABLE == 0U */
 
   g_can_awake = 0U;
   g_standby_since_ms = timer_get_tick();
@@ -518,7 +512,7 @@ static void can_lp_enter_standby(void)
   }
   can_lp_hold_standby();
 }
-#endif /* CAN_LP_LOW_POWER_ENABLE */
+#endif /* CAN_LP_STANDBY_ENABLE */
 
 /* ========================================================================== */
 /*  Private helper functions                                                 */
@@ -2837,7 +2831,7 @@ void can_protocol_poll(void)
     }
   }
 
-#if (CAN_LP_LOW_POWER_ENABLE != 0U) && (CAN_LP_IDLE_TIMEOUT_MS > 0U)
+#if (!defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)) && (CAN_LP_IDLE_TIMEOUT_MS > 0U)
   /* No Standby while charging: judge straight from the Hall sensor chain
    * (g_qi_charger_enable from DID 0x2101 + board_hall_open() on PA0) - the
    * exact condition board_charge_poll() uses to drive the charge switch,
