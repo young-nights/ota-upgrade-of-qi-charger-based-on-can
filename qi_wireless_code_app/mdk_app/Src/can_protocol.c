@@ -100,7 +100,7 @@ static uint8_t  g_sa_sig_block_seq        = 0;
 
 /** @brief  Qi chip UART ACK timeout (ms) for each data packet (flash write) */
 #define QI_IAP_ACK_TIMEOUT_MS      2000U
-/** @brief  Qi chip prepare/erase timeout (ms) for DID 0x2130 start */
+/** @brief  Qi chip prepare/erase timeout (ms) for Qi IAP prepare */
 #define QI_IAP_PREPARE_TIMEOUT_MS  2500U
 #define QI_VER_QUERY_TIMEOUT_MS    500U   /*!< DID 0x2013 Qi 版本查询回复超时 */
 #define QI_VER_PROBE_POWERUP_MS    200U   /*!< 上电版本探测：Qi 芯片启动等待 */

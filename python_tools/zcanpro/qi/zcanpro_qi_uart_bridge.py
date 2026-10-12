@@ -9,7 +9,7 @@ ZCANPRO 脚本 — Qi UART 抓取/透传桥（上位机 ↔ AT32 ↔ Qi 芯片�
     len 单次 ≤240；缓冲多于此分次续读（siphon，只清已返回部分）；空回 [00][00]
   DID 0x2141（写 0x2E，10 02 编程会话 + 安全解锁）Qi UART 透传发送：
     payload 1~64B 原样逐字节经 UART 发给 Qi 芯片 → 6E 21 41
-    门禁同 0x2130/0x2131；len<1 或 >64 → 7F 2E 13；Qi IAP 进行中 → 7F 2E 22
+    门禁同 0x2010；len<1 或 >64 → 7F 2E 13；Qi IAP 进行中 → 7F 2E 22
 
 模式：
   --listen          轮询 22 21 40（默认 50ms），逐批打时间戳 + hex 原文；
@@ -402,7 +402,7 @@ def _s3_keepalive_wait(bus_id, total_s=SA_LOCKOUT_WAIT_S, interval_s=S3_KEEPALIV
 
 
 def unlock_programming(bus_id, priv):
-    """10 02 编程会话 + 完整安全解锁（0x2141 写门禁：同 0x2130/0x2131）。"""
+    """10 02 编程会话 + 完整安全解锁（0x2141 写门禁：同 0x2010）。"""
     uds_req(bus_id, SID_DSC, [0x02])
     send_security_key(bus_id, priv)
 
