@@ -416,6 +416,15 @@ void ota_dl_handle_erase(uint8_t *data, uint16_t len)
   g_bytes_written = 0U;
   g_pad_len = 0U;
   g_block_seq = 0U;
+
+  /* 擦除循环 __disable_irq() 使 CAN 错误中断丢失，控制器可能处于
+   * bus-off 或更深的错误态。仅 can_busoff_reset 不够——FF/FC 交换
+   * 仍会偶发丢失。offline→online 完整重初始化：复位 CAN 外设、
+   * 重挂 RX/ERR 中断、重配时序/滤波、清错误计数器；rx_callback /
+   * busoff_recovery_cb 保持不变。 */
+  can_driver_offline();
+  can_driver_online();
+
   can_proto_end_long_op();
   resp[0] = (uint8_t)(UDS_SID_ROUTINE_CONTROL + UDS_POSITIVE_RESPONSE_OFFSET);
   resp[1] = sub;

@@ -150,12 +150,14 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     fc_data[i] = 0xCCU;
   }
 
-  /* Flash 擦除禁中断后 CAN 可能处于 bus-off，先请求恢复。
-   * bus-off 恢复需 128×11 隐性位（250kbps ≈5.6ms），此处不等
-   * 完成——重试循环的 5ms 间隔已覆盖恢复窗口。 */
+  /* Flash 擦除禁中断后 CAN 可能处于 bus-off 或更深错误态。
+   * can_busoff_reset 仅请求恢复（需 5.6ms 隐性位），不够可靠；
+   * offline→online 完整重初始化：复位 CAN 外设、重挂中断、
+   * 重配时序/滤波、清错误计数器。 */
   if (can_busoff_get(CAN1) != RESET)
   {
-    can_busoff_reset(CAN1);
+    can_driver_offline();
+    can_driver_online();
   }
 
   if (can_driver_last_tx_handle(&prev_handle) == 0)
@@ -172,7 +174,8 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     /* 重试间再查 bus-off：首次恢复可能未完成 */
     if ((attempt > 0U) && (can_busoff_get(CAN1) != RESET))
     {
-      can_busoff_reset(CAN1);
+      can_driver_offline();
+      can_driver_online();
     }
     if (isotp_send_fc_try(can_id, fc_data) == 0)
     {
