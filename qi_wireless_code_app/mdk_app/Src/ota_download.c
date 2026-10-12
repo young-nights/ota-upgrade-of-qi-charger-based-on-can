@@ -491,7 +491,8 @@ void ota_dl_handle_request_download(uint8_t *data, uint16_t len)
   }
 
   /* MCU2 (Qi 芯片) 目标：启动 Qi IAP prepare（UART 0xCC 0x01 + size），
-   * 不写本机 Flash。Qi IAP 每包最大 QI_IAP_MAX_CHUNK(22)B，
+   * 延迟应答：等 Qi 芯片 ACK 后由 qi_iap_ack_poll 回 74 正响应，
+   * 超时/NAK 回 7F 34 72。Qi IAP 每包最大 QI_IAP_MAX_CHUNK(22)B，
    * maxBlockLen 据此回 22 使主机逐包发。 */
   if (g_mcu2_mode != 0U)
   {
@@ -506,13 +507,7 @@ void ota_dl_handle_request_download(uint8_t *data, uint16_t len)
     g_block_seq = 0U;
     g_active = 1U;
     g_trial_ready = 0U;
-    qi_protocol_rx_flush();
-    (void)qi_protocol_iap_prepare((uint16_t)mem_size);
-    resp[0] = (uint8_t)(UDS_SID_REQUEST_DOWNLOAD + UDS_POSITIVE_RESPONSE_OFFSET);
-    resp[1] = 0x20U;
-    resp[2] = 0U;
-    resp[3] = QI_IAP_MAX_CHUNK;
-    can_proto_send_response(resp, 4);
+    can_proto_qi_iap_prepare_async((uint16_t)mem_size, QI_IAP_MAX_CHUNK);
     return;
   }
 
@@ -586,7 +581,8 @@ void ota_dl_handle_transfer_data(uint8_t *data, uint16_t len)
   }
 
   /* MCU2 (Qi 芯片) 目标：固件数据经 UART 0xCC 0x02 转发给 Qi 芯片，
-   * 不写本机 Flash。Qi IAP 每包最大 QI_IAP_MAX_CHUNK(22)B，
+   * 延迟应答：等 Qi 芯片 ACK 后由 qi_iap_ack_poll 回 76 BSC，
+   * 超时/NAK 回 7F 36 72。Qi IAP 每包最大 QI_IAP_MAX_CHUNK(22)B，
    * 0x34 已回 maxBlockLen=22 约束主机逐包发，此处再夹断保护。 */
   if (g_mcu2_mode != 0U)
   {
@@ -595,14 +591,10 @@ void ota_dl_handle_transfer_data(uint8_t *data, uint16_t len)
     {
       chunk = QI_IAP_MAX_CHUNK;
     }
-    (void)qi_protocol_iap_data(g_mcu2_addr, &data[2], (uint8_t)chunk);
+    can_proto_qi_iap_data_async(g_mcu2_addr, &data[2], (uint8_t)chunk, bsc);
     g_mcu2_addr = (uint16_t)(g_mcu2_addr + chunk);
     g_bytes_written += chunk;
     g_block_seq = bsc;
-    resp[0] = (uint8_t)(UDS_SID_TRANSFER_DATA + UDS_POSITIVE_RESPONSE_OFFSET);
-    resp[1] = bsc;
-    can_proto_send_response(resp, 2);
-    (void)can_driver_wait_tx_idle(20U);
     return;
   }
 

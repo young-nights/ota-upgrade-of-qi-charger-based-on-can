@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.25";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.26";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -134,6 +134,14 @@ static uint32_t g_qi_iap_wait_start_ms = 0U; /*!< timestamp when WAIT_ACK entere
 static uint8_t  g_qi_iap_pending_did[2] = {0U}; /*!< DID bytes for deferred response */
 static uint32_t g_qi_iap_ack_timeout_ms = QI_IAP_ACK_TIMEOUT_MS;
 static uint16_t g_qi_iap_pending_chunk = 0U; /*!< bytes to add to sent after ACK */
+
+/** @brief  deferred UDS response type for Qi IAP ACK（DID 写 / 0x34 / 0x36） */
+#define QI_RESP_NONE   0U
+#define QI_RESP_DID    1U   /*!< 6E <did_h> <did_l> */
+#define QI_RESP_RDB    2U   /*!< 74 20 <max_h> <max_l> */
+#define QI_RESP_TXD    3U   /*!< 76 <bsc> */
+static uint8_t  g_qi_iap_resp_type  = QI_RESP_NONE;
+static uint8_t  g_qi_iap_resp_extra[2] = {0U}; /*!< maxBlockLen 或 BSC */
 
 /** @brief  DID 0x2013 Qi 版本主动问询（延迟应答）状态 */
 static uint8_t  g_qi_ver_q_state    = 0U;   /*!< 0=idle, 1=waiting Qi 回复 */
@@ -825,6 +833,53 @@ uint8_t can_proto_fw_type_target(void)
 uint8_t can_proto_qi_iap_state(void)
 {
   return g_qi_iap_state;
+}
+
+/**
+ * @brief  启动 Qi IAP prepare 并延迟 UDS 应答（等 ACK 后回 74）
+ * @note   供 ota_download.c MCU2 路径 0x34 调用。发 UART 0xCC 0x01 后
+ *         进入 WAIT_ACK，qi_iap_ack_poll 收到 ACK 才发 74 正响应；
+ *         超时/NAK 回 7F 34 72。
+ * @param  fw_size: 固件大小（16-bit）
+ * @param  max_block_len: 回给主机的 maxNumberOfBlockLength
+ */
+void can_proto_qi_iap_prepare_async(uint16_t fw_size, uint16_t max_block_len)
+{
+  g_qi_iap_total    = fw_size;
+  g_qi_iap_sent     = 0U;
+  g_qi_iap_progress = 0U;
+  g_qi_iap_last_tx_ms = 0U;
+  g_qi_iap_pending_chunk = 0U;
+  qi_protocol_rx_flush();
+  (void)qi_protocol_iap_prepare(fw_size);
+  g_qi_iap_state = QI_IAP_WAIT_ACK;
+  g_qi_iap_ack_timeout_ms = QI_IAP_PREPARE_TIMEOUT_MS;
+  g_qi_iap_wait_start_ms = timer_get_tick();
+  g_qi_iap_resp_type = QI_RESP_RDB;
+  g_qi_iap_resp_extra[0] = (uint8_t)(max_block_len >> 8);
+  g_qi_iap_resp_extra[1] = (uint8_t)(max_block_len & 0xFFU);
+}
+
+/**
+ * @brief  发送 Qi IAP 数据包并延迟 UDS 应答（等 ACK 后回 76 BSC）
+ * @note   供 ota_download.c MCU2 路径 0x36 调用。发 UART 0xCC 0x02 后
+ *         进入 WAIT_ACK，qi_iap_ack_poll 收到 ACK 才发 76 正响应；
+ *         超时/NAK 回 7F 36 72。
+ * @param  addr: Qi IAP 固件偏移
+ * @param  data: 固件数据
+ * @param  len:  数据长度（≤ QI_IAP_MAX_CHUNK）
+ * @param  bsc:  block sequence counter（回给主机）
+ */
+void can_proto_qi_iap_data_async(uint16_t addr, const uint8_t *data, uint8_t len, uint8_t bsc)
+{
+  (void)qi_protocol_iap_data(addr, data, len);
+  g_qi_iap_pending_chunk = len;
+  g_qi_iap_last_tx_ms = timer_get_tick();
+  g_qi_iap_state = QI_IAP_WAIT_ACK;
+  g_qi_iap_ack_timeout_ms = QI_IAP_ACK_TIMEOUT_MS;
+  g_qi_iap_wait_start_ms = timer_get_tick();
+  g_qi_iap_resp_type = QI_RESP_TXD;
+  g_qi_iap_resp_extra[0] = bsc;
 }
 
 /**
@@ -2416,11 +2471,13 @@ void can_protocol_init(void)
 
 /**
  * @brief  Qi IAP ACK poll: non-blocking check for Qi chip UART ACK
- * @note   Deferred UDS response is owed whenever g_qi_iap_pending_did is set.
+ * @note   Deferred UDS response is owed whenever g_qi_iap_resp_type != NONE
+ *         或 g_qi_iap_pending_did 非零（旧 DID 写路径兼容）。
  *         ACK may be consumed by qi_uart_poll()'s rx_callback after this
  *         function already ran in the same main-loop iteration; must still
  *         send 6E/7F on the next call even when state has left WAIT_ACK.
- *         On ACK: sends deferred UDS positive response.
+ *         On ACK: sends deferred UDS positive response（按 resp_type 分
+ *         6E/74/76 三种格式）。
  *         On NAK/timeout: sends NRC 0x72, resumes IAP_IN_PROGRESS (host retry).
  */
 static void qi_iap_ack_poll(void)
@@ -2434,7 +2491,8 @@ static void qi_iap_ack_poll(void)
   }
 
   /* no deferred UDS response owed */
-  if ((g_qi_iap_pending_did[0] == 0U) && (g_qi_iap_pending_did[1] == 0U))
+  if ((g_qi_iap_resp_type == QI_RESP_NONE) &&
+      (g_qi_iap_pending_did[0] == 0U) && (g_qi_iap_pending_did[1] == 0U))
   {
     return;
   }
@@ -2444,22 +2502,57 @@ static void qi_iap_ack_poll(void)
   /* ACK already applied (possibly via qi_uart_poll callback) */
   if ((g_qi_iap_state == QI_IAP_IN_PROGRESS) || (g_qi_iap_state == QI_IAP_SUCCESS))
   {
-    uint8_t resp[3];
-    resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
-    resp[1] = g_qi_iap_pending_did[0];
-    resp[2] = g_qi_iap_pending_did[1];
-    g_qi_iap_pending_did[0] = 0U;
-    g_qi_iap_pending_did[1] = 0U;
-    proto_send_response(resp, 3);
+    if (g_qi_iap_resp_type == QI_RESP_RDB)
+    {
+      uint8_t resp[4];
+      resp[0] = UDS_SID_REQUEST_DOWNLOAD + UDS_POSITIVE_RESPONSE_OFFSET;
+      resp[1] = 0x20U;
+      resp[2] = g_qi_iap_resp_extra[0];
+      resp[3] = g_qi_iap_resp_extra[1];
+      g_qi_iap_resp_type = QI_RESP_NONE;
+      proto_send_response(resp, 4);
+    }
+    else if (g_qi_iap_resp_type == QI_RESP_TXD)
+    {
+      uint8_t resp[2];
+      resp[0] = UDS_SID_TRANSFER_DATA + UDS_POSITIVE_RESPONSE_OFFSET;
+      resp[1] = g_qi_iap_resp_extra[0];
+      g_qi_iap_resp_type = QI_RESP_NONE;
+      proto_send_response(resp, 2);
+    }
+    else
+    {
+      uint8_t resp[3];
+      resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
+      resp[1] = g_qi_iap_pending_did[0];
+      resp[2] = g_qi_iap_pending_did[1];
+      g_qi_iap_pending_did[0] = 0U;
+      g_qi_iap_pending_did[1] = 0U;
+      proto_send_response(resp, 3);
+    }
     return;
   }
   if (g_qi_iap_state == QI_IAP_FAILED)
   {
     /* NAK from Qi chip — allow host retry */
     g_qi_iap_state = QI_IAP_IN_PROGRESS;
-    g_qi_iap_pending_did[0] = 0U;
-    g_qi_iap_pending_did[1] = 0U;
-    proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+    g_qi_iap_pending_chunk = 0U;
+    if (g_qi_iap_resp_type == QI_RESP_RDB)
+    {
+      g_qi_iap_resp_type = QI_RESP_NONE;
+      proto_send_nrc(UDS_SID_REQUEST_DOWNLOAD, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+    }
+    else if (g_qi_iap_resp_type == QI_RESP_TXD)
+    {
+      g_qi_iap_resp_type = QI_RESP_NONE;
+      proto_send_nrc(UDS_SID_TRANSFER_DATA, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+    }
+    else
+    {
+      g_qi_iap_pending_did[0] = 0U;
+      g_qi_iap_pending_did[1] = 0U;
+      proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+    }
     return;
   }
 
@@ -2469,9 +2562,22 @@ static void qi_iap_ack_poll(void)
   {
     g_qi_iap_state = QI_IAP_IN_PROGRESS;
     g_qi_iap_pending_chunk = 0U;
-    g_qi_iap_pending_did[0] = 0U;
-    g_qi_iap_pending_did[1] = 0U;
-    proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+    if (g_qi_iap_resp_type == QI_RESP_RDB)
+    {
+      g_qi_iap_resp_type = QI_RESP_NONE;
+      proto_send_nrc(UDS_SID_REQUEST_DOWNLOAD, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+    }
+    else if (g_qi_iap_resp_type == QI_RESP_TXD)
+    {
+      g_qi_iap_resp_type = QI_RESP_NONE;
+      proto_send_nrc(UDS_SID_TRANSFER_DATA, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+    }
+    else
+    {
+      g_qi_iap_pending_did[0] = 0U;
+      g_qi_iap_pending_did[1] = 0U;
+      proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_GENERAL_PROGRAMMING_FAILURE);
+    }
   }
 }
 

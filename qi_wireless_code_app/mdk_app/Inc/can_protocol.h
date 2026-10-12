@@ -226,6 +226,8 @@ uint8_t can_proto_security_unlocked(void);
 uint8_t can_proto_in_programming(void);
 uint8_t can_proto_fw_type_target(void);
 uint8_t can_proto_qi_iap_state(void);
+void can_proto_qi_iap_prepare_async(uint16_t fw_size, uint16_t max_block_len);
+void can_proto_qi_iap_data_async(uint16_t addr, const uint8_t *data, uint8_t len, uint8_t bsc);
 
 /* ========================================================================== */
 /*  Exported functions                                                       */
