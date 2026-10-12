@@ -64,20 +64,21 @@ static void isotp_delay_ms(uint32_t ms)
  * @note   单次尝试快速出结论，不走 isotp_can_send 的 N_As=1s 自旋（FC
  *         时效以毫秒计，自旋会占死 RX 调用上下文）。发送结果不丢弃：
  *         发送前后 last_tx_handle 对比识别静默入队失败（同 ota_download.c
- *         0x37 收尾写法），入队成功后按 handle
- *         确认该帧真正上总线。
+ *         0x37 收尾写法），入队成功后按 handle 确认该帧真正上总线。
  * @param  can_id:  FC frame CAN ID
  * @param  fc_data: filled 8-byte FC frame
  * @retval  0 = FC confirmed on bus
  *          1 = FC enqueued but confirm timed out（帧已入队，可能仍在
  *              发送中；调用方不应清 RX 状态——CCU 的 CF 仍需被接收）
- *         -1 = never enqueued（can_driver_send 拒写或静默入队失败）
+ *         -1 = never enqueued 或 enqueued but ABORTED/REJECTED（硬件
+ *              终态失败，帧不会再上总线，调用方应重试）
  */
 static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
 {
   uint8_t h_before;
   uint8_t h_after;
   uint8_t have_prev;
+  int8_t  wait_rc;
 
   have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
 
@@ -92,11 +93,18 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
     return -1;
   }
 
-  if (can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS) == 0)
+  wait_rc = can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS);
+  if (wait_rc == 0)
   {
     return 0;
   }
-  return 1;
+  /* can_driver_wait_tx_frame 返回 -1 有两种情况：
+   * (a) 确认超时——帧已入队可能仍在发送，返回 1 不重试
+   * (b) ABORTED/REJECTED——硬件终态失败帧不会再上总线，返回 -1 重试
+   * 两者都返回 -1 无法区分。保守策略：超时窗口 50ms 内帧大概率已
+   * 完成（250kbps 单帧 ~0.5ms），返回 -1 触发重试。重试产生重复 FC
+   * 对 ISO-TP 安全（接收方幂等处理）。 */
+  return -1;
 }
 
 /**
@@ -108,11 +116,10 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
  *            立即返回不增时延；确认超时不停摆，照发 FC。
  *         2) 发送结果不丢弃 + 自动重试：单次尝试见 isotp_send_fc_try，
  *            失败按 ISOTP_FC_ATTEMPT_GAP_MS tick 间隔重发，总尝试 ≤
- *            ISOTP_FC_ATTEMPTS_MAX 次。
- *         3) 状态清理仅限「从未入队」：全部尝试都返回 -1（can_driver_send
- *            拒写）才置 rx_ctx.state=IDLE。若帧已入队但确认超时（返回 1），
- *            不清状态——帧大概率仍在发送中，CCU 的 CF 仍需被接收；清状态
- *            会让 CF 无处可去（ISOTP_RX_STATE_IDLE 丢弃 CF）。
+ *            ISOTP_FC_ATTEMPTS_MAX 次。重试产生重复 FC 对 ISO-TP 安全
+ *            （接收方幂等处理）。
+ *         3) 全部失败兜底：rx_ctx.state 置回 ISOTP_RX_STATE_IDLE，
+ *            不留 RX_IN_PROGRESS 脏状态，等主机 N_Bs 超时重发 FF。
  *         FC 无 suppress 语义，CTS/OVERFLOW 任何状态走同一送达确认。
  * @param  can_id: FC frame CAN ID
  * @param  status: FC status (CTS/WAIT/OVERFLOW, ISOTP_FC_STATUS_*)
@@ -125,8 +132,6 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
   uint8_t fc_data[ISOTP_CAN_FRAME_SIZE];
   uint8_t prev_handle;
   uint8_t attempt;
-  int8_t  result;
-  uint8_t enqueued;
   uint8_t i;
 
   fc_data[0] = ISOTP_PCI_TYPE_FC | (status & 0x0FU);
@@ -142,33 +147,20 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     (void)can_driver_wait_tx_frame(prev_handle, ISOTP_FC_PREWAIT_TIMEOUT_MS);
   }
 
-  enqueued = 0U;
   for (attempt = 0U; attempt < ISOTP_FC_ATTEMPTS_MAX; attempt++)
   {
     if (attempt > 0U)
     {
       isotp_delay_ms(ISOTP_FC_ATTEMPT_GAP_MS);
     }
-    result = isotp_send_fc_try(can_id, fc_data);
-    if (result == 0)
+    if (isotp_send_fc_try(can_id, fc_data) == 0)
     {
       return;
     }
-    if (result > 0)
-    {
-      /* 已入队但确认超时：帧在邮箱中大概率仍在发送，不再重试
-       * （重发会产生重复 FC），也不清 RX 状态 */
-      enqueued = 1U;
-      break;
-    }
   }
 
-  /* 仅在全部尝试都从未入队时清 RX 状态；已入队但确认超时保留状态
-   * 等 CCU 的 CF（帧大概率仍在发送中） */
-  if (enqueued == 0U)
-  {
-    rx_ctx.state = ISOTP_RX_STATE_IDLE;
-  }
+  /* 全部尝试失败：清 RX 状态，不留 RX_IN_PROGRESS 脏状态 */
+  rx_ctx.state = ISOTP_RX_STATE_IDLE;
 }
 
 static uint8_t isotp_stmin_to_ms(uint8_t stmin)
