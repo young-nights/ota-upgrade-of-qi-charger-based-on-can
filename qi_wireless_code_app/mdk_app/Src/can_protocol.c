@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.20";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_FW_1.1.21";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -813,6 +813,20 @@ uint8_t can_proto_in_programming(void)
   return (current_session == SESSION_PROGRAMMING) ? 1U : 0U;
 }
 
+/* DID 0x2010 下发的固件类型目标：FW_TYPE_APP(01)/FW_TYPE_MCU2(04)。
+ * ota_download.c 据此分流：MCU1=擦备份区+Flash 下载；MCU2=擦除直通+Qi IAP 发包。 */
+static uint8_t g_fw_type_target = FW_TYPE_APP;
+
+uint8_t can_proto_fw_type_target(void)
+{
+  return g_fw_type_target;
+}
+
+uint8_t can_proto_qi_iap_state(void)
+{
+  return g_qi_iap_state;
+}
+
 /**
  * @brief  reset session to default and clear security state
  * @note   called on session timeout or switch to default session
@@ -1419,11 +1433,12 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
       case DID_FW_TYPE:
       {
         uint8_t fw_type = data[3];
-        if ((fw_type < FW_TYPE_APP) || (fw_type > FW_TYPE_BOOTLOADER))
+        if ((fw_type < FW_TYPE_APP) || (fw_type > FW_TYPE_MCU2))
         {
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
           return;
         }
+        g_fw_type_target = fw_type;
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];

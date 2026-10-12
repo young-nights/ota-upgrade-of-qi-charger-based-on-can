@@ -183,6 +183,7 @@ extern "C" {
 #define FW_TYPE_APP                 0x01U     /*!< APP firmware */
 #define FW_TYPE_RESOURCE            0x02U     /*!< resource package */
 #define FW_TYPE_BOOTLOADER          0x03U     /*!< bootloader */
+#define FW_TYPE_MCU2                0x04U     /*!< MCU2 (Qi 芯片) IAP 目标 */
 
 /* ========================================================================== */
 /*  Qi charging state machine values (DID 0x2102)                            */
@@ -223,6 +224,8 @@ void can_proto_send_pending(uint8_t service_id);
 void can_proto_pump_long_op(void);
 uint8_t can_proto_security_unlocked(void);
 uint8_t can_proto_in_programming(void);
+uint8_t can_proto_fw_type_target(void);
+uint8_t can_proto_qi_iap_state(void);
 
 /* ========================================================================== */
 /*  Exported functions                                                       */

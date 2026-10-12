@@ -29,6 +29,7 @@
 #include "uECC.h"
 #include "at32f422_426_flash.h"
 #include "at32f422_426.h"
+#include "qi_protocol.h"
 #include <string.h>
 
 /* VERIFY ENFORCE SWITCH: 1 = strict check (normal), 0 = force pass on failure
@@ -81,6 +82,11 @@ static uint8_t  g_pad[4];
 static uint8_t  g_pad_len;
 static uint8_t  g_exit_pending;
 
+/* MCU2 (Qi 芯片) IAP 下载通道：0x34/0x36 经 UART 转发给 Qi 芯片，
+ * 不写本机 Flash。地址/进度独立于 MCU1 Flash 路径跟踪。 */
+static uint8_t  g_mcu2_mode;       /* 1=当前下载目标为 MCU2 */
+static uint16_t g_mcu2_addr;       /* Qi IAP 固件偏移（逐包递增） */
+
 void ota_dl_abort(void)
 {
   g_erased = 0U;
@@ -90,6 +96,8 @@ void ota_dl_abort(void)
   g_block_seq = 0U;
   g_bytes_written = 0U;
   g_expected_size = 0U;
+  g_mcu2_mode = 0U;
+  g_mcu2_addr = 0U;
 }
 
 uint8_t ota_dl_target_slot(void)
@@ -327,6 +335,28 @@ void ota_dl_handle_erase(uint8_t *data, uint16_t len)
   g_size   = OTA_BACKUP_SIZE;
   g_target = OTA_DL_TARGET_BACKUP;
 
+  /* MCU2 (Qi 芯片) 目标：不需要擦除本机备份区，直接标记就绪。
+   * 后续 0x34/0x36 经 UART 转发给 Qi 芯片 IAP。
+   * g_size 放宽到 0xFFFF（Qi IAP 16-bit 地址空间），
+   * 避免 OTA_BACKUP_SIZE(48KB) 误拦更大 Qi 固件。 */
+  if (can_proto_fw_type_target() == FW_TYPE_MCU2)
+  {
+    g_mcu2_mode = 1U;
+    g_size = 0xFFFFU;
+    g_erased = 1U;
+    g_write_addr = 0U;
+    g_bytes_written = 0U;
+    g_pad_len = 0U;
+    g_block_seq = 0U;
+    resp[0] = (uint8_t)(UDS_SID_ROUTINE_CONTROL + UDS_POSITIVE_RESPONSE_OFFSET);
+    resp[1] = sub;
+    resp[2] = data[2];
+    resp[3] = data[3];
+    can_proto_send_response(resp, 4);
+    (void)can_driver_wait_tx_idle(50U);
+    return;
+  }
+
   /* active-region protection: never erase the region we execute from */
   if (g_base == OTA_APP_BASE_ADDR)
   {
@@ -435,8 +465,9 @@ void ota_dl_handle_request_download(uint8_t *data, uint16_t len)
     {
       dl_addr = (dl_addr << 8) | (uint32_t)data[3U + i];
     }
-    /* single target: the Backup region base */
-    if (dl_addr != g_base)
+    /* single target: the Backup region base（MCU2 不写本机 Flash，
+     * 地址由 Qi IAP 内部偏移管理，跳过此门禁） */
+    if ((g_mcu2_mode == 0U) && (dl_addr != g_base))
     {
       can_proto_send_nrc(UDS_SID_REQUEST_DOWNLOAD, UDS_NRC_REQUEST_OUT_OF_RANGE);
       return;
@@ -452,6 +483,33 @@ void ota_dl_handle_request_download(uint8_t *data, uint16_t len)
     can_proto_send_nrc(UDS_SID_REQUEST_DOWNLOAD, UDS_NRC_REQUEST_OUT_OF_RANGE);
     return;
   }
+
+  /* MCU2 (Qi 芯片) 目标：启动 Qi IAP prepare（UART 0xCC 0x01 + size），
+   * 不写本机 Flash。Qi IAP 每包最大 QI_IAP_MAX_CHUNK(22)B，
+   * maxBlockLen 据此回 22 使主机逐包发。 */
+  if (g_mcu2_mode != 0U)
+  {
+    if (mem_size > 0xFFFFU)
+    {
+      can_proto_send_nrc(UDS_SID_REQUEST_DOWNLOAD, UDS_NRC_REQUEST_OUT_OF_RANGE);
+      return;
+    }
+    g_expected_size = mem_size;
+    g_bytes_written = 0U;
+    g_mcu2_addr = 0U;
+    g_block_seq = 0U;
+    g_active = 1U;
+    g_trial_ready = 0U;
+    qi_protocol_rx_flush();
+    (void)qi_protocol_iap_prepare((uint16_t)mem_size);
+    resp[0] = (uint8_t)(UDS_SID_REQUEST_DOWNLOAD + UDS_POSITIVE_RESPONSE_OFFSET);
+    resp[1] = 0x20U;
+    resp[2] = 0U;
+    resp[3] = QI_IAP_MAX_CHUNK;
+    can_proto_send_response(resp, 4);
+    return;
+  }
+
   g_expected_size = mem_size;
   g_write_addr = g_base;
   g_bytes_written = 0U;
@@ -518,6 +576,28 @@ void ota_dl_handle_transfer_data(uint8_t *data, uint16_t len)
     can_proto_send_nrc(UDS_SID_TRANSFER_DATA, UDS_NRC_TRANSFER_DATA_ABORTED);
     return;
   }
+
+  /* MCU2 (Qi 芯片) 目标：固件数据经 UART 0xCC 0x02 转发给 Qi 芯片，
+   * 不写本机 Flash。Qi IAP 每包最大 QI_IAP_MAX_CHUNK(22)B，
+   * 0x34 已回 maxBlockLen=22 约束主机逐包发，此处再夹断保护。 */
+  if (g_mcu2_mode != 0U)
+  {
+    uint16_t chunk = dlen;
+    if (chunk > QI_IAP_MAX_CHUNK)
+    {
+      chunk = QI_IAP_MAX_CHUNK;
+    }
+    (void)qi_protocol_iap_data(g_mcu2_addr, &data[2], (uint8_t)chunk);
+    g_mcu2_addr = (uint16_t)(g_mcu2_addr + chunk);
+    g_bytes_written += chunk;
+    g_block_seq = bsc;
+    resp[0] = (uint8_t)(UDS_SID_TRANSFER_DATA + UDS_POSITIVE_RESPONSE_OFFSET);
+    resp[1] = bsc;
+    can_proto_send_response(resp, 2);
+    (void)can_driver_wait_tx_idle(20U);
+    return;
+  }
+
   flash_unlock();
   if (program_words(&data[2], dlen) != 0U)
   {
@@ -569,6 +649,20 @@ void ota_dl_handle_transfer_exit(uint8_t *data, uint16_t len)
     can_proto_send_nrc(UDS_SID_TRANSFER_EXIT, UDS_NRC_SECURITY_ACCESS_DENIED);
     return;
   }
+
+  /* MCU2 (Qi 芯片) 目标：无本机 Flash 验签/提交/复位环节，
+   * Qi 芯片自行完成内部烧写。直接回 0x77 正响应。 */
+  if (g_mcu2_mode != 0U)
+  {
+    g_active = 0U;
+    g_erased = 0U;
+    g_trial_ready = 1U;
+    resp[0] = (uint8_t)(UDS_SID_TRANSFER_EXIT + UDS_POSITIVE_RESPONSE_OFFSET);
+    can_proto_send_response(resp, 1);
+    (void)can_driver_wait_tx_idle(50U);
+    return;
+  }
+
   g_active = 0U;
   g_exit_pending = 1U;
   can_proto_begin_long_op(UDS_SID_TRANSFER_EXIT);
