@@ -83,9 +83,27 @@ uint8_t board_hall_open(void)
   return (gpio_input_data_bit_read(GPIOA, GPIO_PINS_0) == RESET) ? 1U : 0U;
 }
 
+/* IAP 期间保持 PB2 供电：board_charge_poll 不允许拉低 */
+static volatile uint8_t g_iap_hold_power = 0U;
+
+void board_iap_hold_power(uint8_t hold)
+{
+  g_iap_hold_power = hold;
+  if (hold != 0U)
+  {
+    board_5v_set(1U);
+  }
+}
+
 void board_charge_poll(void)
 {
-  /* PB2 high only when charger enabled AND hall detects phone (PA0 low) */
+  /* PB2 high only when charger enabled AND hall detects phone (PA0 low)。
+   * IAP 期间（g_iap_hold_power=1）强制保持 PB2，不受霍尔/充电使能影响。 */
+  if (g_iap_hold_power != 0U)
+  {
+    board_5v_set(1U);
+    return;
+  }
   if (g_charge_enabled != 0U && board_hall_open() == 0U)
   {
     board_5v_set(1U);

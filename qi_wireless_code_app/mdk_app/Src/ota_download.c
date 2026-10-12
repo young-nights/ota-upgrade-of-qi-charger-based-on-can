@@ -30,6 +30,7 @@
 #include "at32f422_426_flash.h"
 #include "at32f422_426.h"
 #include "qi_protocol.h"
+#include "board_gpio.h"
 #include <string.h>
 
 /* VERIFY ENFORCE SWITCH: 1 = strict check (normal), 0 = force pass on failure
@@ -98,6 +99,8 @@ void ota_dl_abort(void)
   g_expected_size = 0U;
   g_mcu2_mode = 0U;
   g_mcu2_addr = 0U;
+  /* IAP 结束/中止：释放 PB2 供电保持 */
+  board_iap_hold_power(0U);
 }
 
 uint8_t ota_dl_target_slot(void)
@@ -669,6 +672,8 @@ void ota_dl_handle_transfer_exit(uint8_t *data, uint16_t len)
     g_active = 0U;
     g_erased = 0U;
     g_trial_ready = 1U;
+    /* IAP 完成：释放 PB2 供电保持 */
+    board_iap_hold_power(0U);
     if (ota_metadata_read(&meta) == 0)
     {
       meta.ota_state = OTA_STATE_MCU2_CONFIRMED;

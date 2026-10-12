@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.32";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.33";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -840,11 +840,25 @@ uint8_t can_proto_qi_iap_state(void)
  * @note   供 ota_download.c MCU2 路径 0x34 调用。发 UART 0xCC 0x01 后
  *         进入 WAIT_ACK，qi_iap_ack_poll 收到 ACK 才发 74 正响应；
  *         超时/NAK 回 7F 34 72。
+ *         PB2 供电：IAP 前必须开 PB2 给 Qi 芯片上电，否则 UART 发出的
+ *         0xCC 0x01 无芯片应答（2500ms 超时 → 7F 34 72）。同时置
+ *         board_iap_hold_power(1) 防止 board_charge_poll 拉低 PB2。
  * @param  fw_size: 固件大小（16-bit）
  * @param  max_block_len: 回给主机的 maxNumberOfBlockLength
  */
 void can_proto_qi_iap_prepare_async(uint16_t fw_size, uint16_t max_block_len)
 {
+  uint32_t t0;
+
+  /* PB2 上电 + 保持：IAP 全程供电，board_charge_poll 不得拉低 */
+  board_iap_hold_power(1U);
+  /* Qi 芯片上电启动时间（与 version_probe 同款等待） */
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < 50U)
+  {
+    __NOP();
+  }
+
   g_qi_iap_total    = fw_size;
   g_qi_iap_sent     = 0U;
   g_qi_iap_progress = 0U;
