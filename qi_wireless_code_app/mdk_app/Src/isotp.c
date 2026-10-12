@@ -41,14 +41,26 @@ static uint8_t g_fc_pending_status = 0;
 
 static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len)
 {
+  uint8_t h_before;
+  uint8_t h_after;
+  uint8_t have_prev;
   uint32_t start = timer_get_tick();
   while ((timer_get_tick() - start) < ISOTP_N_AS_TIMEOUT_MS)
   {
+    have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
     if (can_driver_send(can_id, frame, len) == 0)
     {
       /* PTB 优先于 STB。CF 若未等上一帧上总线就塞进 STB，SN 会乱序，
-       * 主机 ISO-TP 组帧失败（ZCANPRO 表现为 22 F195 无应答）。 */
-      (void)can_driver_wait_tx_idle(ISOTP_N_AS_TIMEOUT_MS);
+       * 主机 ISO-TP 组帧失败（ZCANPRO 表现为 22 F195 无应答）。
+       * 用 handle 精确等本帧上总线，不用 wait_tx_idle 笼统判定——
+       * 笼统判定会被其他帧（lifecycle 广播等）的 TRANSMITTED 提前
+       * 满足，下一 CF 在本帧未上总线时入队，SN 乱序（0x27 seed
+       * 多帧 CF out of sequence 根因）。 */
+      if ((can_driver_last_tx_handle(&h_after) == 0) &&
+          ((have_prev == 0U) || (h_after != h_before)))
+      {
+        (void)can_driver_wait_tx_frame(h_after, ISOTP_N_AS_TIMEOUT_MS);
+      }
       return 0;
     }
   }
