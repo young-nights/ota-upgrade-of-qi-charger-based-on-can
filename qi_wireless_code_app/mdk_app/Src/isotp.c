@@ -9,12 +9,14 @@
 #include "can_driver.h"
 #include "timer_drv.h"
 
-/* FC 送达确认与重试参数（FC 发送竞态修复）：总尝试 ≤3 次，尝试间 1ms
- * tick 间隔；单帧上总线确认窗口与发 FC 前等上一帧落地窗口取要求的
- * 5~10ms 区间内 8ms / 5ms。均为本文件内部参数，不动 isotp.h 导出面。 */
-#define ISOTP_FC_ATTEMPTS_MAX           3U
-#define ISOTP_FC_ATTEMPT_GAP_MS         1U
-#define ISOTP_FC_CONFIRM_TIMEOUT_MS     8U
+/* FC 送达确认与重试参数（FC 发送竞态修复 + 残余竞态加固）：
+ * 总尝试 ≤5 次，尝试间 5ms tick 间隔；单帧上总线确认窗口 50ms——
+ * FC 只要入队就有 handle，等的是上总线；50ms 内 CCU 的 1000ms N_As
+ * 仍有充足余量。发 FC 前等上一帧落地窗口取 5ms。
+ * 均为本文件内部参数，不动 isotp.h 导出面。 */
+#define ISOTP_FC_ATTEMPTS_MAX           5U
+#define ISOTP_FC_ATTEMPT_GAP_MS         5U
+#define ISOTP_FC_CONFIRM_TIMEOUT_MS     50U
 #define ISOTP_FC_PREWAIT_TIMEOUT_MS     5U
 
 static isotp_rx_ctx_t rx_ctx;
@@ -63,12 +65,13 @@ static void isotp_delay_ms(uint32_t ms)
  *         时效以毫秒计，自旋会占死 RX 调用上下文）。发送结果不丢弃：
  *         发送前后 last_tx_handle 对比识别静默入队失败（同 ota_download.c
  *         0x37 收尾写法），入队成功后按 handle
- *         确认该帧真正上总线，
- *         ABORTED/REJECTED/确认超时均算失败——忽略发送结果对「发了但
- *         没上总线」完全无感，是实机 FC 静默丢失的直接放大器。
+ *         确认该帧真正上总线。
  * @param  can_id:  FC frame CAN ID
  * @param  fc_data: filled 8-byte FC frame
- * @retval 0 = FC confirmed on bus, -1 = this attempt failed
+ * @retval  0 = FC confirmed on bus
+ *          1 = FC enqueued but confirm timed out（帧已入队，可能仍在
+ *              发送中；调用方不应清 RX 状态——CCU 的 CF 仍需被接收）
+ *         -1 = never enqueued（can_driver_send 拒写或静默入队失败）
  */
 static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
 {
@@ -89,24 +92,27 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
     return -1;
   }
 
-  return can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS);
+  if (can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS) == 0)
+  {
+    return 0;
+  }
+  return 1;
 }
 
 /**
  * @brief  send one Flow Control frame with delivery confirmation + retry
- * @note   FC 发送竞态修复（实机 30 次压测 3 次 RequestDownload FF 后
- *         无 FC、主机 N_Bs 超时的三层根因修复，邮箱准入层见
- *         can_driver.c can_try_txbuf 注释）：
+ * @note   FC 发送竞态修复 + 残余竞态加固：
  *         1) 发 FC 前先等上一帧落地：FF 常在上一应答（如擦除应答
  *            71 01 FF 00）发出后 1~2ms 内到达，两帧挤入同一写锁未稳定
  *            窗口会放大丢失概率。上一帧已落地时 wait_tx_frame 正证据
  *            立即返回不增时延；确认超时不停摆，照发 FC。
  *         2) 发送结果不丢弃 + 自动重试：单次尝试见 isotp_send_fc_try，
- *            失败按 ISOTP_FC_ATTEMPT_GAP_MS=1ms tick 间隔（isotp_delay_ms
- *            SysTick 轮询写法）重发，总尝试 ≤ ISOTP_FC_ATTEMPTS_MAX=3 次。
- *         3) 全部失败兜底：rx_ctx.state 置回 ISOTP_RX_STATE_IDLE（同
- *            isotp_poll 置位写法），不留 RX_IN_PROGRESS 脏状态，等主机
- *            N_Bs 超时重发 FF。
+ *            失败按 ISOTP_FC_ATTEMPT_GAP_MS tick 间隔重发，总尝试 ≤
+ *            ISOTP_FC_ATTEMPTS_MAX 次。
+ *         3) 状态清理仅限「从未入队」：全部尝试都返回 -1（can_driver_send
+ *            拒写）才置 rx_ctx.state=IDLE。若帧已入队但确认超时（返回 1），
+ *            不清状态——帧大概率仍在发送中，CCU 的 CF 仍需被接收；清状态
+ *            会让 CF 无处可去（ISOTP_RX_STATE_IDLE 丢弃 CF）。
  *         FC 无 suppress 语义，CTS/OVERFLOW 任何状态走同一送达确认。
  * @param  can_id: FC frame CAN ID
  * @param  status: FC status (CTS/WAIT/OVERFLOW, ISOTP_FC_STATUS_*)
@@ -119,7 +125,8 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
   uint8_t fc_data[ISOTP_CAN_FRAME_SIZE];
   uint8_t prev_handle;
   uint8_t attempt;
-  uint8_t sent;
+  int8_t  result;
+  uint8_t enqueued;
   uint8_t i;
 
   fc_data[0] = ISOTP_PCI_TYPE_FC | (status & 0x0FU);
@@ -135,21 +142,30 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     (void)can_driver_wait_tx_frame(prev_handle, ISOTP_FC_PREWAIT_TIMEOUT_MS);
   }
 
-  sent = 0U;
+  enqueued = 0U;
   for (attempt = 0U; attempt < ISOTP_FC_ATTEMPTS_MAX; attempt++)
   {
     if (attempt > 0U)
     {
       isotp_delay_ms(ISOTP_FC_ATTEMPT_GAP_MS);
     }
-    if (isotp_send_fc_try(can_id, fc_data) == 0)
+    result = isotp_send_fc_try(can_id, fc_data);
+    if (result == 0)
     {
-      sent = 1U;
+      return;
+    }
+    if (result > 0)
+    {
+      /* 已入队但确认超时：帧在邮箱中大概率仍在发送，不再重试
+       * （重发会产生重复 FC），也不清 RX 状态 */
+      enqueued = 1U;
       break;
     }
   }
 
-  if (sent == 0U)
+  /* 仅在全部尝试都从未入队时清 RX 状态；已入队但确认超时保留状态
+   * 等 CCU 的 CF（帧大概率仍在发送中） */
+  if (enqueued == 0U)
   {
     rx_ctx.state = ISOTP_RX_STATE_IDLE;
   }
