@@ -8,6 +8,7 @@
 #include "isotp.h"
 #include "can_driver.h"
 #include "timer_drv.h"
+#include "at32f422_426.h"
 
 /* FC 送达确认与重试参数（FC 发送竞态修复 + 残余竞态加固）：
  * 总尝试 ≤5 次，尝试间 5ms tick 间隔；单帧上总线确认窗口 50ms——
@@ -30,6 +31,13 @@ static uint8_t g_fc_stmin = 0;
 static uint8_t g_stash_valid = 0;
 static uint8_t g_stash_len = 0;
 static uint8_t g_stash[ISOTP_CAN_FRAME_SIZE];
+
+/* FC 延迟发送：FF 在 ISR 上下文到达时只置标志，FC 由 isotp_poll()
+ * 在主循环发出。Flash 擦除（__disable_irq）后 CAN 常处 bus-off，
+ * ISR 内阻塞重试 FC 必然全失败；主循环上下文可做 bus-off 恢复。 */
+static volatile uint8_t g_fc_pending = 0;
+static uint32_t g_fc_pending_can_id = 0;
+static uint8_t g_fc_pending_status = 0;
 
 static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len)
 {
@@ -142,6 +150,14 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     fc_data[i] = 0xCCU;
   }
 
+  /* Flash 擦除禁中断后 CAN 可能处于 bus-off，先请求恢复。
+   * bus-off 恢复需 128×11 隐性位（250kbps ≈5.6ms），此处不等
+   * 完成——重试循环的 5ms 间隔已覆盖恢复窗口。 */
+  if (can_busoff_get(CAN1) != RESET)
+  {
+    can_busoff_reset(CAN1);
+  }
+
   if (can_driver_last_tx_handle(&prev_handle) == 0)
   {
     (void)can_driver_wait_tx_frame(prev_handle, ISOTP_FC_PREWAIT_TIMEOUT_MS);
@@ -152,6 +168,11 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     if (attempt > 0U)
     {
       isotp_delay_ms(ISOTP_FC_ATTEMPT_GAP_MS);
+    }
+    /* 重试间再查 bus-off：首次恢复可能未完成 */
+    if ((attempt > 0U) && (can_busoff_get(CAN1) != RESET))
+    {
+      can_busoff_reset(CAN1);
     }
     if (isotp_send_fc_try(can_id, fc_data) == 0)
     {
@@ -182,10 +203,20 @@ void isotp_init(isotp_complete_cb_t cb)
   complete_callback   = cb;
   g_fc_flag           = 0;
   g_stash_valid       = 0;
+  g_fc_pending        = 0;
 }
 
 void isotp_poll(void)
 {
+  /* FC 延迟发送：主循环上下文处理，可做 bus-off 恢复。
+   * FF 在 ISR 到达时只置 g_fc_pending，FC 在此发出。 */
+  if (g_fc_pending != 0U)
+  {
+    g_fc_pending = 0;
+    isotp_send_fc(g_fc_pending_can_id, g_fc_pending_status,
+                  ISOTP_FC_DEFAULT_BS, ISOTP_FC_DEFAULT_STMIN);
+  }
+
   if (rx_ctx.state != ISOTP_RX_STATE_RX_IN_PROGRESS)
   {
     return;
@@ -241,7 +272,10 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
       }
       if (payload_len > ISOTP_MAX_PAYLOAD)
       {
-        isotp_send_fc(CAN_ID_UDS_RESPONSE, ISOTP_FC_STATUS_OVERFLOW, 0U, 0U);
+        /* OVERFLOW FC 也延迟到主循环发送 */
+        g_fc_pending_can_id = CAN_ID_UDS_RESPONSE;
+        g_fc_pending_status = ISOTP_FC_STATUS_OVERFLOW;
+        g_fc_pending = 1;
         return;
       }
 
@@ -265,8 +299,10 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
         rx_ctx.received_len = copy_len;
       }
 
-      isotp_send_fc(CAN_ID_UDS_RESPONSE, ISOTP_FC_STATUS_CTS,
-                    ISOTP_FC_DEFAULT_BS, ISOTP_FC_DEFAULT_STMIN);
+      /* FC 延迟到 isotp_poll() 发送：ISR 上下文不做阻塞 TX */
+      g_fc_pending_can_id = CAN_ID_UDS_RESPONSE;
+      g_fc_pending_status = ISOTP_FC_STATUS_CTS;
+      g_fc_pending = 1;
       break;
     }
 
