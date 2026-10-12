@@ -159,7 +159,9 @@ def _int_be(b):
 
 def _inv(x, m):
     x %= m
-    if sys.version_info[0] >= 3:
+    # pow(x, -1, m) 需 Python 3.8+；3.0–3.7 会抛
+    # "pow() 2nd argument cannot be negative when 3rd argument specified"
+    if sys.version_info >= (3, 8):
         return pow(x, -1, m)
     return pow(x, m - 2, m)
 

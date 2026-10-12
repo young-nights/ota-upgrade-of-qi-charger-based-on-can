@@ -77,7 +77,9 @@ _GY = 0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5
 
 def _inv(x, m):
     x %= m
-    return pow(x, -1, m) if sys.version_info[0] >= 3 else pow(x, m - 2, m)
+    # pow(x, -1, m) 需 Python 3.8+；3.0–3.7 会抛
+    # "pow() 2nd argument cannot be negative when 3rd argument specified"
+    return pow(x, -1, m) if sys.version_info >= (3, 8) else pow(x, m - 2, m)
 
 
 def _jp_double(x, y, z):
