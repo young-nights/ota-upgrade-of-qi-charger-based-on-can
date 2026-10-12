@@ -54,8 +54,17 @@ extern "C" {
 #define OTA_SLOT_A              0U            /* deprecated: App region */
 #define OTA_SLOT_B              1U            /* deprecated alias */
 
-#define OTA_STATE_IDLE          0x00U
-#define OTA_STATE_DOWNLOADING   0x01U
+#define OTA_STATE_IDLE               0x00U
+#define OTA_STATE_DOWNLOADING        0x01U
+#define OTA_STATE_VALIDATING         0x02U
+#define OTA_STATE_PENDING_ACTIVATION 0x03U
+#define OTA_STATE_TRIAL_BOOT         0x04U
+#define OTA_STATE_CONFIRMED          0x05U
+#define OTA_STATE_ROLLED_BACK        0x06U
+#define OTA_STATE_FAILED             0x07U  /*!< OTA failed, previous APP intact */
+#define OTA_STATE_MCU2_IN_PROGRESS   0x08U  /*!< MCU2 update in progress */
+#define OTA_STATE_MCU2_NO_APP        0x09U  /*!< MCU2 has no valid APP */
+#define OTA_STATE_MCU2_CONFIRMED     0x0AU  /*!< MCU2 update confirmed */
 
 #define OTA_BOOT_REASON_POWER_ON   0x00U
 #define OTA_BOOT_REASON_SW         0x01U

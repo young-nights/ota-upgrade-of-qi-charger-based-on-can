@@ -131,7 +131,7 @@ extern "C" {
 #define DID_QI_VERSION_QUERY        0x2013U   /*!< 读 Qi 芯片固件版本（主动问询）；应答 62 20 13 + ASCII "QC_JYF_MCU2_FW_1.1.X"（X=Qi 版本整数的十进制数字，变长 23~27B） */
 
 /** @brief  Device-specific DIDs (defined in peripheral SRS) */
-#define DID_OTA_STATE               0x2112U   /*!< OTA status: 0=idle 1=downloading 3=pending 5=confirmed 6=rolled_back */
+#define DID_OTA_STATE               0x2112U   /*!< OTA status: 0=idle 1=dl 2=validating 3=pending 5=confirmed 6=rolled_back 7=failed 8=MCU2-in-progress 9=MCU2-no-app A=MCU2-confirmed */
 #define DID_ACTIVE_SLOT             0x2113U   /*!< active firmware slot */
 #define DID_PENDING_SLOT            0x2114U   /*!< pending firmware slot */
 #define DID_LAST_BOOT_REASON        0x2115U   /*!< last boot reason */

@@ -348,6 +348,12 @@ void ota_dl_handle_erase(uint8_t *data, uint16_t len)
     g_bytes_written = 0U;
     g_pad_len = 0U;
     g_block_seq = 0U;
+    /* DID 0x2112 置 0x08 MCU2 In Progress */
+    if (ota_metadata_read(&meta) == 0)
+    {
+      meta.ota_state = OTA_STATE_MCU2_IN_PROGRESS;
+      (void)ota_metadata_save(&meta);
+    }
     resp[0] = (uint8_t)(UDS_SID_ROUTINE_CONTROL + UDS_POSITIVE_RESPONSE_OFFSET);
     resp[1] = sub;
     resp[2] = data[2];
@@ -653,12 +659,20 @@ void ota_dl_handle_transfer_exit(uint8_t *data, uint16_t len)
   }
 
   /* MCU2 (Qi 芯片) 目标：无本机 Flash 验签/提交/复位环节，
-   * Qi 芯片自行完成内部烧写。直接回 0x77 正响应。 */
+   * Qi 芯片自行完成内部烧写。直接回 0x77 正响应。
+   * DID 0x2112 置 0x0A MCU2 Confirmed（新 APP 运行后由 Qi 侧
+   * 版本刷新确认；此处标记下载流程完成）。 */
   if (g_mcu2_mode != 0U)
   {
+    ota_metadata_t meta;
     g_active = 0U;
     g_erased = 0U;
     g_trial_ready = 1U;
+    if (ota_metadata_read(&meta) == 0)
+    {
+      meta.ota_state = OTA_STATE_MCU2_CONFIRMED;
+      (void)ota_metadata_save(&meta);
+    }
     resp[0] = (uint8_t)(UDS_SID_TRANSFER_EXIT + UDS_POSITIVE_RESPONSE_OFFSET);
     can_proto_send_response(resp, 1);
     (void)can_driver_wait_tx_idle(50U);

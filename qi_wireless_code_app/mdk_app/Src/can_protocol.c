@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.24";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.25";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -979,19 +979,38 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
         *olen = 1U;
         return 0;
       }
-      /* OTA Status DID 0x2112 八状态定义:
+      /* OTA Status DID 0x2112 状态定义（MCU1 + MCU2）：
        * 0x00 Idle               无 OTA 操作，无待报告结果
-       * 0x01 Downloading        正在下载固件到备份区
-       * 0x02 Validating         传输完成，正在验证（CRC/签名）
-       * 0x03 Pending Activation 验签提交成功，随即自复位激活
-       * （2026-09-23 起自动复位，无 11 01 等待）
-       * 0x04 Trial Boot         新 APP 启动未确认（单 App 架构不适用）
-       * 0x05 Confirmed          OTA 搬运成功，新固件已生效
-       * 0x06 Rolled Back        搬运失败，已回滚到旧固件
-       * 0x07 Failed             下载或验证失败，旧固件保留 */
-      if (meta.ota_state == OTA_STATE_DOWNLOADING)
+       * 0x01 Downloading        MCU1 正在下载固件到备份区
+       * 0x02 Validating         MCU1 传输完成，正在验证（CRC/签名）
+       * 0x03 Pending Activation MCU1 验签提交成功，随即自复位激活
+       * 0x04 Trial Boot         MCU1 新 APP 启动未确认（单 App 架构不适用）
+       * 0x05 Confirmed          MCU1 OTA 搬运成功，新固件已生效
+       * 0x06 Rolled Back        MCU1 搬运失败，已回滚到旧固件
+       * 0x07 Failed             OTA 失败但旧 APP 保留（MCU1 或 MCU2
+       *                         校验/兼容失败且未进入 MCU2 擦除）
+       * 0x08 MCU2 In Progress   MCU2 升级中（staging/校验/内部擦写/启动）
+       * 0x09 MCU2 No APP        MCU2 无有效 APP，需重新刷写（持久态，
+       *                         仅成功重刷后清除）
+       * 0x0A MCU2 Confirmed     MCU2 升级确认，新 APP 运行中且 0x2013
+       *                         缓存已刷新（保持到下次 OTA 启动） */
+      if ((meta.ota_state == OTA_STATE_MCU2_IN_PROGRESS) ||
+          (meta.ota_state == OTA_STATE_MCU2_NO_APP) ||
+          (meta.ota_state == OTA_STATE_MCU2_CONFIRMED))
+      {
+        status = meta.ota_state;
+      }
+      else if (meta.ota_state == OTA_STATE_DOWNLOADING)
       {
         status = 0x01U;  /* Downloading */
+      }
+      else if (meta.ota_state == OTA_STATE_VALIDATING)
+      {
+        status = 0x02U;  /* Validating */
+      }
+      else if (meta.ota_state == OTA_STATE_FAILED)
+      {
+        status = 0x07U;  /* Failed */
       }
       else if (meta.backup_valid != 0U)
       {
