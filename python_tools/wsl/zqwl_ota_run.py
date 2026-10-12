@@ -46,13 +46,13 @@ def _smoke_read():
         ext.uds_init()
         rx = ext.uds_req(bus_id, 0x22, [0xF1, 0x95])
         raw = bytes(int(b) & 0xFF for b in rx[3:])
-        m = re.search(rb"QC_JYF_FW_[0-9A-Za-z._]+", raw)
+        m = re.search(rb"QC_JYF_MCU1_FW_[0-9A-Za-z._]+", raw)
         ver = (m.group(0).decode("ascii")
                if m else raw.split(b"\x00")[0].decode("ascii", "ignore").strip())
         print("SMOKE RX hex: " + " ".join("%02X" % b for b in rx))
         print("SMOKE VERSION: %s" % ver)
-        if ver != "QC_JYF_FW_1.1.1":
-            print("SMOKE FAIL: 版本串不符（预期 QC_JYF_FW_1.1.1）")
+        if ver != "QC_JYF_MCU1_FW_1.1.1":
+            print("SMOKE FAIL: 版本串不符（预期 QC_JYF_MCU1_FW_1.1.1）")
             return 1
         print("SMOKE PASS: 22 F195 TX/RX/ISO-TP 组装链路正常")
         return 0

@@ -42,13 +42,13 @@ _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 # EXPECTED_SW_VERSION：升级目标版本（判定闭环第②条件）。
 #   通用模式=""（默认）：不校验版本，自动选 mtime 最新载荷；升级后
 #   从被刷镜像 strings 提取版本作为判定基准。
-#   指定版本="QC_JYF_FW_x.y.z"：仅选版本匹配的候选，不符→拒闪。
+#   指定版本="QC_JYF_MCU1_FW_x.y.z"：仅选版本匹配的候选，不符→拒闪。
 EXPECTED_SW_VERSION = ""
 
 # BASELINE_SW_VERSION：升级前基线版本（用户五步流程第①步烧录的 1.1.1
 # 基线）。仅用于升级前基线确认打印（异常时醒目提醒，不拦截流程），
 # 与判定闭环三条件无关。
-BASELINE_SW_VERSION = "QC_JYF_FW_1.1.1"
+BASELINE_SW_VERSION = "QC_JYF_MCU1_FW_1.1.1"
 
 # FIRMWARE_OVERRIDE：命令行 --firmware 指定的 OTA 载荷路径（None=自动选择）。
 #   仅 standalone 命令行运行且传入 --firmware 时由 __main__ 入口赋值；
@@ -99,8 +99,8 @@ def _scan_firmware():
 
 
 def _extract_sw_version(blob):
-    """从 payload 里抠 QC_JYF_FW_...（编译进 APP 的 SW_VERSION_STR）。"""
-    marker = b"QC_JYF_FW_"
+    """从 payload 里抠 QC_JYF_MCU1_FW_...（编译进 APP 的 SW_VERSION_STR）。"""
+    marker = b"QC_JYF_MCU1_FW_"
     i = blob.find(marker)
     if i < 0:
         return None
@@ -1416,7 +1416,7 @@ def run_ota(bus_id):
             FIRMWARE_PATH = _pick_firmware()
         fw_data = open(FIRMWARE_PATH, "rb").read()
         bin_ver = _extract_sw_version(fw_data)
-        _log("选中 bin 内 SW_VERSION_STR=%s（strings 扫描 QC_JYF_FW_ 前缀）"
+        _log("选中 bin 内 SW_VERSION_STR=%s（strings 扫描 QC_JYF_MCU1_FW_ 前缀）"
              % (bin_ver or "未找到"))
         # 版本闸门（fail-closed）：_pick_firmware() 自动选择与 --firmware
         # 指定两条路径均执行本检查，闸门不因指定文件而放松。
@@ -1431,7 +1431,7 @@ def run_ota(bus_id):
                     "④ python_tools/app bin/ 是否残留旧镜像（清理或确保 Keil bin 更新）。"
                     "期望版本切换：改脚本头部 EXPECTED_SW_VERSION 常量即可（留空则缺省"
                     "从镜像 strings 提取）；载荷前提=用户侧 Keil SW_VERSION_STR="
-                    "QC_JYF_FW_1.1.2 后 Rebuild APP→pack（仓库固件保持 1.1.1 零触碰）"
+                    "QC_JYF_MCU1_FW_1.1.2 后 Rebuild APP→pack（仓库固件保持 1.1.1 零触碰）"
                     % (bin_ver or "未找到", EXPECTED_SW_VERSION))
             _log("版本感知：bin 版本与 EXPECTED_SW_VERSION=%s 一致，允许刷写"
                  % EXPECTED_SW_VERSION)
@@ -1616,7 +1616,7 @@ def run_ota(bus_id):
         problems = []
         if not expect_ver:
             problems.append("预期版本不可用：EXPECTED_SW_VERSION 未设置且镜像内未找到"
-                            " QC_JYF_FW_ 版本串——请在脚本 EXPECTED_SW_VERSION 配置"
+                            " QC_JYF_MCU1_FW_ 版本串——请在脚本 EXPECTED_SW_VERSION 配置"
                             "目标版本后重跑")
         elif got_ver != expect_ver:
             problems.append("版本不符：0xF195=%s，预期=%s（Backup→App 搬运未生效"

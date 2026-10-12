@@ -111,10 +111,10 @@ def tp(tag):
 
 
 def read_version(step):
-    """22 F195 → ASCII 版本串（QC_JYF_FW_x.y.z）；读失败抛 TestFail。"""
+    """22 F195 → ASCII 版本串（QC_JYF_MCU1_FW_x.y.z）；读失败抛 TestFail。"""
     rx = req(step, 0x22, [0xF1, 0x95])
     raw = bytes(int(b) & 0xFF for b in rx[3:]) if len(rx) > 3 else b""
-    m = re.search(rb"QC_JYF_FW_[0-9A-Za-z._]+", raw)
+    m = re.search(rb"QC_JYF_MCU1_FW_[0-9A-Za-z._]+", raw)
     if m:
         return m.group(0).decode("ascii")
     return raw.split(b"\x00")[0].decode("ascii", "ignore").strip() or None
@@ -158,7 +158,7 @@ def run_tc0103(fw_path):
     ext.validate_image(image)
     expect_ver = bin_ver or ext._extract_sw_version(image)
     if not expect_ver:
-        raise TestFail("载荷内未找到 QC_JYF_FW_ 版本串，判定闭环无法成立")
+        raise TestFail("载荷内未找到 QC_JYF_MCU1_FW_ 版本串，判定闭环无法成立")
     _log("载荷 %s（%d 字节，SW_VERSION_STR=%s），判定预期版本=%s"
          % (fw_path, len(image), expect_ver, expect_ver))
 

@@ -43,13 +43,13 @@ DEFAULT_BIN = os.path.join(REPO_ROOT, "qi_wireless_code_app", "mdk_project",
 DEFAULT_KEY = os.path.join(REPO_ROOT, "docs", "keys", "private.pem")
 DEFAULT_OUT_NAME = "app_image.bin"
 # 版本串与 zcanpro_ext_ota_auto._extract_sw_version 同源：bin strings 扫描
-# QC_JYF_FW_ 前缀（版本唯一真相源=固件 can_protocol.c SW_VERSION_STR）。
+# QC_JYF_MCU1_FW_ 前缀（版本唯一真相源=固件 can_protocol.c SW_VERSION_STR）。
 # 同样取第一处命中，与 OTA 执行器版本闸门的提取语义保持一致。
-_FW_VER_RE = re.compile(rb"QC_JYF_FW_(\d+)\.(\d+)\.(\d+)")
+_FW_VER_RE = re.compile(rb"QC_JYF_MCU1_FW_(\d+)\.(\d+)\.(\d+)")
 
 
 def _extract_version_from_bin(bin_data):
-    """从 bin 数据中提取 QC_JYF_FW_x.y.z 版本号，返回 "x.y.z"。
+    """从 bin 数据中提取 QC_JYF_MCU1_FW_x.y.z 版本号，返回 "x.y.z"。
 
     未找到标记串或格式不符时返回 None（调用方 fallback 固定输出名）。"""
     if not bin_data:
@@ -64,7 +64,7 @@ def pack_one(bin_path, priv, out_name=None):
     """Pack one App firmware; return 0 on success, 1 on failure.
 
     out_name=None（默认）→ 按版本号自动命名：打包前先从原始 bin 提取
-    QC_JYF_FW_x.y.z，输出 app_image_v{x}_{y}_{z}.bin；提取失败 fallback
+    QC_JYF_MCU1_FW_x.y.z，输出 app_image_v{x}_{y}_{z}.bin；提取失败 fallback
     app_image.bin 并打印 WARNING（兼容无版本串的旧载荷）。
     显式传 out_name → 手动覆盖，忽略自动命名。"""
     if not os.path.isfile(bin_path):
@@ -79,10 +79,10 @@ def pack_one(bin_path, priv, out_name=None):
               % (version or "未检测到", out_name))
     elif version:
         final_name = "app_image_v%s.bin" % version.replace(".", "_")
-        print("version  : 检测到 %s（bin strings 扫描 QC_JYF_FW_ 前缀）" % version)
+        print("version  : 检测到 %s（bin strings 扫描 QC_JYF_MCU1_FW_ 前缀）" % version)
     else:
         final_name = DEFAULT_OUT_NAME
-        print("version  : WARNING 未检测到 QC_JYF_FW_x.y.z 版本号，"
+        print("version  : WARNING 未检测到 QC_JYF_MCU1_FW_x.y.z 版本号，"
               "fallback 输出名 %s" % DEFAULT_OUT_NAME)
 
     image = pack_image_if_needed(bin_path, priv)

@@ -4,18 +4,18 @@ ZCANPRO 扩展脚本 — OTA 升级压力测试循环（默认 1.1.1 ~ 1.1.10）
 
 功能：按语义版本号（patch 位递增：1.1.9 → 1.1.10，不是 1.2.0）逐轮执行
 CAN-UDS OTA 升级；每轮升级完成后独立读取 DID 0xF195 版本号，与目标版本
-完整字符串（QC_JYF_FW_x.y.z）匹配才判定 PASS 并继续，默认失败即停。
+完整字符串（QC_JYF_MCU1_FW_x.y.z）匹配才判定 PASS 并继续，默认失败即停。
 
 版本真相源：固件 can_protocol.c SW_VERSION_STR（DID 0xF195 应答数据源）。
 与 pack_image.py 自动命名、zcanpro_ext_ota_auto.py 版本闸门同源（bin
-strings 扫描 QC_JYF_FW_ 前缀，第一处命中）。
+strings 扫描 QC_JYF_MCU1_FW_ 前缀，第一处命中）。
 
 每轮流程：
   ① 拼接 bin 路径（BIN_NAME_TEMPLATE，ver 点号→下划线）；
   ② 文件不存在 → 记 FAIL（--continue-on-fail 控制继续/停止）；
   ③ 执行升级（runner 二选一，见下），解析输出「OTA 成功」判定结果；
   ④ 升级成功后 UDS 读 0xF195：3E 00 唤醒探测 → 22 F1 95 → ASCII 解析；
-  ⑤ 读到版本 == QC_JYF_FW_{目标版本}（完整字符串匹配）→ PASS，否则 FAIL；
+  ⑤ 读到版本 == QC_JYF_MCU1_FW_{目标版本}（完整字符串匹配）→ PASS，否则 FAIL；
   ⑥ 汇总表输出轮次/目标版本/升级结果/读到版本/判定 + 总计。
 
 执行后端（--runner {auto,inproc,subproc}）：
@@ -70,7 +70,7 @@ FIRMWARE_DIR = "ota test bin"                 # bin 目录，相对 python_tools
 BIN_NAME_TEMPLATE = "app_image_v{ver}.bin"    # ver 为下划线格式
 OTA_SCRIPT = "zcanpro_ext_ota_auto.py"        # 升级执行器（本目录内）
 EXPECTED_DID = 0xF195                         # 版本号 DID
-VERSION_PREFIX = "QC_JYF_FW_"                 # 应答 ASCII 前缀（完整字符串比对）
+VERSION_PREFIX = "QC_JYF_MCU1_FW_"                 # 应答 ASCII 前缀（完整字符串比对）
 CONTINUE_ON_FAIL = False                      # 失败即停
 RUNNER = "auto"                               # auto | inproc | subproc
 WAKE_RETRIES = 8                              # 3E 00 唤醒重试次数（D3/P0 实证参数）

@@ -29,7 +29,7 @@ ZCANPRO 脚本 — 读取 APP 侧版本号 DID 0xF195 / 0xF180 / 0xF193
     具体错误日志并换下一种发送形式重试；每次发送打 发送方式+返回值 日志。
   - Standby 唤醒不足：wake_mcu 先 raw 连发 3 帧 3E 80 打破 SIT1145
     Standby（首帧被 WUP 吃掉后 UDS 层不重发的问题），再 init + 3E 00×8。
-  - 预期版本：QC_JYF_FW_1.1.1 → QC_JYF_FW_1.1.2（固件已升 1.1.2）。
+  - 预期版本：QC_JYF_MCU1_FW_1.1.1 → QC_JYF_MCU1_FW_1.1.2（固件已升 1.1.2）。
 
 receive() 实际返回 (status, [frames])，不是帧字典列表。
 """
@@ -55,12 +55,12 @@ SID_PR   = 0x40
 # （can_protocol.c）。镜像头不携带版本号，版本号唯一定义在固件编译常量。
 # APP 版本从 app bin/ 最新 .bin 文件名自动识别（app_image_v{x}_{y}_{z}.bin），
 # 识别失败 fallback 到硬编码值。
-_EXPECTED_APP_FALLBACK = "QC_JYF_FW_1.1.17"
+_EXPECTED_APP_FALLBACK = "QC_JYF_MCU1_FW_1.1.17"
 
 
 def _detect_app_version_from_binscript():
     """从 app bin/ 最新 .bin 文件名提取版本号。
-    文件名格式：app_image_v{x}_{y}_{z}.bin → QC_JYF_FW_{x}.{y}.{z}
+    文件名格式：app_image_v{x}_{y}_{z}.bin → QC_JYF_MCU1_FW_{x}.{y}.{z}
     识别失败返回 fallback。"""
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -75,7 +75,7 @@ def _detect_app_version_from_binscript():
         bins.sort(key=lambda f: os.path.getmtime(os.path.join(app_bin_dir, f)), reverse=True)
         m = re.match(r'app_image_v(\d+)_(\d+)_(\d+)\.bin', bins[0])
         if m:
-            return "QC_JYF_FW_%s.%s.%s" % (m.group(1), m.group(2), m.group(3))
+            return "QC_JYF_MCU1_FW_%s.%s.%s" % (m.group(1), m.group(2), m.group(3))
     except Exception:
         pass
     return _EXPECTED_APP_FALLBACK
