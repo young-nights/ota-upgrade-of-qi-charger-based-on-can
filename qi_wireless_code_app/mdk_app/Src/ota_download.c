@@ -551,18 +551,20 @@ void ota_dl_handle_transfer_data(uint8_t *data, uint16_t len)
     return;
   }
   bsc = data[1];
-  if ((g_block_seq != 0U) && (bsc == g_block_seq))
+  /* 重复包检测：BSC 与上一次接受值相同则幂等回正响应。
+   * 不依赖 g_block_seq!=0 判初始态——回卷后 g_block_seq 可为 0x00，
+   * 此时重复的 36 00 仍须被识别为重复包而非序号错误。 */
+  if (bsc == g_block_seq)
   {
     resp[0] = (uint8_t)(UDS_SID_TRANSFER_DATA + UDS_POSITIVE_RESPONSE_OFFSET);
     resp[1] = bsc;
     can_proto_send_response(resp, 2);
     return;
   }
+  /* ISO 14229-1: BSC 从 0x01 起递增，0xFF 回卷到 0x00。
+   * 原实现在 uint8 溢出后跳过 0x00 直接到 0x01，导致 CCU 按标准
+   * 发 36 00 时被 NRC 0x73 拒绝（MCU2 固件 >255 块时必现）。 */
   g_block_seq++;
-  if (g_block_seq == 0U)
-  {
-    g_block_seq = 1U;
-  }
   if (bsc != g_block_seq)
   {
     g_active = 0U;
