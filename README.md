@@ -88,8 +88,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 │   ├── zcanpro/non-qi/           ← 功能测试子目录（6 个脚本）
 │   ├── iap bin/                            ← Qi 芯片 IAP 固件 (log1.BIN / log2.BIN)
 │   ├── zcanpro_ext_ota_auto.py             ← 一键 OTA（APP 内擦写 + 重定位 + 重签）
-│   ├── zcanpro_qi_iap_log1.py              ← Qi 芯片 IAP 刷写 (V1.1)
-│   ├── zcanpro_qi_iap_log2.py              ← Qi 芯片 IAP 刷写 (V1.2)
+│   ├── zcanpro_qi_uart_bridge.py            ← Qi UART 透传桥
 │   └── 脚本使用说明.md
 │
 ├── .gitattributes                          ← 换行符规范化 (LF 入库)
@@ -167,8 +166,7 @@ python merge_prod_bin.py
 | 脚本 | 说明 |
 |------|------|
 | `zcanpro_ext_ota_auto.py` | 唯一 OTA 脚本：APP 内擦非活跃槽 + 下载 + 重定位 + 重签 |
-| `zcanpro_qi_iap_log1.py` | Qi 芯片 IAP 刷写 (固件包 log1.BIN, V1.1) |
-| `zcanpro_qi_iap_log2.py` | Qi 芯片 IAP 刷写 (固件包 log2.BIN, V1.2) |
+| `zcanpro_qi_uart_bridge.py` | Qi UART 透传桥 (抓取/发送) |
 
 ### 4.3 功能测试（`python_tools/zcanpro/non-qi/`）
 
@@ -190,7 +188,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.26** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.27** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -255,7 +253,7 @@ python merge_prod_bin.py
 - 镜像写入前按目标槽重定位 + 重签（位置无关，同一份固件适配 A/B）
 - DID 读写（版本 / SN / 配置 / OTA 状态等）
 - 生命周期 CAN 状态广播
-- Qi 芯片 IAP 支持 (DID 0x2130~0x2133, UART 0xCC 协议)
+- Qi 芯片 IAP 支持 (DID 0x2132~0x2133 状态/版本查询, 0x34/0x36/0x37 统一 OTA 路径, UART 0xCC 协议)
 - SN 序列号存储（Device Info 区，OTA 擦写跳过）
 - 充电基本控制（使能 / 禁用 / 功率限值 NVM 持久化）
 

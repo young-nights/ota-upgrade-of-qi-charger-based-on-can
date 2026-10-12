@@ -155,8 +155,6 @@ extern "C" {
 #define DID_SIT1145_LP_STATUS       0x2119U   /*!< SIT1145 LP: flags, wup_cnt, last_standby_sec */
 #define DID_SIT1145_LP_WIPE_DIAG    0x211AU   /*!< SIT1145 LP round-2 wipe diagnostics: ev24/ev63/stat/attempts (4B, SF) */
 #define DID_ECDSA_PUBKEY            0x2120U   /*!< ECDSA P-256 public key, 65-byte SEC1 */
-#define DID_QI_IAP_CONTROL          0x2130U   /*!< Qi IAP 控制（写）：启动/中止升级 */
-#define DID_QI_IAP_DATA             0x2131U   /*!< Qi IAP 数据（写）：固件数据包 */
 #define DID_QI_IAP_STATUS           0x2132U   /*!< Qi IAP 状态（读）：state/progress/版本/已发/总长 */
 #define DID_QI_FW_VERSION           0x2133U   /*!< Qi 芯片固件版本（读）：来自 UART 0x01 上报 */
 #define DID_QI_UART_SNIFF           0x2140U   /*!< Qi UART 抓取读取（读，任意会话）：62 21 40 [flags][len][data...]，siphon 分次 */

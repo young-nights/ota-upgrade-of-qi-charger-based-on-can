@@ -41,20 +41,11 @@
 - 纯文档任务（如 PDF/docx 内容提炼）不受本规则限制，那是用户显式指定的处理对象。
 - 派发代码修改任务书时须内置本约束（同「修改范围边界」的任务书纪律）。
 
-## log1 / log2 脚本同步规则
+## Qi IAP 路径（2026-10-19 起）
 
-- `zcanpro_qi_iap_log1.py` 和 `zcanpro_qi_iap_log2.py` 是同一套 IAP 脚本的不同固件版本副本。
-- **除以下 4 项外，两个文件必须完全一致**：
-  1. 文件头注释中的固件文件名（log1.BIN / log2.BIN）
-  2. `FIRMWARE_NAME` 常量
-  3. `EXPECTED_FW_VERSION` 常量
-  4. 文件头注释中的互斥说明
-- **修改任一脚本的 IAP 逻辑后，必须同步另一个脚本**。检查方式：
-  ```bash
-  diff python_tools/zcanpro_qi_iap_log1.py python_tools/zcanpro_qi_iap_log2.py
-  ```
-  diff 输出应仅包含上述 4 项差异，不得有其他不同。
-- 提交时在 commit message 中注明 `log1 + log2 已同步`。
+- Qi 芯片 IAP 已统一到 UDS OTA 路径：`2E 20 10 04` 选 MCU2 → `31` 擦除直通 → `34`/`36` UART 转发（延迟应答等 ACK）→ `37` 完成。
+- 旧 DID `0x2130`/`0x2131` 写路径已删除，不可再用。
+- 状态/版本查询保留：`0x2132`（IAP 状态）、`0x2133`（Qi 固件版本）。
 
 ## WSL2 串口 CAN 监听（Boot 用例 M1–M4）
 

@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.26";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.27";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -1437,7 +1437,7 @@ static void handle_read_data_by_id(uint8_t *data, uint16_t len)
  * @brief  WriteDataByIdentifier (0x2E)
  * @note   逐 DID 门禁（本文件 WDBI case 表，同值 NRC 判读以 case 块内
  *         检查顺序为准）：0x2101/0x210D 需 EXTENDED 会话（10 03）；
- *         0x2010/0xF18C/0x2120/0x2130/0x2131 需 PROGRAMMING 会话
+ *         0x2010/0xF18C/0x2120/0x2141 需 PROGRAMMING 会话
  *         （10 02）；全部可写 DID 均需 SecurityAccess 解锁；其他 DID
  *         回 NRC 0x31。同一 case 内会话检查先于安全检查（NRC 0x22 在
  *         0x33 之前——写步拿 0x33=会话存活证据，拿 0x22 才是会话丢失）。
@@ -1481,8 +1481,6 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
     case DID_FW_TYPE:
     case DID_SERIAL_NUMBER:
     case DID_ECDSA_PUBKEY:
-    case DID_QI_IAP_CONTROL:
-    case DID_QI_IAP_DATA:
     case DID_QI_UART_TX:
       if (current_session != SESSION_PROGRAMMING)
       {
@@ -1579,107 +1577,11 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         break;
       }
 
-      case DID_QI_IAP_CONTROL:
-      {
-        /* data[3]=0x01 启动（data[4..5]=固件大小 16-bit BE）
-         * data[3]=0x00/0x02 中止。UART：0xCC 0x01 + size */
-        uint8_t sub = data[3];
-        if (sub == 0x01U)
-        {
-          if (len < 6U)
-          {
-            proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
-            return;
-          }
-          if (g_qi_ver_q_state != 0U)
-          {
-            /* 版本问询进行中：避免 UART 命令交叉 */
-            proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
-            return;
-          }
-          g_qi_iap_total    = ((uint16_t)data[4] << 8) | (uint16_t)data[5];
-          g_qi_iap_sent     = 0U;
-          g_qi_iap_progress = 0U;
-          g_qi_iap_last_tx_ms = 0U;
-          g_qi_iap_pending_chunk = 0U;
-          /* Discard leftover 0x01 reports so the prepare ACK can be parsed. */
-          qi_protocol_rx_flush();
-          (void)qi_protocol_iap_prepare(g_qi_iap_total);
-          /* Wait for Qi prepare ACK (chip may erase flash) before 6E 21 30. */
-          g_qi_iap_state = QI_IAP_WAIT_ACK;
-          g_qi_iap_ack_timeout_ms = QI_IAP_PREPARE_TIMEOUT_MS;
-          g_qi_iap_wait_start_ms = timer_get_tick();
-          g_qi_iap_pending_did[0] = data[1];
-          g_qi_iap_pending_did[1] = data[2];
-        }
-        else if ((sub == 0x00U) || (sub == 0x02U))
-        {
-          g_qi_iap_state = QI_IAP_IDLE;
-          g_qi_iap_progress = 0U;
-          g_qi_iap_total = 0U;
-          g_qi_iap_sent = 0U;
-          g_qi_iap_last_tx_ms = 0U;
-          g_qi_iap_pending_chunk = 0U;
-          g_qi_iap_pending_did[0] = 0U;
-          g_qi_iap_pending_did[1] = 0U;
-          resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
-          resp[1] = data[1];
-          resp[2] = data[2];
-          proto_send_response(resp, 3);
-        }
-        else
-        {
-          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
-        }
-        break;
-      }
-
-      case DID_QI_IAP_DATA:
-      {
-        /* data[3..4]=地址 16-bit BE，data[5..]=固件（最多 22B）
-         * UART：0xCC 0x02 + addr + data
-         *
-         * ACK 链路：发 UART 帧 → 等 Qi 芯片 ACK → 才回 UDS 正响应。
-         * 非阻塞：设 WAIT_ACK 状态，UDS 响应在 qi_iap_ack_poll() 中延迟发送。
-         * Host 侧收到 NRC 0x72 时重试当前包。 */
-        uint16_t addr;
-        uint16_t chunk_len;
-
-        if (len < 6U)
-        {
-          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
-          return;
-        }
-        if (g_qi_iap_state != QI_IAP_IN_PROGRESS)
-        {
-          proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
-          return;
-        }
-        addr = ((uint16_t)data[3] << 8) | (uint16_t)data[4];
-        chunk_len = (uint16_t)(len - 5U);
-        if (chunk_len > QI_IAP_MAX_CHUNK)
-        {
-          chunk_len = QI_IAP_MAX_CHUNK;
-        }
-        (void)qi_protocol_iap_data(addr, &data[5], (uint8_t)chunk_len);
-        g_qi_iap_pending_chunk = (uint16_t)chunk_len;
-        g_qi_iap_last_tx_ms = timer_get_tick();
-        /* 不立即回 UDS 响应——进入 WAIT_ACK 状态，
-         * 在 qi_iap_ack_poll() 中等 Qi 芯片 ACK 后再回复 */
-        g_qi_iap_state = QI_IAP_WAIT_ACK;
-        g_qi_iap_ack_timeout_ms = QI_IAP_ACK_TIMEOUT_MS;
-        g_qi_iap_wait_start_ms = timer_get_tick();
-        g_qi_iap_pending_did[0] = data[1];
-        g_qi_iap_pending_did[1] = data[2];
-        break;
-      }
-
       case DID_QI_UART_TX:
       {
         /* Qi UART 透传发送：payload 1~64B 原样逐字节发给 Qi 芯片。
-         * 会话+安全门禁已在上方 case 分组检过（同 0x2130/0x2131）；
-         * 这里只做长度校验 + Qi IAP 进行中拒绝（避免 UART 命令交叉，
-         * NRC 对齐 0x2130 拒绝条件）。 */
+         * 会话+安全门禁已在上方 case 分组检过；
+         * 这里只做长度校验 + Qi IAP 进行中拒绝（避免 UART 命令交叉）。 */
         uint16_t n = (uint16_t)(len - 3U);
 
         if ((n < 1U) || (n > 64U))
