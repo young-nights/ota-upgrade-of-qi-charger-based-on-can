@@ -39,7 +39,7 @@ void enter_safe_mode(uint8_t cause);
  *            实现与 zcanpro_boot_diag_capture.py 解码同序，wire 即文档序；
  *            OTA-ARCH-0920-D5，勿再单独改其一）
  *   M3 0xA3: [pass][fail_step 0xFF=verifying][target 0=Backup/1=App]
- *   M4 0xA4: [jump target addr LE 4B] (App entry 0x08004100) */
+ *   M4 0xA4: [jump target addr LE 4B] (App entry 0x08003100) */
 
 /** @brief 诊断用 CAN 提前初始化（main.c step2，timer 之后/metadata 之前） */
 void boot_diag_can_init(void);

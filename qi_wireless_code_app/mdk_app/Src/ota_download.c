@@ -6,7 +6,7 @@
  **************************************************************************
  *
  * Flow: host enters programming session + security unlock -> 0x31 erases
- * the Backup region (0x08010000..0x0801BFFF) -> 0x34/0x36 stream the
+ * the Backup region (0x08010000..0x0801CFFF) -> 0x34/0x36 stream the
  * XATO image (linked for the App window) into Backup -> 0x37 flushes,
  * verifies the staged image (magic/length/CRC/ECDSA + reset vector in the
  * App run window), commits metadata (backup_valid=1 + backup_crc32),
@@ -224,7 +224,7 @@ static const uint8_t *image_pubkey(void)
 /**
  * @brief  verify the XATO image staged in the Backup region
  * @note   reset vector must target the App run window
- *         [0x08004100, 0x08010000) — staged images are App-linked; this
+ *         [0x08003100, 0x08010000) — staged images are App-linked; this
  *         rejects images built for any other base before the flag is set
  */
 static int8_t verify_backup_image(void)
@@ -349,7 +349,7 @@ void ota_dl_handle_erase(uint8_t *data, uint16_t len)
   /* MCU2 (Qi 芯片) 目标：不需要擦除本机备份区，直接标记就绪。
    * 后续 0x34/0x36 经 UART 转发给 Qi 芯片 IAP。
    * g_size 放宽到 0xFFFF（Qi IAP 16-bit 地址空间），
-   * 避免 OTA_BACKUP_SIZE(48KB) 误拦更大 Qi 固件。 */
+   * 避免 OTA_BACKUP_SIZE(52KB) 误拦更大 Qi 固件。 */
   if (can_proto_fw_type_target() == FW_TYPE_MCU2)
   {
     g_mcu2_mode = 1U;

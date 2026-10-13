@@ -149,7 +149,7 @@ static int8_t copy_program_region(uint32_t dst, const uint8_t *src,
  * @retval  0  commit 完成（旗子已清、已 save）
  *         -1  中途失败（旗子仍为 1，已 save 失败上下文）
  * @note   向量窗强制按 App 区解释：Backup 里的镜像必须是链接到
- *         0x08004000 的图，不能是「在 Backup 地址上能跑」的图。
+ *         0x08003000 的图，不能是「在 Backup 地址上能跑」的图。
  *         M3 target：0=Backup，1=App；fail_step=0xFF 表示「即将开始验」。
  */
 int8_t boot_copy_backup(ota_metadata_t *meta)

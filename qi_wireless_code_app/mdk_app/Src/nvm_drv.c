@@ -313,7 +313,7 @@ nvm_status_t nvm_drv_write(uint16_t offset, uint8_t *buf, uint16_t len)
 
 /**
  * @brief  erase entire NVM config area
- * @note   erases all 4 sectors (8KB) of the config area.
+ * @note   erases all sectors of the config area (4KB = 1 sector).
  *         after erase, validity magic is lost.
  * @retval NVM_STATUS_OK on success, error code otherwise
  */

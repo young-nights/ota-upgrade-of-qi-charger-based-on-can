@@ -100,7 +100,7 @@ void SystemInit (void)
   CRM->piclks_bit.ertc_pclksel = 1;
 
   /* VTOR = App run address (single-App architecture, OTA-ARCH-0920) */
-  SCB->VTOR = 0x08004100U;
+  SCB->VTOR = 0x08003100U;
 }
 
 /**

@@ -5,12 +5,12 @@
  **************************************************************************
  *
  * Single-App OTA architecture (OTA-ARCH-0920, A/B slots removed):
- *   Boot     0x08000000..0x08003FFF  16KB  (uvprojx IROM 0x08000000,0x4000)
- *   App      0x08004000..0x0800FFFF  48KB  XATO header @0x08004000,
- *                                          code entry  @0x08004100
- *   Backup   0x08010000..0x0801BFFF  48KB  pending-upgrade firmware image
- *   Metadata 0x0801C000 / 0x0801C800 primary / backup copies
- *   DeviceInfo 0x0801D000  NVM 0x0801E000..0x0801FFFF
+ *   Boot     0x08000000..0x08002FFF  12KB  (uvprojx IROM 0x08000000,0x3000)
+ *   App      0x08003000..0x0800FFFF  52KB  XATO header @0x08003000,
+ *                                          code entry  @0x08003100
+ *   Backup   0x08010000..0x0801CFFF  52KB  pending-upgrade firmware image
+ *   Metadata 0x0801D000 / 0x0801D800 primary / backup copies
+ *   DeviceInfo 0x0801E000  NVM 0x0801F000..0x0801FFFF
  *
  * Upgrade flow: host streams firmware into Backup via APP UDS
  * (0x31/0x34/0x36/0x37) -> APP verifies image -> APP sets backup_valid
@@ -35,16 +35,16 @@ extern "C" {
 
 #define BOOT_BASE_ADDR          0x08000000U
 #define BOOT_SIZE               0x4000U       /* 16KB bootloader */
-#define APP_BASE_ADDR           0x08004000U   /* App image region (incl. header) */
-#define APP_SIZE                0xC000U       /* 48KB */
+#define APP_BASE_ADDR           0x08003000U   /* App image region (incl. header) */
+#define APP_SIZE                0xD000U       /* 52KB */
 #define BACKUP_BASE_ADDR        0x08010000U   /* pending-firmware staging region */
-#define BACKUP_SIZE             0xC000U       /* 48KB */
+#define BACKUP_SIZE             0xD000U       /* 52KB */
 #define IMAGE_HEADER_SIZE       256U
-#define APP_ENTRY_ADDR          (APP_BASE_ADDR + IMAGE_HEADER_SIZE) /* 0x08004100 */
-#define META_PRIMARY_ADDR       0x0801C000U
-#define META_BACKUP_ADDR        0x0801C800U
+#define APP_ENTRY_ADDR          (APP_BASE_ADDR + IMAGE_HEADER_SIZE) /* 0x08003100 */
+#define META_PRIMARY_ADDR       0x0801D000U
+#define META_BACKUP_ADDR        0x0801D800U
 #define META_PAGE_SIZE          0x400U
-#define DEVICE_INFO_ADDR        0x0801D000U
+#define DEVICE_INFO_ADDR        0x0801E000U
 #define DEVICE_INFO_SIZE        0x1000U
 #define FLASH_SECTOR_SIZE       0x400U
 #define SRAM_BASE_ADDR          0x20000000U

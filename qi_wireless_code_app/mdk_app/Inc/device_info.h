@@ -1,7 +1,7 @@
 /**
   **************************************************************************
   * @file     device_info.h
-  * @brief    Device Info (SN) in Flash at 0x0801D000; OTA must not erase
+  * @brief    Device Info (SN) in Flash at 0x0801E000; OTA must not erase
   **************************************************************************
   */
 #ifndef __DEVICE_INFO_H
@@ -13,7 +13,7 @@ extern "C" {
 
 #include "at32f422_426.h"
 
-#define DEVICE_INFO_ADDR        0x0801D000U
+#define DEVICE_INFO_ADDR        0x0801E000U
 #define DEVICE_INFO_SIZE        0x1000U
 #define DEVICE_INFO_MAGIC       0x44455649U   /* "DEVI" */
 #define DEVICE_INFO_VERSION     3U

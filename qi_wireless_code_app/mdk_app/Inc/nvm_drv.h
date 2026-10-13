@@ -39,12 +39,12 @@ extern "C" {
 /**
  * @brief  NVM configuration area layout
  * @note   AT32F426 with 128KB Flash uses 2KB sectors.
- *         Metadata lives at 0x0801C000 (primary) and 0x0801C800 (backup).
- *         NVM config uses 0x0801E000 ~ 0x0801FFFF (last 8KB = 4 sectors).
+ *         Metadata lives at 0x0801D000 (primary) and 0x0801D800 (backup).
+ *         NVM config uses 0x0801F000 ~ 0x0801FFFF (last 4KB = 1 sector).
  */
-#define NVM_CONFIG_BASE_ADDR            0x0801E000U  /*!< config area start address */
+#define NVM_CONFIG_BASE_ADDR            0x0801F000U  /*!< config area start address */
 #define NVM_CONFIG_END_ADDR             0x0801FFFFU  /*!< config area end address */
-#define NVM_CONFIG_SIZE                 0x2000U      /*!< config area size: 8KB */
+#define NVM_CONFIG_SIZE                 0x1000U      /*!< config area size: 4KB */
 #define NVM_SECTOR_SIZE                 0x800U       /*!< sector size: 2KB for AT32F426 */
 #define NVM_VALIDITY_MAGIC              0x4E564D31U  /*!< magic: "NVM1" in ASCII */
 #define NVM_VALIDITY_OFFSET             0x0000U      /*!< offset of validity magic word */

@@ -9,7 +9,7 @@
  *   2. load OTA metadata (dual-copy, CRC checked)
  *   3. if backup_valid flag set -> copy Backup region to App region
  *      (idempotent: flag cleared only after re-verify passes)
- *   4. verify App region image; on success jump to 0x08004100
+ *   4. verify App region image; on success jump to 0x08003100
  *   5. otherwise enter safe mode (CAN diagnostic frames)
  */
 

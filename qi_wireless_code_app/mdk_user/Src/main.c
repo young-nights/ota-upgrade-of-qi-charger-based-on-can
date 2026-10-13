@@ -41,7 +41,7 @@
 int main(void)
 {
   /* VTOR = App run address (single-App architecture, OTA-ARCH-0920) */
-  SCB->VTOR = 0x08004100U;
+  SCB->VTOR = 0x08003100U;
 
   /* configure system clock to 180MHz */
   system_clock_config();

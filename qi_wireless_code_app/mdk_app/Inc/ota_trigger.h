@@ -9,11 +9,11 @@
  * (backup_valid) and resets; BOOT performs the physical copy.
  *
  * Flash layout (must match bootloader boot_metadata.h — same-source):
- *   Boot     0x08000000..0x08003FFF  16KB
- *   App      0x08004000..0x0800FFFF  48KB (XATO header @0x08004000,
- *            code entry @0x08004100 = Keil IROM1 0x08004100,0xBF00)
- *   Backup   0x08010000..0x0801BFFF  48KB
- *   Metadata 0x0801C000 / 0x0801C800, DeviceInfo 0x0801D000, NVM 0x0801E000
+ *   Boot     0x08000000..0x08002FFF  12KB
+ *   App      0x08003000..0x0800FFFF  52KB (XATO header @0x08003000,
+ *            code entry @0x08003100 = Keil IROM1 0x08003100,0xCF00)
+ *   Backup   0x08010000..0x0801CFFF  52KB
+ *   Metadata 0x0801D000 / 0x0801D800, DeviceInfo 0x0801E000, NVM 0x0801F000
  *
  * ota_metadata_t v4 (28B, crc32 @0x18, META_VERSION=4),
  * identical across projects; v2-and-earlier data rejected -> defaults.
@@ -31,15 +31,15 @@ extern "C" {
 /* exported constants ------------------------------------------------------ */
 
 #define OTA_BOOT_BASE_ADDR      0x08000000U
-#define OTA_BOOT_SIZE           0x4000U
-#define OTA_APP_BASE_ADDR       0x08004000U   /* App image region */
-#define OTA_APP_SIZE            0xC000U       /* 48KB */
+#define OTA_BOOT_SIZE           0x3000U
+#define OTA_APP_BASE_ADDR       0x08003000U   /* App image region */
+#define OTA_APP_SIZE            0xD000U       /* 52KB */
 #define OTA_BACKUP_BASE_ADDR    0x08010000U   /* staging region */
-#define OTA_BACKUP_SIZE         0xC000U       /* 48KB */
+#define OTA_BACKUP_SIZE         0xD000U       /* 52KB */
 #define OTA_APP_ENTRY_ADDR      (OTA_APP_BASE_ADDR + OTA_IMAGE_HEADER_SIZE)
 
-#define OTA_META_PRIMARY_ADDR   0x0801C000U
-#define OTA_META_BACKUP_ADDR    0x0801C800U
+#define OTA_META_PRIMARY_ADDR   0x0801D000U
+#define OTA_META_BACKUP_ADDR    0x0801D800U
 #define OTA_META_PAGE_SIZE      0x400U
 #define OTA_IMAGE_HEADER_SIZE   256U
 #define OTA_FLASH_SECTOR_SIZE   0x400U

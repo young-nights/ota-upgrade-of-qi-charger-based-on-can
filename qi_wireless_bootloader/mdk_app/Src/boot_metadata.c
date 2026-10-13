@@ -4,7 +4,7 @@
  * @brief    OTA metadata management for bootloader (Boot + App architecture)
  **************************************************************************
  *
- * Dual-copy metadata at 0x0801C000 / 0x0801C800. Single-App format
+ * Dual-copy metadata at 0x0801D000 / 0x0801D800. Single-App format
  * (META_VERSION=4): v3 及更早拒绝 -> 默认重建
  * rebuild (Q2 slimming).
  * All writes funnel through meta_write_to_flash (IRQ-off single-bank
@@ -193,7 +193,7 @@ int8_t boot_metadata_init(ota_metadata_t *meta)
   const ota_metadata_t *primary;
   const ota_metadata_t *backup;
 
-  /* 路径 1：主区 0x0801C000 完整 → 只读入 RAM，不写 Flash */
+  /* 路径 1：主区 0x0801D000 完整 → 只读入 RAM，不写 Flash */
   primary = (const ota_metadata_t *)META_PRIMARY_ADDR;
   if (meta_validate(primary) == 0)
   {
@@ -203,7 +203,7 @@ int8_t boot_metadata_init(ota_metadata_t *meta)
     return 0;
   }
 
-  /* 路径 2：主区坏、备区 0x0801C800 完整 → 用备区修主区 */
+  /* 路径 2：主区坏、备区 0x0801D800 完整 → 用备区修主区 */
   backup = (const ota_metadata_t *)META_BACKUP_ADDR;
   if (meta_validate(backup) == 0)
   {
