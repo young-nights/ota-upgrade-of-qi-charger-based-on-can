@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.40";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.41";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -892,7 +892,12 @@ static void qi_ver_refresh_poll(void)
   {
     g_qi_ver_refresh_pending = 0U;
     refresh_start_ms = 0U;
-    /* 版本已刷新，释放 PB2 */
+    /* 若 DID 0x2013 正在等延迟应答，现在回复 */
+    if (g_qi_ver_q_state == 1U)
+    {
+      g_qi_ver_q_state = 0U;
+      qi_ver_send_full_response(g_qi_fw_version);
+    }
     board_iap_hold_power(0U);
     return;
   }
@@ -901,7 +906,12 @@ static void qi_ver_refresh_poll(void)
   {
     g_qi_ver_refresh_pending = 0U;
     refresh_start_ms = 0U;
-    /* 缓存保持无效，释放 PB2 */
+    /* 缓存保持无效；若 DID 0x2013 在等，回 NRC 0x22 */
+    if (g_qi_ver_q_state == 1U)
+    {
+      g_qi_ver_q_state = 0U;
+      proto_send_nrc(UDS_SID_READ_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
+    }
     board_iap_hold_power(0U);
   }
 }
@@ -1449,6 +1459,22 @@ static void handle_read_data_by_id(uint8_t *data, uint16_t len)
     {
       /* 查询进行中不排队；Qi IAP 升级中避免 UART 命令交叉 */
       proto_send_nrc(UDS_SID_READ_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
+      return;
+    }
+    /* IAP 后版本刷新进行中：不发 UART 查询，走延迟应答等自动上报。
+     * qi_ver_refresh_poll 等到上报后通过 qi_ver_send_full_response 回复。 */
+    if (g_qi_ver_refresh_pending != 0U)
+    {
+      if (g_qi_fw_version_valid != 0U)
+      {
+        /* 自动上报已到达，缓存已刷新，直接拼串回复 */
+        qi_ver_send_full_response(g_qi_fw_version);
+        return;
+      }
+      /* 缓存无效：发 pending，等 qi_ver_refresh_poll 超时后回 NRC 0x22 */
+      g_qi_ver_q_state    = 1U;
+      g_qi_ver_q_start_ms = timer_get_tick();
+      proto_send_pending(UDS_SID_READ_DATA_BY_ID);
       return;
     }
     g_qi_ver_q_state    = 1U;
