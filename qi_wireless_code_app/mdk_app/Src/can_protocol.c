@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.33";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.34";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -852,9 +852,10 @@ void can_proto_qi_iap_prepare_async(uint16_t fw_size, uint16_t max_block_len)
 
   /* PB2 上电 + 保持：IAP 全程供电，board_charge_poll 不得拉低 */
   board_iap_hold_power(1U);
-  /* Qi 芯片上电启动时间（与 version_probe 同款等待） */
+  /* Qi 芯片上电启动时间：200ms 确保芯片完全就绪再发 IAP 命令。
+   * 50ms 实测不足（0xCC 0x01 无 ACK），加长至 200ms。 */
   t0 = timer_get_tick();
-  while ((timer_get_tick() - t0) < 50U)
+  while ((timer_get_tick() - t0) < 200U)
   {
     __NOP();
   }
