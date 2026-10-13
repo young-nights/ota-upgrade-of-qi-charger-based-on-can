@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.35";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.37";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -849,6 +849,11 @@ void can_proto_qi_iap_reset(void)
   g_qi_iap_pending_did[0] = 0U;
   g_qi_iap_pending_did[1] = 0U;
   g_qi_iap_pending_chunk = 0U;
+  /* 清版本缓存：IAP 后 Qi 芯片运行新固件，旧缓存版本失效。
+   * 置 g_qi_fw_version_valid=0 + g_qi_ver_q_state=0，下次 DID 0x2013
+   * 读版本会走 UART 主动问询（CMD 0x03），返回 Qi 芯片真实版本。 */
+  g_qi_fw_version_valid = 0U;
+  g_qi_ver_q_state = 0U;
 }
 
 /**
