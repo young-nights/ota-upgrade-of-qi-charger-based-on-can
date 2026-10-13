@@ -687,14 +687,16 @@ void ota_dl_handle_transfer_exit(uint8_t *data, uint16_t len)
       meta.ota_state = OTA_STATE_MCU2_CONFIRMED;
       (void)ota_metadata_save(&meta);
     }
-    /* 先回 0x77——不能在版本刷新/PB2 释放后才回，否则 brood UDS
-     * 等 0x77 超时（isotp: timeout） */
+    /* 0x77 前阻塞刷版本（800ms 短超时）——brood verify 读 DID 0x2013
+     * 需要缓存已刷新，否则 verify 超时（context deadline exceeded）。
+     * 800ms 远小于 brood 0x37 的 UDS 超时（~5s），不会导致 0x77 超时。 */
+    can_proto_qi_version_refresh_blocking(800U);
+    /* 回 0x77 */
     resp[0] = (uint8_t)(UDS_SID_TRANSFER_EXIT + UDS_POSITIVE_RESPONSE_OFFSET);
     can_proto_send_response(resp, 1);
     (void)can_driver_wait_tx_idle(50U);
-    /* 版本刷新非阻塞：置标志，主循环 qi_ver_refresh_poll 处理。
-     * PB2 保持供电直到版本刷新完成/超时（Qi 芯片需在线发自动上报）。 */
-    can_proto_qi_version_refresh();
+    /* 后台释放 PB2（版本刷新已完成或超时，Qi 芯片可断电） */
+    board_iap_hold_power(0U);
     return;
   }
 

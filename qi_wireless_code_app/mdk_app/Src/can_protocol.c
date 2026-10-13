@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.42";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.43";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -866,6 +866,33 @@ void can_proto_qi_version_refresh(void)
   g_qi_fw_version_valid = 0U;
   g_qi_ver_q_state = 0U;
   g_qi_ver_refresh_pending = 1U;
+}
+
+/**
+ * @brief  IAP 后阻塞刷 Qi 版本缓存（短超时）
+ * @param  timeout_ms: 最大阻塞等待时间（建议 ≤800ms，不可超过
+ *         brood 0x37 的 UDS 超时 ~5s）
+ * @note   清旧缓存后等 MCU2 自动上报 CMD 0x01（帧回调更新缓存）。
+ *         超时后缓存保持无效。调用方自行负责 PB2 供电管理。
+ */
+void can_proto_qi_version_refresh_blocking(uint16_t timeout_ms)
+{
+  uint32_t t0;
+
+  g_qi_fw_version_valid = 0U;
+  g_qi_ver_q_state = 0U;
+  g_qi_ver_refresh_pending = 0U;  /* 阻塞路径不走 poll */
+
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < (uint32_t)timeout_ms)
+  {
+    qi_protocol_poll();
+    if (g_qi_fw_version_valid != 0U)
+    {
+      return;  /* 自动上报已到达，缓存已刷新 */
+    }
+  }
+  /* 超时：缓存保持无效 */
 }
 
 /**
