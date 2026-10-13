@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.34";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.35";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -833,6 +833,22 @@ uint8_t can_proto_fw_type_target(void)
 uint8_t can_proto_qi_iap_state(void)
 {
   return g_qi_iap_state;
+}
+
+/**
+ * @brief  重置 Qi IAP 状态机为 IDLE
+ * @note   MCU2 升级完成后必须调用：否则 g_qi_iap_state 停留在
+ *         IN_PROGRESS/SUCCESS，DID 0x2013 版本查询被 NRC 0x22 拒绝
+ *         （line 1377 的 g_qi_iap_state != QI_IAP_IDLE 条件），brood
+ *         verify 阶段读版本失败。
+ */
+void can_proto_qi_iap_reset(void)
+{
+  g_qi_iap_state = QI_IAP_IDLE;
+  g_qi_iap_resp_type = QI_RESP_NONE;
+  g_qi_iap_pending_did[0] = 0U;
+  g_qi_iap_pending_did[1] = 0U;
+  g_qi_iap_pending_chunk = 0U;
 }
 
 /**
