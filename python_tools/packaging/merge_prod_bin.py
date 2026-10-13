@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import argparse
 import os
+import re
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,7 +31,14 @@ DEFAULT_BOOT = os.path.join(
     "qi_wireless_bootloader", "mdk_project", "Objects", "bootloader.bin",
 )
 DEFAULT_APP = os.path.join(APP_BIN_DIR, "app_image.bin")
-DEFAULT_OUT = os.path.join(BURN_BIN_DIR, "prod_image.bin")
+
+
+def _extract_version_from_filename(path):
+    """从 app 文件名提取版本后缀，如 app_image_v1_1_35.bin → v1_1_35。
+    无版本后缀返回 None。"""
+    name = os.path.splitext(os.path.basename(path))[0]
+    m = re.search(r"(v\d+(?:_\d+)*)$", name)
+    return m.group(1) if m else None
 
 
 def _find_latest_app_image():
@@ -89,8 +97,9 @@ def main(argv=None):
                         help="bootloader.bin path (default: Objects/bootloader.bin)")
     parser.add_argument("--app", default=None,
                         help="packed App XATO image path (default: auto-detect newest app_image*.bin in app bin/)")
-    parser.add_argument("--out", default=DEFAULT_OUT,
-                        help="output merged bin (default: burn bin/prod_image.bin)")
+    parser.add_argument("--out", default=None,
+                        help="output merged bin (default: burn bin/prod_image_vX_Y_Z.bin, "
+                             "版本后缀取自 app 文件名)")
     parser.add_argument("--hex", action="store_true",
                         help="also produce Intel HEX next to the bin")
     parser.add_argument("--force", action="store_true",
@@ -115,6 +124,13 @@ def main(argv=None):
 
     boot_data = open(args.boot, "rb").read()
     app_data = open(args.app, "rb").read()
+
+    if args.out is None:
+        ver = _extract_version_from_filename(args.app)
+        if ver:
+            args.out = os.path.join(BURN_BIN_DIR, "prod_image_{}.bin".format(ver))
+        else:
+            args.out = os.path.join(BURN_BIN_DIR, "prod_image.bin")
 
     if len(boot_data) > BOOT_SIZE:
         sys.stderr.write("ERROR: Bootloader too large: {} bytes (max {})\n".format(
