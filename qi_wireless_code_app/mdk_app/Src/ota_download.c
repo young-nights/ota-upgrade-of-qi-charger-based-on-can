@@ -682,10 +682,20 @@ void ota_dl_handle_transfer_exit(uint8_t *data, uint16_t len)
     g_trial_ready = 1U;
     /* IAP 完成：重置 IAP 状态机为 IDLE */
     can_proto_qi_iap_reset();
-    /* 等 MCU2 自动上报刷新版本缓存（PB2 仍供电，Qi 芯片在线）。
-     * 最多 3 秒；超时缓存保持无效，brood verify 走延迟应答兜底。 */
+    if (ota_metadata_read(&meta) == 0)
+    {
+      meta.ota_state = OTA_STATE_MCU2_CONFIRMED;
+      (void)ota_metadata_save(&meta);
+    }
+    /* 先回 0x77——不能在版本刷新/PB2 释放后才回，否则 brood UDS
+     * 等 0x77 超时（isotp: timeout） */
+    resp[0] = (uint8_t)(UDS_SID_TRANSFER_EXIT + UDS_POSITIVE_RESPONSE_OFFSET);
+    can_proto_send_response(resp, 1);
+    (void)can_driver_wait_tx_idle(50U);
+    /* 后台刷版本：等 MCU2 自动上报（PB2 仍供电）。
+     * brood verify 读 DID 0x2013 在此之后，缓存已刷新。 */
     can_proto_qi_version_refresh();
-    /* 延时 500ms 再释放 PB2——Qi 芯片可能需要持续供电完成内部烧写/校验 */
+    /* 延时 500ms 再释放 PB2 */
     {
       uint32_t t0 = timer_get_tick();
       while ((timer_get_tick() - t0) < 500U)
@@ -694,14 +704,6 @@ void ota_dl_handle_transfer_exit(uint8_t *data, uint16_t len)
       }
     }
     board_iap_hold_power(0U);
-    if (ota_metadata_read(&meta) == 0)
-    {
-      meta.ota_state = OTA_STATE_MCU2_CONFIRMED;
-      (void)ota_metadata_save(&meta);
-    }
-    resp[0] = (uint8_t)(UDS_SID_TRANSFER_EXIT + UDS_POSITIVE_RESPONSE_OFFSET);
-    can_proto_send_response(resp, 1);
-    (void)can_driver_wait_tx_idle(50U);
     return;
   }
 
