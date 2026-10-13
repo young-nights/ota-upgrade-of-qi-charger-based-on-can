@@ -359,6 +359,11 @@ void ota_dl_handle_erase(uint8_t *data, uint16_t len)
     g_bytes_written = 0U;
     g_pad_len = 0U;
     g_block_seq = 0U;
+    /* MCU2 路径无 Flash 擦除，但上一轮 IAP 的 PB2 断电/版本刷新阻塞
+     * 可能留下 CAN bus-off/错误态。offline→online 完整重初始化，
+     * 确保后续 0x34 FirstFrame 的 FC 正常发出。 */
+    can_driver_offline();
+    can_driver_online();
     /* DID 0x2112 置 0x08 MCU2 In Progress */
     if (ota_metadata_read(&meta) == 0)
     {
