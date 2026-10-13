@@ -16,7 +16,7 @@ ZCANPRO 脚本 — 读取 APP 侧版本号 DID 0xF195 / 0xF180 / 0xF193
   2. 原始 CAN 发 03 22 F1xx，收 ISO-TP 多帧并按 SN 组包
   3. 失败再试 zcanpro.uds_request
 
-架构（OTA-ARCH-0920）：Boot(16KB) + App(48KB) + Backup(48KB)，单 App 无 A/B 槽位。
+架构（OTA-ARCH-0920）：Boot(12KB) + App(52KB) + Backup(52KB)，单 App 无 A/B 槽位。
 
 2026-09-21 P0-P2 修复（OTA-ARCH-0920-D3 审计）：
   - P0: wake_mcu 重试 2→8 次、间隔 0.15→0.5s，覆盖最坏 ~5s Boot→App CAN 黑窗
@@ -525,11 +525,11 @@ def run(bus_id):
 
     saw_boot, saw_app, saw_life, n = _sniff(bus_id, 1.5)
     if saw_boot is not None:
-        _log("设备在 Boot safe mode, fail_step=%d。请 merge_prod_bin 整片烧写 Boot(16KB)+App(48KB)+Backup(48KB)。" % saw_boot)
+        _log("设备在 Boot safe mode, fail_step=%d。请 merge_prod_bin 整片烧写 Boot(12KB)+App(52KB)+Backup(52KB)。" % saw_boot)
         return
     if n == 0:
         _log("总线上 0 帧 MCU 回复。请确认：1) 通道 250kbps 扩展帧已打开；"
-             "2) 已用当前 main 烧写完整镜像 Boot(16KB)+App(48KB)+Backup(48KB)"
+             "2) 已用当前 main 烧写完整镜像 Boot(12KB)+App(52KB)+Backup(52KB)"
              "（OTA-ARCH-0920 单 App 架构，无 A/B 槽位；勿与 V1.0.0 旧版 Boot 混用）；"
              "3) 断电重启后再跑。")
         return

@@ -2,8 +2,8 @@
 """Pack the App Keil raw .bin into a XATO image (256B header + firmware).
 
 Single-App architecture (OTA-ARCH-0920): one image, linked for the App
-window (Keil IROM1 = 0x08004100). Factory flashing writes the packed
-image at 0x08004000 (merge_prod_bin.py); OTA streams it into the Backup
+window (Keil IROM1 = 0x08003100). Factory flashing writes the packed
+image at 0x08003000 (merge_prod_bin.py); OTA streams it into the Backup
 region (0x08010000) and BOOT copies it into the App region after verify.
 
 Header layout is byte-frozen: @0x4C is a 16B reserved placeholder (the
@@ -100,7 +100,7 @@ def pack_one(bin_path, priv, out_name=None):
           % (len(image), IMAGE_HEADER_SIZE, len(image) - IMAGE_HEADER_SIZE))
     print("link     : App window  -> factory burn address 0x%08X" % APP_BASE)
     print("OTA flow : host streams this image to Backup 0x08010000;")
-    print("           BOOT copies Backup -> App 0x08004000 after verify")
+    print("           BOOT copies Backup -> App 0x%08X after verify" % APP_BASE)
     return 0
 
 

@@ -2,8 +2,8 @@
 """Merge bootloader.bin + app_image.bin into a single production bin.
 
 Single-App Flash layout (OTA-ARCH-0920):
-  0x08000000  Bootloader (16KB = 0x4000)
-  0x08004000  App image (XATO header + firmware, max 48KB = 0xC000)
+  0x08000000  Bootloader (12KB = 0x3000)
+  0x08003000  App image (XATO header + firmware, max 52KB = 0xD000)
   0x08010000  Backup region (OTA staging; left erased 0xFF in factory bin)
   0x0801C000  Metadata (left erased; BOOT self-heals defaults on first
               boot: meta_validate fails -> 默认重建；现场验 App 镜像再跳)
@@ -51,10 +51,10 @@ def _find_latest_app_image():
     return candidates[0][1]
 
 BOOT_BASE = 0x08000000
-BOOT_SIZE = 0x4000
-APP_SIZE = 0xC000
-APP_OFFSET = BOOT_SIZE          # App image starts at +0x4000 in merged bin
-APP_BASE = BOOT_BASE + APP_OFFSET  # 0x08004000
+BOOT_SIZE = 0x3000
+APP_SIZE = 0xD000
+APP_OFFSET = BOOT_SIZE          # App image starts at +0x3000 in merged bin
+APP_BASE = BOOT_BASE + APP_OFFSET  # 0x08003000
 
 
 def bin_to_ihex(data, base_addr):

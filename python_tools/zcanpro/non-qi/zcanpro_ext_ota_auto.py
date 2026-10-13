@@ -172,11 +172,11 @@ HDR_RESERVED_VER_LEN = 16     # 保留占位区长度（=原 version 字段字�
 HDR_BUILD_TS_OFF     = 0x5C   # build_timestamp 偏移（紧随保留区之后，未变）
 # ---- Single-App partition constants (OTA-ARCH-0920; same-source with
 # ---- boot_metadata.h / ota_trigger.h) ----
-APP_BASE = 0x08004000
-APP_SIZE = 0xC000
-APP_ENTRY = 0x08004100
+APP_BASE = 0x08003000
+APP_SIZE = 0xD000
+APP_ENTRY = 0x08003100
 BACKUP_BASE = 0x08010000
-BACKUP_SIZE = 0xC000
+BACKUP_SIZE = 0xD000
 DL_TARGET_BACKUP = 0x02
 # deprecated aliases kept so legacy helpers still compile
 SLOT_A, SLOT_B = 0, 1
@@ -612,8 +612,8 @@ def validate_image(image):
     lo = APP_ENTRY
     hi = APP_BASE + APP_SIZE
     if not (lo <= reset < hi):
-        raise RuntimeError("Reset Handler 0x%08X 不在 App 窗口 [0x08004100, 0x08010000)，"
-                           "请改 Target IROM1=0x08004100" % reset)
+        raise RuntimeError("Reset Handler 0x%08X 不在 App 窗口 [0x08003100, 0x08010000)，"
+                           "请改 Target IROM1=0x08003100" % reset)
     _log("镜像校验通过：App 窗口链接，总长 %d（Backup 区暂存→BOOT 搬运）" % len(image))
     return 0
 

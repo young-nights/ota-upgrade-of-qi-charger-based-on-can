@@ -2,9 +2,9 @@
 """Verify a packed XATO app image (magic/length/CRC/reset vector/ECDSA).
 
 Single-App architecture (OTA-ARCH-0920): the image must be linked for the
-App window — reset vector inside [0x08004100, 0x08010000). The image is
+App window — reset vector inside [0x08003100, 0x08010000). The image is
 staged at Backup 0x08010000 during OTA and copied verbatim to App
-0x08004000 by BOOT; one image serves both locations.
+0x08003000 by BOOT; one image serves both locations.
 
 Usage:
     python verify_image.py app bin/app_image.bin
@@ -22,9 +22,9 @@ import sys
 IMAGE_MAGIC = 0x4F544158  # "XATO"
 IMAGE_HEADER_SIZE = 256
 
-APP_BASE_ADDR = 0x08004000      # App image region (incl. header)
-APP_SIZE = 0xC000               # 48KB
-APP_ENTRY_ADDR = APP_BASE_ADDR + IMAGE_HEADER_SIZE   # 0x08004100
+APP_BASE_ADDR = 0x08003000      # App image region (incl. header)
+APP_SIZE = 0xD000               # 52KB
+APP_ENTRY_ADDR = APP_BASE_ADDR + IMAGE_HEADER_SIZE   # 0x08003100
 BACKUP_BASE_ADDR = 0x08010000   # OTA staging region (same image verbatim)
 
 HDR_MAGIC_OFF = 0x00
