@@ -1542,7 +1542,7 @@ def run_ota(bus_id):
             chunk = image[off:off + TRANSFER_BLOCK_DATA]
             uds_req(bus_id, SID_TD, [seq] + _to_list(chunk))
             off += len(chunk)
-            seq = 1 if seq == 0xFF else seq + 1
+            seq = (seq + 1) & 0xFF
             if off == size or (off % (TRANSFER_BLOCK_DATA * 16) == 0):
                 _log("  %d/%d" % (off, size))
         _log("---- TransferExit ----")

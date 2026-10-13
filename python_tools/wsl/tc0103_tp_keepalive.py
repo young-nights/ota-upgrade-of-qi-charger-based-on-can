@@ -245,7 +245,7 @@ def run_tc0103(fw_path):
         req("36_seq%03d" % seq, 0x36, [seq] + ext._to_list(chunk))
         off += len(chunk)
         blocks += 1
-        seq = 1 if seq == 0xFF else seq + 1
+        seq = (seq + 1) & 0xFF
         if off < size and blocks % TP_EVERY_N_BLOCKS == 0:
             tp("36第%d块后" % blocks)
         if off == size or (off % (TRANSFER_BLOCK * 32) == 0):

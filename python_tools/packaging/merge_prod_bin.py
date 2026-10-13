@@ -5,7 +5,7 @@ Single-App Flash layout (OTA-ARCH-0920):
   0x08000000  Bootloader (12KB = 0x3000)
   0x08003000  App image (XATO header + firmware, max 52KB = 0xD000)
   0x08010000  Backup region (OTA staging; left erased 0xFF in factory bin)
-  0x0801C000  Metadata (left erased; BOOT self-heals defaults on first
+  0x0801D000  Metadata (left erased; BOOT self-heals defaults on first
               boot: meta_validate fails -> 默认重建；现场验 App 镜像再跳)
 
 Usage:
@@ -170,7 +170,7 @@ def main(argv=None):
     print("  0x{:08X}  Bootloader  {} bytes".format(BOOT_BASE, len(boot_data)))
     print("  0x{:08X}  App image   {} bytes (header + firmware)".format(APP_BASE, len(app_data)))
     print("  0x{:08X}  Backup      left erased (OTA staging)".format(0x08010000))
-    print("  0x{:08X}  Metadata    left erased (BOOT defaults on 1st boot)".format(0x0801C000))
+    print("  0x{:08X}  Metadata    left erased (BOOT defaults on 1st boot)".format(0x0801D000))
     print("  0x{:08X}  End".format(BOOT_BASE + len(merged)))
     print("")
     print("Flash command (J-Link):")

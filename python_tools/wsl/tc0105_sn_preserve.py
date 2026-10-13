@@ -274,7 +274,7 @@ def run_tc0105(fw_path):
         req("36_seq%03d" % seq, 0x36, [seq] + ext._to_list(chunk))
         off += len(chunk)
         blocks += 1
-        seq = 1 if seq == 0xFF else seq + 1
+        seq = (seq + 1) & 0xFF
         if off == size or (off % (TRANSFER_BLOCK * 32) == 0):
             _log("  进度 %d/%d（%d 块）" % (off, size, blocks))
 
