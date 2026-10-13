@@ -492,6 +492,8 @@ uint8_t sit1145_standby_mode_set(void);
  */
 uint8_t sit1145_sleep_mode_set(void);
 
+uint8_t sit1145_sleep_enter(void);
+
 /**
  * @brief  获取 SIT1145 当前工作模式
  * @note   读取 MODE_CONTROL 寄存器 [2:0] 位

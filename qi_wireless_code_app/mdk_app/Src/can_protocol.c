@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.44";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.45";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -426,18 +426,35 @@ static void can_lp_enter_normal(void)
 
 /* Standby 进入函数：受 CAN_LP_STANDBY_ENABLE 总开关控制（can_protocol.h）。
  * =1（含未定义，生产语义）：仅空闲超时进 Standby，上电即 Normal；
- * =0：空闲停机整段不编译，源码完整保留，唤醒/恢复路径不受影响。 */
+ * =0：空闲停机整段不编译，源码完整保留，唤醒/恢复路径不受影响。
+ *
+ * CAN_LP_LOWPOWER_MODE=1 时改走 Sleep 模式（sit1145_sleep_enter）：
+ * SPI 断开，CAN 唤醒（CWE），PA11 电平检测唤醒。 */
 #if !defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)
 static void can_lp_hold_standby(void)
 {
-  uint32_t t0;
-
   /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
    * clear every wake/event register -> enable wake detection -> switch mode.
    * 1) MCU CAN offline first: no ACK/TX while the transceiver is reconfigured.
    *    Keep it before any GPIO change — moving TXD to GPIO while still in
    *    Normal would drive the bus dominant. */
   can_driver_offline();
+
+#if defined(CAN_LP_LOWPOWER_MODE) && (CAN_LP_LOWPOWER_MODE == 1)
+  /* ---- Sleep 模式路径 ----
+   * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control → 进 Sleep。
+   * SPI 随 Sleep 断开，后续唤醒检测只看 PA11 电平（RXD 被 SIT1145 在
+   * 唤醒事件期间强制拉低）。CAN 引脚切换到 Standby 配置（TXD 不驱动）。 */
+  if (sit1145_sleep_enter() == 0U)
+  {
+    /* 进 Sleep 前 CAN Control 回读失败：退化到 Standby */
+    g_lp_standby_fail = 1U;
+  }
+  can_driver_pins_standby();
+#else
+  /* ---- Standby 模式路径（默认）---- */
+  {
+    uint32_t t0;
 
   /* 2) Full event wipe BEFORE enabling wake / switching mode. The old code
    *    only cleared 0x24 CW/WUF and 0x63 CW, and only after the mode switch;
@@ -489,6 +506,8 @@ static void can_lp_hold_standby(void)
     }
   }
   sit1145_wakeup_clear();
+  } /* end Standby t0 scope */
+#endif /* CAN_LP_LOWPOWER_MODE */
 
   g_can_awake = 0U;
   g_standby_since_ms = timer_get_tick();

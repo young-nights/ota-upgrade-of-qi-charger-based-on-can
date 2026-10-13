@@ -300,13 +300,58 @@ uint8_t sit1145_standby_mode_set(void)
  * @note   Sleep 模式特点：
  *         - 最低功耗
  *         - ⚠️ SPI 接口完全不可用！调用后任何 SPI 读写都会超时
- *         - 唤醒方式：INH 引脚电平变化，或重新上电
+ *         - 唤醒方式：CAN 总线 WUP（CWE=1）、INH 引脚电平变化，或重新上电
  *         - 调用前须确保 CAN 控制器已停止
  * @retval 1 始终返回 1（SPI 已断开，无法验证）
  */
 uint8_t sit1145_sleep_mode_set(void)
 {
   return sit1145_set_mode(SIT1145_MC_SLEEP_MODE);
+}
+
+/**
+ * @brief  配置 CAN 唤醒并进入 Sleep 模式（完整序列）
+ * @note   对齐官方 FAE SIT1145_SleepMode_Set() 序列，适配本项目硬件：
+ *         - WAKE 引脚恒高不可用 → 不配 0x4C WAKE_enable，仅用 CAN 唤醒
+ *         - 选择性唤醒不启用（CPNC=0），标准 CAN WUP 任意 250kbps 帧触发
+ *         序列：
+ *         1) 清事件标志 0x61/0x63/0x64（W1C，对齐官方 SleepMode_Set）
+ *         2) 使能 CAN 唤醒：0x23 Transceiver_event_en 写 CWE=1
+ *         3) CAN Control：CFDC=1, PNCOK=0, CPNC=0, CMC=01（主动+UVLO）
+ *         4) 进 Sleep：写 0x01 = MC_SLEEP_MODE
+ *         进入后 SPI 断开，唤醒由 CAN WUP 触发（芯片自动回 Standby），
+ *         主循环通过 PA11/RXD 电平检测唤醒。
+ * @retval 1=进入 Sleep（SPI 已断开，无法验证），0=进入前寄存器配置失败
+ */
+uint8_t sit1145_sleep_enter(void)
+{
+  uint8_t can_ctrl_val;
+
+  /* 1) 清事件标志（官方 SleepMode_Set 顺序：0x61 → 0x63 → 0x64） */
+  sit1145_write_reg(SIT1145_REG_SYSTEM_EVENT_STATUS, 0xFFU);
+  sit1145_write_reg(SIT1145_REG_TRX_EVENT_STATUS, 0xFFU);
+  sit1145_write_reg(SIT1145_REG_WAKE_PIN_EVENT_STATUS, 0xFFU);
+  /* 0x24 CW/WUF 一并清（官方写 0x64 覆盖 WAKE 引脚事件，本项目 CW 在 0x24） */
+  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT,
+                    SIT1145_CW | SIT1145_WUF);
+
+  /* 2) 使能 CAN 唤醒（CWE=1）——WAKE 引脚恒高不可用，仅依赖 CAN WUP */
+  sit1145_wake_enable();
+
+  /* 3) CAN Control：CFDC=1, PNCOK=0, CPNC=0, CMC=01 */
+  can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
+               | SIT1145_CAN_NETW_INVALID
+               | SIT1145_SEL_WAKEUP_DIS
+               | SIT1145_CAN_MODE_NORMAL;
+  sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
+  if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) != can_ctrl_val)
+  {
+    return 0U;
+  }
+
+  /* 4) 进 Sleep（SPI 断开，无法回读） */
+  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
+  return 1U;
 }
 
 /**
