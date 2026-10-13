@@ -680,9 +680,11 @@ void ota_dl_handle_transfer_exit(uint8_t *data, uint16_t len)
     g_active = 0U;
     g_erased = 0U;
     g_trial_ready = 1U;
-    /* IAP 完成：重置 IAP 状态机为 IDLE，否则 DID 0x2013 版本查询
-     * 被 NRC 0x22 拒绝（brood verify 阶段读版本失败） */
+    /* IAP 完成：重置 IAP 状态机为 IDLE */
     can_proto_qi_iap_reset();
+    /* 等 MCU2 自动上报刷新版本缓存（PB2 仍供电，Qi 芯片在线）。
+     * 最多 3 秒；超时缓存保持无效，brood verify 走延迟应答兜底。 */
+    can_proto_qi_version_refresh();
     /* 延时 500ms 再释放 PB2——Qi 芯片可能需要持续供电完成内部烧写/校验 */
     {
       uint32_t t0 = timer_get_tick();

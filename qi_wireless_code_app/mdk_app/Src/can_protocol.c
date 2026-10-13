@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.37";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.38";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -849,11 +849,37 @@ void can_proto_qi_iap_reset(void)
   g_qi_iap_pending_did[0] = 0U;
   g_qi_iap_pending_did[1] = 0U;
   g_qi_iap_pending_chunk = 0U;
-  /* 清版本缓存：IAP 后 Qi 芯片运行新固件，旧缓存版本失效。
-   * 置 g_qi_fw_version_valid=0 + g_qi_ver_q_state=0，下次 DID 0x2013
-   * 读版本会走 UART 主动问询（CMD 0x03），返回 Qi 芯片真实版本。 */
+}
+
+/**
+ * @brief  IAP 后等 MCU2 自动上报刷新 Qi 版本缓存
+ * @note   Qi 芯片启动新固件后会自动发 CMD 0x01 状态上报帧（含版本
+ *         data[4-5] BE），帧回调自动更新 g_qi_fw_version/g_qi_fw_version_valid。
+ *         本函数清旧缓存后阻塞等自动上报（不主动发 CMD 0x03 问询），
+ *         最多等 3 秒。超时则缓存保持无效，下次 DID 0x2013 走延迟
+ *         应答路径兜底。
+ *         必须在 IAP reset 后、返回 0x77 之前调用，确保 brood verify
+ *         读 DID 0x2013 时缓存已刷新为新固件版本。
+ */
+void can_proto_qi_version_refresh(void)
+{
+  uint32_t t0;
+
+  /* 清旧缓存——IAP 后 Qi 芯片运行新固件，旧版本值失效 */
   g_qi_fw_version_valid = 0U;
   g_qi_ver_q_state = 0U;
+
+  /* 阻塞等 MCU2 自动上报 CMD 0x01（帧回调更新缓存后 valid=1） */
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < 3000U)
+  {
+    qi_protocol_poll();
+    if (g_qi_fw_version_valid != 0U)
+    {
+      break;  /* 自动上报已到达，缓存已刷新 */
+    }
+  }
+  /* 超时：缓存保持无效，下次 DID 0x2013 走延迟应答兜底 */
 }
 
 /**
