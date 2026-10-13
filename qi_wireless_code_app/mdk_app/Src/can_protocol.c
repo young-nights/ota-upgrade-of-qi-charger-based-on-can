@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.39";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.40";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -145,6 +145,7 @@ static uint8_t  g_qi_iap_resp_extra[2] = {0U}; /*!< maxBlockLen 或 BSC */
 
 /** @brief  DID 0x2013 Qi 版本主动问询（延迟应答）状态 */
 static uint8_t  g_qi_ver_q_state    = 0U;   /*!< 0=idle, 1=waiting Qi 回复 */
+static uint8_t  g_qi_ver_refresh_pending = 0U;  /*!< IAP 后版本刷新待处理（主循环轮询） */
 static uint32_t g_qi_ver_q_start_ms = 0U;
 
 /* ========================================================================== */
@@ -852,34 +853,57 @@ void can_proto_qi_iap_reset(void)
 }
 
 /**
- * @brief  IAP 后等 MCU2 自动上报刷新 Qi 版本缓存
- * @note   Qi 芯片启动新固件后会自动发 CMD 0x01 状态上报帧（含版本
- *         data[4-5] BE），帧回调自动更新 g_qi_fw_version/g_qi_fw_version_valid。
- *         本函数清旧缓存后阻塞等自动上报（不主动发 CMD 0x03 问询），
- *         最多等 3 秒。超时则缓存保持无效，下次 DID 0x2013 走延迟
- *         应答路径兜底。
- *         必须在 IAP reset 后、返回 0x77 之前调用，确保 brood verify
- *         读 DID 0x2013 时缓存已刷新为新固件版本。
+ * @brief  IAP 后等 MCU2 自动上报刷新 Qi 版本缓存（非阻塞）
+ * @note   置 g_qi_ver_refresh_pending=1，由 can_protocol_poll 主循环
+ *         轮询处理：清旧缓存后等 MCU2 自动上报 CMD 0x01（帧回调更新
+ *         缓存），最多 3 秒。不阻塞 UDS 处理——否则 0x10 退出编程
+ *         会话被阻塞超时。
+ *         必须在 IAP reset 后调用。版本刷新完成后 brood verify
+ *         读 DID 0x2013 缓存已更新。
  */
 void can_proto_qi_version_refresh(void)
 {
-  uint32_t t0;
-
-  /* 清旧缓存——IAP 后 Qi 芯片运行新固件，旧版本值失效 */
   g_qi_fw_version_valid = 0U;
   g_qi_ver_q_state = 0U;
+  g_qi_ver_refresh_pending = 1U;
+}
 
-  /* 阻塞等 MCU2 自动上报 CMD 0x01（帧回调更新缓存后 valid=1） */
-  t0 = timer_get_tick();
-  while ((timer_get_tick() - t0) < 3000U)
+/**
+ * @brief  版本刷新轮询（can_protocol_poll 调用）
+ * @note   处理 IAP 后的版本刷新请求：清缓存后等 MCU2 自动上报，
+ *         帧回调从 CMD 0x01 data[4-5] 解析版本并置 valid=1。
+ *         超时 3 秒后放弃（缓存保持无效）。
+ */
+static void qi_ver_refresh_poll(void)
+{
+  static uint32_t refresh_start_ms = 0U;
+
+  if (g_qi_ver_refresh_pending == 0U)
   {
-    qi_protocol_poll();
-    if (g_qi_fw_version_valid != 0U)
-    {
-      break;  /* 自动上报已到达，缓存已刷新 */
-    }
+    return;
   }
-  /* 超时：缓存保持无效，下次 DID 0x2013 走延迟应答兜底 */
+  if (refresh_start_ms == 0U)
+  {
+    refresh_start_ms = timer_get_tick();
+    return;
+  }
+  /* 帧回调已更新缓存 */
+  if (g_qi_fw_version_valid != 0U)
+  {
+    g_qi_ver_refresh_pending = 0U;
+    refresh_start_ms = 0U;
+    /* 版本已刷新，释放 PB2 */
+    board_iap_hold_power(0U);
+    return;
+  }
+  /* 超时 3 秒 */
+  if ((timer_get_tick() - refresh_start_ms) >= 3000U)
+  {
+    g_qi_ver_refresh_pending = 0U;
+    refresh_start_ms = 0U;
+    /* 缓存保持无效，释放 PB2 */
+    board_iap_hold_power(0U);
+  }
 }
 
 /**
@@ -2600,6 +2624,7 @@ void can_protocol_poll(void)
   /* Qi IAP ACK poll: non-blocking check for Qi chip UART ACK */
   qi_iap_ack_poll();
   qi_ver_query_poll();
+  qi_ver_refresh_poll();
   ota_dl_poll();
 
   /* Qi IAP auto-complete: if all data sent and no ACK within timeout,

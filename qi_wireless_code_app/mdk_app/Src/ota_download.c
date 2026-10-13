@@ -692,18 +692,9 @@ void ota_dl_handle_transfer_exit(uint8_t *data, uint16_t len)
     resp[0] = (uint8_t)(UDS_SID_TRANSFER_EXIT + UDS_POSITIVE_RESPONSE_OFFSET);
     can_proto_send_response(resp, 1);
     (void)can_driver_wait_tx_idle(50U);
-    /* 后台刷版本：等 MCU2 自动上报（PB2 仍供电）。
-     * brood verify 读 DID 0x2013 在此之后，缓存已刷新。 */
+    /* 版本刷新非阻塞：置标志，主循环 qi_ver_refresh_poll 处理。
+     * PB2 保持供电直到版本刷新完成/超时（Qi 芯片需在线发自动上报）。 */
     can_proto_qi_version_refresh();
-    /* 延时 500ms 再释放 PB2 */
-    {
-      uint32_t t0 = timer_get_tick();
-      while ((timer_get_tick() - t0) < 500U)
-      {
-        __NOP();
-      }
-    }
-    board_iap_hold_power(0U);
     return;
   }
 
