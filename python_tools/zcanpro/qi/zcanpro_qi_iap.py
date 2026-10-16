@@ -360,7 +360,7 @@ def _pick_firmware():
         if not os.path.isdir(d):
             continue
         for name in os.listdir(d):
-            if not name.endswith(".bin"):
+            if not name.lower().endswith(".bin"):
                 continue
             low = name.lower()
             # Qi 固件命名模式：qi_fw / mcu2 / qi_app / QI_IAP_Ver / qi_iap
@@ -368,7 +368,7 @@ def _pick_firmware():
                 path = os.path.join(d, name)
                 candidates.append((os.path.getmtime(path), path))
     if not candidates:
-        raise RuntimeError("未找到 Qi 固件（qi_fw*/mcu2*/qi_app*.bin），"
+        raise RuntimeError("未找到 Qi 固件（*.bin/*.BIN），"
                            "请用 --firmware 指定路径")
     candidates.sort(reverse=True)
     path = candidates[0][1]
