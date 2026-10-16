@@ -1,18 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-ZCANPRO 脚本 — 查询 Qi 芯片 IAP 升级状态
+ZCANPRO 脚本 — Qi 芯片状态全量查询（IAP + 充电状态 + 传感器）
 
-读 DID 0x2132（9 字节）：
-  [0]   state:    0x00=空闲, 0x01=升级中, 0x02=成功, 0x03=失败
-  [1]   progress: 0~100 百分比
-  [2-4] version:  3 字节 major.minor.patch
-  [5-6] sent:     uint16 LE, 已传字节数
-  [7-8] total:    uint16 LE, 固件总长
+读取以下 DID 并解码显示：
+  0x2132  IAP 状态（9 字节）: state/progress/版本3B/已发/总长
+  0x2102  充电状态机（uint8）: PING/充电/充满/保护等
+  0x2104  输出功率（uint16 LE, mW）
+  0x2105  输入电压/电流（2×uint8, raw）
+  0x2108  PCB 温度（uint8, ℃）
+  0x2109  FOD 异物检测状态（uint8）
+  0x210B  故障码（uint8）
+  0x210C  热降额等级（uint8, 100%=无降额）
 
 不需要编程会话或安全解锁，任意会话可读。
 
 用法: ZCANPRO → 高级功能 → 扩展脚本 → 打开本文件（默认单次查询）
-      附加 --poll 进入轮询模式（每 1s 一次，直到升级成功/失败）
+      附加 --poll 进入轮询模式（每 1s 一次）
 """
 
 import sys
@@ -34,14 +37,65 @@ SID_PR   = 0x40
 
 NRC_RCRRP = 0x78
 
-DID_QI_IAP_STATUS = 0x2132
+DID_QI_IAP_STATUS  = 0x2132
+DID_CHARGE_STATE   = 0x2102
+DID_OUTPUT_POWER   = 0x2104
+DID_INPUT_VI       = 0x2105
+DID_PCB_TEMP       = 0x2108
+DID_FOD_STATUS     = 0x2109
+DID_FAULT_CODE     = 0x210B
+DID_THERMAL_DERATE = 0x210C
 
 # IAP 状态码
-STATE_NAMES = {
+IAP_STATE_NAMES = {
     0x00: "空闲 (IDLE)",
     0x01: "升级中 (IN_PROGRESS)",
     0x02: "成功 (SUCCESS)",
     0x03: "失败 (FAILED)",
+}
+
+# 充电状态机（DID 0x2102，与 can_protocol.h QI_CHARGE_* 一致）
+CHARGE_STATE_NAMES = {
+    0x00: "关闭 (DISABLED)",
+    0x01: "待机 (STANDBY)",
+    0x02: "设备已检测 (DEVICE_DETECTED)",
+    0x03: "协商中 (NEGOTIATING)",
+    0x04: "充电中 (CHARGING)",
+    0x05: "充满 (COMPLETE)",
+    0x06: "热保护暂停 (SUSPENDED_THERMAL)",
+    0x07: "FOD 暂停 (SUSPENDED_FOD)",
+    0x08: "故障 (FAULT)",
+    0x09: "服务模式 (SERVICE_MODE)",
+    0x0A: "低功耗 (LOW_POWER)",
+}
+
+# 状态字节位定义（qi_protocol.h QI_STATUS_*）
+STATUS_BITS = [
+    (0, "PING(设备放置)"),
+    (1, "CHARGING(充电中)"),
+    (2, "FULL(充满)"),
+    (3, "OVP(过压)"),
+    (4, "UVP(欠压)"),
+    (5, "OCP(过流)"),
+    (6, "OTP(过温)"),
+    (7, "FOD(异物)"),
+]
+
+# 故障码
+FAULT_NAMES = {
+    0x00: "无故障",
+    0x04: "输入过压 (OVP)",
+    0x05: "输入欠压 (UVP)",
+    0x06: "异物检测 (FOD)",
+    0x07: "线圈过温 (OTP)",
+    0x0A: "输入过流 (OCP)",
+}
+
+# FOD 状态
+FOD_NAMES = {
+    0x00: "正常",
+    0x01: "检测中",
+    0x02: "已确认异物",
 }
 
 # 轮询间隔（秒）
@@ -124,72 +178,141 @@ def uds_try(bus_id, sid, payload):
         return None
 
 
-# ======== 主流程 ========
+def _read_did_u8(bus_id, did):
+    """读单字节 DID，失败返回 None"""
+    try:
+        rx = uds_req(bus_id, SID_RDBI, [(did >> 8) & 0xFF, did & 0xFF])
+        return rx[3] if len(rx) > 3 else None
+    except Exception:
+        return None
 
-def read_status(bus_id):
-    """读取一次 DID 0x2132，返回 (state, progress, ver_major, ver_minor, ver_patch, sent, total)"""
+
+def _read_did_u16le(bus_id, did):
+    """读 uint16 LE DID，失败返回 None"""
+    try:
+        rx = uds_req(bus_id, SID_RDBI, [(did >> 8) & 0xFF, did & 0xFF])
+        return (rx[3] | (rx[4] << 8)) if len(rx) > 4 else None
+    except Exception:
+        return None
+
+
+# ======== 解析 ========
+
+def read_iap_status(bus_id):
+    """读 DID 0x2132"""
     rx = uds_req(bus_id, SID_RDBI, [(DID_QI_IAP_STATUS >> 8) & 0xFF, DID_QI_IAP_STATUS & 0xFF])
-
-    # 响应: 62 [DID_H] [DID_L] [9 bytes]
     if len(rx) < 12:
         raise RuntimeError("DID 0x%04X 响应过短: %s" % (DID_QI_IAP_STATUS, _hex(rx)))
+    d = rx[3:]
+    return {
+        "state": d[0], "progress": d[1],
+        "ver": (d[2], d[3], d[4]),
+        "sent": d[5] | (d[6] << 8),
+        "total": d[7] | (d[8] << 8),
+    }
 
-    data = rx[3:]  # 跳过 62 DID_H DID_L
-    state      = data[0]
-    progress   = data[1]
-    ver_major  = data[2]
-    ver_minor  = data[3]
-    ver_patch  = data[4]
-    sent       = data[5] | (data[6] << 8)
-    total      = data[7] | (data[8] << 8)
 
-    return state, progress, ver_major, ver_minor, ver_patch, sent, total
+def decode_charge_state(state_byte):
+    """解码充电状态机 + PING 标识"""
+    name = CHARGE_STATE_NAMES.get(state_byte, "未知(0x%02X)" % state_byte)
+    ping = "有" if state_byte >= 0x02 else "无"
+    return name, ping
+
+
+def read_and_display_charge(bus_id):
+    """读取并显示充电状态 + 传感器数据"""
+    _log("")
+    _log("---- 充电状态 ----")
+
+    charge_state = _read_did_u8(bus_id, DID_CHARGE_STATE)
+    if charge_state is not None:
+        cs_name, ping = decode_charge_state(charge_state)
+        _log("充电状态: %s" % cs_name)
+        _log("PING:     %s设备" % ping)
+    else:
+        _log("充电状态: 读取失败")
+
+    power_mw = _read_did_u16le(bus_id, DID_OUTPUT_POWER)
+    if power_mw is not None:
+        _log("输出功率: %d mW" % power_mw)
+
+    vi = uds_try(bus_id, SID_RDBI, [(DID_INPUT_VI >> 8) & 0xFF, DID_INPUT_VI & 0xFF])
+    if vi and len(vi) > 4:
+        _log("输入电压: %d (raw)" % vi[3])
+        _log("输入电流: %d (raw)" % vi[4])
+
+    temp = _read_did_u8(bus_id, DID_PCB_TEMP)
+    if temp is not None:
+        _log("PCB 温度: %d℃" % temp)
+
+    fod = _read_did_u8(bus_id, DID_FOD_STATUS)
+    if fod is not None:
+        _log("FOD 状态: %s" % FOD_NAMES.get(fod, "0x%02X" % fod))
+
+    fault = _read_did_u8(bus_id, DID_FAULT_CODE)
+    if fault is not None:
+        _log("故障码:   %s" % FAULT_NAMES.get(fault, "0x%02X" % fault))
+
+    thermal = _read_did_u8(bus_id, DID_THERMAL_DERATE)
+    if thermal is not None:
+        _log("热降额:   %d%%" % thermal)
+
+    # 保护位提示（从充电状态推断）
+    if charge_state in (0x06, 0x07, 0x08):
+        _log("⚠ 保护/故障状态激活，检查上方故障码和 FOD")
 
 
 def run_once(bus_id):
-    """单次查询"""
-    _log("======== Qi IAP 状态查询 ========")
+    """单次全量查询"""
+    _log("======== Qi 芯片状态全量查询 ========")
     uds_init()
 
-    state, progress, vmaj, vmin, vpat, sent, total = read_status(bus_id)
+    # IAP 状态
+    _log("---- IAP 状态 ----")
+    iap = read_iap_status(bus_id)
+    state_str = IAP_STATE_NAMES.get(iap["state"], "未知(0x%02X)" % iap["state"])
+    _log("IAP 状态: %s" % state_str)
+    _log("升级进度: %d%%" % iap["progress"])
+    vmaj, vmin, vpat = iap["ver"]
+    _log("Qi 版本:  %d.%d.%d" % (vmaj, vmin, vpat))
+    _log("已发送:   %d / %d 字节" % (iap["sent"], iap["total"]))
+    if iap["total"] > 0:
+        _log("传输比:   %.1f%%" % (iap["sent"] * 100.0 / iap["total"]))
 
-    state_str = STATE_NAMES.get(state, "未知 (0x%02X)" % state)
-    _log("状态:     %s" % state_str)
-    _log("进度:     %d%%" % progress)
-    _log("Qi 版本:  %d.%d.%d (QC_JYF_MCU2_FW_%d.%d.%d)" % (vmaj, vmin, vpat, vmaj, vmin, vpat))
-    _log("已发送:   %d / %d 字节" % (sent, total))
-
-    if total > 0:
-        _log("传输比:   %.1f%%" % (sent * 100.0 / total))
-
-    return state, progress, vmaj, vmin, vpat, sent, total
+    # 充电状态
+    read_and_display_charge(bus_id)
+    _log("======== 查询完成 ========")
 
 
 def run_poll(bus_id):
-    """轮询模式，持续查询直到 state 变为 0x02(成功) 或 0x03(失败)"""
-    _log("======== Qi IAP 状态轮询 (Ctrl+C 停止) ========")
+    """轮询模式"""
+    _log("======== Qi 状态轮询 (Ctrl+C 停止) ========")
     uds_init()
 
     while not stopTask:
         try:
-            state, progress, vmaj, vmin, vpat, sent, total = read_status(bus_id)
+            iap = read_iap_status(bus_id)
+            state_str = IAP_STATE_NAMES.get(iap["state"], "0x%02X" % iap["state"])
+            vmaj, vmin, vpat = iap["ver"]
+            _log("[%s] IAP %d%%  已发 %d/%d  Qi版本 %d.%d.%d" % (
+                state_str, iap["progress"], iap["sent"], iap["total"],
+                vmaj, vmin, vpat))
+
+            cs = _read_did_u8(bus_id, DID_CHARGE_STATE)
+            if cs is not None:
+                cs_name, _ = decode_charge_state(cs)
+                pw = _read_did_u16le(bus_id, DID_OUTPUT_POWER)
+                _log("  充电: %s  功率: %s" % (cs_name, "%dmW" % pw if pw is not None else "?"))
+
+            if iap["state"] == 0x02:
+                _log("升级成功!")
+                return
+            if iap["state"] == 0x03:
+                _log("升级失败!")
+                return
         except Exception as e:
             _log("读取失败: %s" % e)
-            time.sleep(POLL_INTERVAL)
-            continue
 
-        state_str = STATE_NAMES.get(state, "未知 (0x%02X)" % state)
-        _log("[%s] 进度 %d%%  已发 %d/%d  版本 %d.%d.%d" % (
-            state_str, progress, sent, total, vmaj, vmin, vpat))
-
-        if state == 0x02:
-            _log("升级成功!")
-            return
-        if state == 0x03:
-            _log("升级失败!")
-            return
-
-        # 发 TesterPresent 保活
         uds_try(bus_id, SID_TP, [0x00])
         time.sleep(POLL_INTERVAL)
 
@@ -200,8 +323,7 @@ def z_main():
     global stopTask
     stopTask = False
 
-    _log("======== Qi IAP 状态查询工具 ========")
-    _log("DID 0x%04X: state/progress/version/sent/total" % DID_QI_IAP_STATUS)
+    _log("======== Qi 芯片状态查询工具 ========")
 
     buses = zcanpro.get_buses()
     if not buses:
