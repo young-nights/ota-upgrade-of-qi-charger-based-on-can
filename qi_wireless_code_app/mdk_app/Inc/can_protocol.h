@@ -63,7 +63,7 @@ extern "C" {
  *         形式判定。受控调用点：can_protocol.c can_lp_hold_standby /
  *         can_lp_enter_standby 定义与调用点、can_protocol.c 空闲超时判定。
  */
-#define CAN_LP_STANDBY_ENABLE        0
+#define CAN_LP_STANDBY_ENABLE        1
 
 /**
  * @brief  低功耗模式选择（编译期单一开关，仅 CAN_LP_STANDBY_ENABLE=1 时生效）
@@ -72,7 +72,7 @@ extern "C" {
  *             唤醒后芯片自动回 Standby，SPI 恢复可用，再切 Normal。
  *             适用场景：WAKE 引脚恒高（不可用），需要更低功耗。
  */
-#define CAN_LP_LOWPOWER_MODE         0   /* 0=Standby, 1=Sleep */
+#define CAN_LP_LOWPOWER_MODE         1   /* 0=Standby, 1=Sleep */
 
 /* ========================================================================== */
 /*  UDS service identifiers                                                  */

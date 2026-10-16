@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.48";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.49";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -433,6 +433,41 @@ static void can_lp_enter_normal(void)
 #if !defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)
 static void can_lp_hold_standby(void)
 {
+  /* ---- 诊断帧：进低功耗前把 SIT1145 寄存器快照发到总线 ----
+   * CAN ID 0x18FF270D，8B payload:
+   *   [0] 0xE0 标记
+   *   [1] MODE_CONTROL (0x01)     期望 Standby=0x04 / Sleep=0x01
+   *   [2] TRANSCEIVER_EVENT_EN(0x23) 期望 bit0=1 (CWE)
+   *   [3] TRANSCEIVER_EVENT (0x24)
+   *   [4] CAN_CONTROL (0x20)      CMC=[1:0], CPNC=[4], PNCOK=[5]
+   *   [5] TRX_EVENT_STATUS (0x63)
+   *   [6] bit0=g_lp_standby_fail bit1=g_lp_ever_standby
+   *   [7] 0xA5 结束标记
+   * 主机用 zqwl_can_send --no-send 抓包即可看到。 */
+  {
+    uint8_t diag[8];
+    uint8_t mc, ce, ev24, ev63, cctl;
+
+    mc   = sit1145_read_reg(SIT1145_REG_MODE_CONTROL);
+    ce   = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
+    ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+    ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+    cctl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+
+    diag[0] = 0xE0U;
+    diag[1] = mc;
+    diag[2] = ce;
+    diag[3] = ev24;
+    diag[4] = cctl;
+    diag[5] = ev63;
+    diag[6] = (uint8_t)((g_lp_standby_fail != 0U ? 0x01U : 0U) |
+                        (g_lp_ever_standby != 0U ? 0x02U : 0U));
+    diag[7] = 0xA5U;
+    (void)can_driver_send(0x18FF270DU, diag, 8);
+    /* 等发送完成再进 offline，否则帧丢在邮箱里 */
+    (void)can_driver_wait_tx_idle(20U);
+  }
+
   /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
    * clear every wake/event register -> enable wake detection -> switch mode.
    * 1) MCU CAN offline first: no ACK/TX while the transceiver is reconfigured.
@@ -2994,6 +3029,23 @@ void can_protocol_poll(void)
 
       if (allow_wake != 0U)
       {
+        /* ---- 诊断帧：唤醒决策时发 SIT1145 寄存器快照 ----
+         * [0]=0xE1 唤醒快照 [1]=src [2]=ev24 [3]=ev63
+         * [4]=g_lp_wipe_stat [5]=can_wake/rx_low [6]=PA11 [7]=0xA5 */
+        {
+          uint8_t diag[8];
+          diag[0] = 0xE1U;
+          diag[1] = src;
+          diag[2] = ev24;
+          diag[3] = ev63;
+          diag[4] = g_lp_wipe_stat;
+          diag[5] = (uint8_t)((can_wake != 0U ? 0x01U : 0U) |
+                              (rx_low != 0U ? 0x02U : 0U));
+          diag[6] = (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) != RESET)
+                      ? 0x01U : 0x00U;
+          diag[7] = 0xA5U;
+          (void)can_driver_send(0x18FF270DU, diag, 8);
+        }
         if (src == 0U)
         {
           src = 1U;   /* SPI-dead fall-through edge: wakeup_pending said pin */
