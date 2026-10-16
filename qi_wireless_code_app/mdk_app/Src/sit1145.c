@@ -331,7 +331,13 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
   if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) != can_ctrl_val)
   {
-    return 0U;
+    /* SPI readback failed: retry once after 1ms (transient bus glitch) */
+    sit1145_delay_ms(1U);
+    sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
+    if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) != can_ctrl_val)
+    {
+      return 0U;
+    }
   }
 
   /* 4) 进 Sleep（SPI 断开，无法回读） */

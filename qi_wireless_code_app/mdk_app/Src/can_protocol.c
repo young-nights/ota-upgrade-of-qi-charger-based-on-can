@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.55";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.56";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -218,6 +218,7 @@ static uint32_t g_lp_wipe_last_ms = 0U;   /* tick of last clear attempt (throttl
  *  the first poll at inhibit expiry; armed by can_lp_enter_sleep() on every
  *  Sleep entry, consumed in can_protocol_poll() */
 static uint8_t  g_lp_pre_wipe_due = 0U;
+static uint32_t g_charge_gate_since = 0U;  /* charging gate stale timeout */
 
 /** ignore self-wake for a short window after entering Sleep */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
@@ -3054,7 +3055,24 @@ void can_protocol_poll(void)
    * the normal 30s timeout applies unchanged. */
   if ((g_qi_charger_enable != 0U) && (board_hall_open() == 0U))
   {
-    g_uds_last_ms = now;
+    /* Charging gate: refresh idle timer while charging + device present.
+     * Stale timeout: if the gate has been held > 60s without any UDS
+     * traffic, assume the disable write was lost (session timeout /
+     * NRC) and stop blocking Sleep — prevents "sometimes never enters"
+     * when the Hall sensor noise-locks the gate. */
+    if (g_charge_gate_since == 0U)
+    {
+      g_charge_gate_since = now;
+    }
+    else if ((int32_t)(now - g_charge_gate_since) < (int32_t)60000U)
+    {
+      g_uds_last_ms = now;
+    }
+    /* else: gate stale > 60s, fall through to idle timeout */
+  }
+  else
+  {
+    g_charge_gate_since = 0U;  /* gate released, reset stale timer */
   }
   /* 有符号比较（同 g_announce_due_ms 判定风格）：同轮 poll 内 mark_uds（响应发送 /
    * 唤醒 enter_normal）刷新 g_uds_last_ms 后，过期 now 参与无符号减法会下溢成
