@@ -80,7 +80,7 @@ static void lifecycle_send(uint8_t state)
 static uint8_t lifecycle_is_periodic(uint8_t state)
 {
   (void)state;
-  return 0U;  /* periodic broadcast disabled */
+  return 1U;  /* periodic broadcast enabled (1s interval) */
 }
 
 /* ========================================================================== */
