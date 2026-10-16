@@ -34,7 +34,7 @@ extern "C" {
 /* exported constants ------------------------------------------------------ */
 
 #define BOOT_BASE_ADDR          0x08000000U
-#define BOOT_SIZE               0x4000U       /* 16KB bootloader */
+#define BOOT_SIZE               0x3000U       /* 12KB bootloader */
 #define APP_BASE_ADDR           0x08003000U   /* App image region (incl. header) */
 #define APP_SIZE                0xD000U       /* 52KB */
 #define BACKUP_BASE_ADDR        0x08010000U   /* pending-firmware staging region */
