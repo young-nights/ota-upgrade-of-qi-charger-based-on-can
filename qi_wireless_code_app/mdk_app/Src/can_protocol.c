@@ -3077,7 +3077,7 @@ void can_protocol_poll(void)
   /* 有符号比较（同 g_announce_due_ms 判定风格）：同轮 poll 内 mark_uds（响应发送 /
    * 唤醒 enter_normal）刷新 g_uds_last_ms 后，过期 now 参与无符号减法会下溢成
    * 巨大值导致误进 Sleep */
-  else if ((int32_t)(now - g_uds_last_ms) >= (int32_t)CAN_LP_IDLE_TIMEOUT_MS)
+  if ((int32_t)(now - g_uds_last_ms) >= (int32_t)CAN_LP_IDLE_TIMEOUT_MS)
   {
     can_lp_go_sleep();
     return;
