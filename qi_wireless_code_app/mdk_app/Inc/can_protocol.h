@@ -66,13 +66,11 @@ extern "C" {
 #define CAN_LP_STANDBY_ENABLE        1
 
 /**
- * @brief  低功耗模式选择（编译期单一开关，仅 CAN_LP_STANDBY_ENABLE=1 时生效）
- * @note   0 = Standby 模式（默认）：SPI 可用，PA11/寄存器三层唤醒检测
- *         1 = Sleep 模式：SPI 关闭，CAN 唤醒（CWE），PA11/RXD 电平检测唤醒
- *             唤醒后芯片自动回 Standby，SPI 恢复可用，再切 Normal。
- *             适用场景：WAKE 引脚恒高（不可用），需要更低功耗。
+ * @brief  低功耗模式：Sleep（唯一模式，2026-10-16 起 Standby 路径已移除）
+ * @note   SIT1145 进 Sleep：SPI 关闭，CAN 唤醒（CWE），PA11/RXD 电平检测唤醒。
+ *         唤醒后芯片自动回 Standby，SPI 恢复可用，再切 Normal。
+ *         CAN_LP_STANDBY_ENABLE=1 时生效。
  */
-#define CAN_LP_LOWPOWER_MODE         1   /* 0=Standby, 1=Sleep */
 
 /* ========================================================================== */
 /*  UDS service identifiers                                                  */

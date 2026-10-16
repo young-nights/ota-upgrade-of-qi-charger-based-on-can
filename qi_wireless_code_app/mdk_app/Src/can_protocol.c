@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.50";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.51";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -424,11 +424,11 @@ static void can_lp_enter_normal(void)
   }
 }
 
-/* Standby 进入函数：受 CAN_LP_STANDBY_ENABLE 总开关控制（can_protocol.h）。
- * =1（含未定义，生产语义）：仅空闲超时进 Standby，上电即 Normal；
- * =0：空闲停机整段不编译，源码完整保留，唤醒/恢复路径不受影响。
+/* 低功耗进入函数：受 CAN_LP_STANDBY_ENABLE 总开关控制（can_protocol.h）。
+ * =1（含未定义，生产语义）：空闲超时进 Sleep（sit1145_sleep_enter）；
+ * =0：空闲停机整段不编译，唤醒/恢复路径不受影响。
  *
- * CAN_LP_LOWPOWER_MODE=1 时改走 Sleep 模式（sit1145_sleep_enter）：
+ * Sleep 模式（唯一，2026-10-16 起 Standby 路径已移除）：
  * SPI 断开，CAN 唤醒（CWE），PA11 电平检测唤醒。 */
 #if !defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)
 static void can_lp_hold_standby(void)
@@ -436,7 +436,7 @@ static void can_lp_hold_standby(void)
   /* ---- 诊断帧：进低功耗前把 SIT1145 寄存器快照发到总线 ----
    * CAN ID 0x18FF270D，8B payload:
    *   [0] 0xE0 标记
-   *   [1] MODE_CONTROL (0x01)     期望 Standby=0x04 / Sleep=0x01
+   *   [1] MODE_CONTROL (0x01)     期望 Sleep=0x01
    *   [2] TRANSCEIVER_EVENT_EN(0x23) 期望 bit0=1 (CWE)
    *   [3] TRANSCEIVER_EVENT (0x24)
    *   [4] CAN_CONTROL (0x20)      CMC=[1:0], CPNC=[4], PNCOK=[5]
@@ -482,74 +482,17 @@ static void can_lp_hold_standby(void)
    *    Normal would drive the bus dominant. */
   can_driver_offline();
 
-#if defined(CAN_LP_LOWPOWER_MODE) && (CAN_LP_LOWPOWER_MODE == 1)
-  /* ---- Sleep 模式路径 ----
+  /* ---- Sleep 模式 ----
    * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control → 进 Sleep。
    * SPI 随 Sleep 断开，后续唤醒检测只看 PA11 电平（RXD 被 SIT1145 在
-   * 唤醒事件期间强制拉低）。CAN 引脚切换到 Standby 配置（TXD 不驱动）。 */
+   * 唤醒事件期间强制拉低）。CAN 引脚切换到 Standby 配置（TXD 不驱动）。
+   * 唤醒后 SIT1145 自动回 Standby，SPI 恢复可用，再切 Normal。 */
   if (sit1145_sleep_enter() == 0U)
   {
-    /* 进 Sleep 前 CAN Control 回读失败：退化到 Standby */
+    /* 进 Sleep 前 CAN Control 回读失败：置 sticky 标志（DID 0x2119 bit2） */
     g_lp_standby_fail = 1U;
   }
   can_driver_pins_standby();
-#else
-  /* ---- Standby 模式路径（默认）---- */
-  {
-    uint32_t t0;
-
-  /* 2) Full event wipe BEFORE enabling wake / switching mode. The old code
-   *    only cleared 0x24 CW/WUF and 0x63 CW, and only after the mode switch;
-   *    a residual 0x64 WAKE-pin event (never cleared anywhere, incl. init)
-   *    keeps RXD forced low for the whole wake period, so the first poll
-   *    after the 100 ms inhibit saw PA11 low and self-woke immediately. */
-  sit1145_wakeup_clear();
-
-  /* 3) Enable standard CAN wake (CWE @0x23) only after the flags are clean */
-  sit1145_wake_enable();
-
-  /* 4) Switch to Standby: write + readback inside sit1145_set_mode. On
-   *    failure retry once after 1 ms (same pattern as the old init step 10).
-   *    Two failures still continue teardown (transceiver state unknown, but
-   *    the MCU side must go offline) and raise the sticky flag
-   *    g_lp_standby_fail, observable via DID 0x2119 flags bit2. */
-  if (sit1145_standby_mode_set() == 0U)
-  {
-    t0 = timer_get_tick();
-    while ((timer_get_tick() - t0) < 1U) { __NOP(); }
-    if (sit1145_standby_mode_set() == 0U)
-    {
-      g_lp_standby_fail = 1U;
-    }
-  }
-
-  /* 5) Pin switch after mode change (TXD must not be GPIO in Normal) */
-  can_driver_pins_standby();
-
-  /* 6) Settle + final event wipe: the mode/pin transition above can latch
-   *    CW asynchronously while the transceiver settles, AFTER a single
-   *    immediate clear — bench 1.1.4 (round-2, 6 rounds 3PASS/3FAIL,
-   *    FAIL@SB+124~141ms src=1 ev63=0x01 zero frames) is consistent with a
-   *    latch landing in that window. Round-3 nets:
-   *      6a) wipe whatever the transition already latched;
-   *      6b) bounded <=5ms settle/release wait (returns immediately when
-   *          RXD is already released — the clean common case, adds no
-   *          entry latency there);
-   *      6c) second wipe covering anything latched during the wait.
-   *    A latch still surviving 6c is caught by the one-shot unconditional
-   *    wipe at inhibit expiry (g_lp_pre_wipe_due in can_protocol_poll). */
-  sit1145_wakeup_clear();
-  t0 = timer_get_tick();
-  while ((timer_get_tick() - t0) < 5U)
-  {
-    if (gpio_input_data_bit_read(GPIOA, GPIO_PINS_11) != RESET)
-    {
-      break;
-    }
-  }
-  sit1145_wakeup_clear();
-  } /* end Standby t0 scope */
-#endif /* CAN_LP_LOWPOWER_MODE */
 
   g_can_awake = 0U;
   g_standby_since_ms = timer_get_tick();
