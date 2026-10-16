@@ -73,6 +73,9 @@ dkms.conf
 # OTA auto-generated packed images
 python_tools/app bin/*.bin
 
+# Production merge output (bootloader+app merged bin)
+python_tools/burn bin/
+
 # Keil IDE project files (auto-generated, machine-specific)
 *.uvoptx
 *.uvguix.*
