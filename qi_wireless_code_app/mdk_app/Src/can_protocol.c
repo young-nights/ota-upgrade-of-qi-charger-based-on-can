@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.49";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.50";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -443,10 +443,12 @@ static void can_lp_hold_standby(void)
    *   [5] TRX_EVENT_STATUS (0x63)
    *   [6] bit0=g_lp_standby_fail bit1=g_lp_ever_standby
    *   [7] 0xA5 结束标记
-   * 主机用 zqwl_can_send --no-send 抓包即可看到。 */
+   * 发送用 handle 确认（同 can_lp_tx_marker），防止 wait_tx_idle
+   * 提前返回导致帧丢在邮箱被 offline 截断。 */
   {
     uint8_t diag[8];
     uint8_t mc, ce, ev24, ev63, cctl;
+    uint8_t handle;
 
     mc   = sit1145_read_reg(SIT1145_REG_MODE_CONTROL);
     ce   = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
@@ -463,9 +465,14 @@ static void can_lp_hold_standby(void)
     diag[6] = (uint8_t)((g_lp_standby_fail != 0U ? 0x01U : 0U) |
                         (g_lp_ever_standby != 0U ? 0x02U : 0U));
     diag[7] = 0xA5U;
-    (void)can_driver_send(0x18FF270DU, diag, 8);
-    /* 等发送完成再进 offline，否则帧丢在邮箱里 */
-    (void)can_driver_wait_tx_idle(20U);
+    if (can_driver_send(0x18FF270DU, diag, 8) == 0)
+    {
+      uint8_t handle;
+      if (can_driver_last_tx_handle(&handle) == 0)
+      {
+        (void)can_driver_wait_tx_frame(handle, 20U);
+      }
+    }
   }
 
   /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
