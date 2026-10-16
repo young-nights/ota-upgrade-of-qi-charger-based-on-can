@@ -63,7 +63,7 @@ extern "C" {
  *         形式判定。受控调用点：can_protocol.c can_lp_hold_standby /
  *         can_lp_enter_standby 定义与调用点、can_protocol.c 空闲超时判定。
  */
-#define CAN_LP_STANDBY_ENABLE        1
+#define CAN_LP_STANDBY_ENABLE        0
 
 /**
  * @brief  低功耗模式选择（编译期单一开关，仅 CAN_LP_STANDBY_ENABLE=1 时生效）
