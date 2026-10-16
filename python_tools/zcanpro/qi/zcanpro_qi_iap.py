@@ -32,7 +32,7 @@ except ImportError:
 
 # ======== 常量 ========
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(os.path.dirname(TOOLS_DIR))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(TOOLS_DIR)))
 
 UDS_REQ_ID  = 0x18DA0D03
 UDS_RESP_ID = 0x18DA030D
