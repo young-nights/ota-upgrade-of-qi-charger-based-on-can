@@ -1310,7 +1310,7 @@ def wake_bus(bus_id, listen_s=2.0):
     所以唤醒帧必须连发、且发完要等固件收敛再探测。
 
     步骤：
-    1. 连发 3 帧 3E 80（suppress，间隔 200ms）打破静默；
+    1. 连发 3 帧 3E 00（间隔 200ms）打破静默；
     2. 释放 UDS 通道后原始收帧监听 1~2s（zcanpro_read_app_version.py
        验证过：UDS 占用时 raw receive 不可靠，先 uds_deinit）；
     3. 收到 0x18FF260D 上的 01 41 57 4B 唤醒标识帧 = 唤醒成功，返回 True；
@@ -1318,7 +1318,7 @@ def wake_bus(bus_id, listen_s=2.0):
     if stopTask:
         raise RuntimeError("用户停止脚本")
     for _ in range(3):
-        uds_try(bus_id, SID_TP, [0x80], suppress=1)
+        uds_try(bus_id, SID_TP, [0x00], suppress=1)
         time.sleep(0.2)
     try:
         zcanpro.uds_deinit()
@@ -1347,7 +1347,7 @@ def probe_in_app(bus_id, retries=PROBE_ROUNDS):
     不要用 0x34 探测：APP 已实现下载，默认会话回 0x22；且 Standby 下首帧
     只当 WUP，3s 超时后 ident 早已发出，再去听 0x18FF260D 会漏。
     无应答时：① raw 取证探测 Boot safe mode 标记帧（命中→SafeModeError，
-    报错带 fail_step 语义，不再笼统"无应答"）；② 连发 3E 80 再立刻重试
+    报错带 fail_step 语义，不再笼统"无应答"）；② 连发 3E 00 再立刻重试
     2113（MCU 此时应已 Normal）；③ 全部轮次失败后 wake_bus + 生命周期帧
     监听再判一次（禁止纯裸探循环），唤醒后再探。"""
     for attempt in range(1, retries + 1):
@@ -1367,7 +1367,7 @@ def probe_in_app(bus_id, retries=PROBE_ROUNDS):
                 raise SafeModeError(sm_step)
             if attempt < retries:
                 for _ in range(3):
-                    uds_try(bus_id, SID_TP, [0x80], suppress=1)
+                    uds_try(bus_id, SID_TP, [0x00], suppress=1)
                     time.sleep(0.15)
                 time.sleep(0.4)
     # 全部轮次无应答：唤醒 + 生命周期帧监听后再判（Standby 首帧只当 WUP）

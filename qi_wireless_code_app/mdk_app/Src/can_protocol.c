@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.46";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.47";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2869,6 +2869,7 @@ void can_protocol_poll(void)
       else if (rx_low != 0U)
       {
         uint8_t flag_now = 0U;
+        uint8_t src_orig;
 
         /* RXD low, healthy SPI — phantom suspect (flag set: r6-type) or
          * round-2 stale pin-low (no flag). Never wake on the level alone.
@@ -2879,6 +2880,8 @@ void can_protocol_poll(void)
         g_lp_wipe_stat |= WIPE_STAT_VALID;
         g_lp_wipe_ev24  = ev24;
         g_lp_wipe_ev63  = ev63;
+        /* save pre-clear wake source: ev24/ev63 are overwritten below */
+        src_orig = ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U) ? 2U : 3U;
         if (can_wake != 0U)
         {
           g_lp_wipe_stat |= WIPE_STAT_FLAG_PRESENT;
@@ -2970,8 +2973,22 @@ void can_protocol_poll(void)
           allow_wake = 0U;
           g_lp_wipe_stat |= WIPE_STAT_BLOCKED;
         }
-        /* else: RXD released and silent after the clear — phantom
-         * consumed, fall through with allow_wake=0 and keep sleeping */
+        else if ((can_wake != 0U) && (g_lp_pre_wipe_due == 0U))
+        {
+          /* CW flag was present at the initial check and pre-wipe has
+           * already run (entry-transition phantom window closed). The
+           * clear consumed the flag and RXD released, but the original
+           * CW latch IS the real-wake evidence — SIT1145 only sets CW
+           * on an actual ISO 11898-2 WUP pattern. The 5ms re-latch
+           * window above expects CAN auto-retransmit, but host one-shot
+           * 3E 00 bursts (200ms gaps) never re-latch that fast. Trust
+           * the initial flag and wake. */
+          allow_wake = 1U;
+          src = src_orig;
+        }
+        /* else: RXD released and silent after the clear, and no CW was
+         * present at the initial check — stale pin only, phantom
+         * consumed, keep sleeping */
       }
       /* else: flags clean + RXD released — normal quiet standby, sleep */
 

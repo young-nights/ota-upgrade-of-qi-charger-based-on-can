@@ -9,7 +9,7 @@ ZCANPRO 脚本 — 读取 APP 侧版本号 DID 0xF195 / 0xF180 / 0xF193
   本脚本期望值必须与固件编译常量一致。
 
 流程：
-  1. SIT1145 Standby 唤醒（2026-10-01）：raw 连发 3 帧 02 3E 80
+  1. SIT1145 Standby 唤醒（2026-10-01）：raw 连发 3 帧 02 3E 00
      （suppress，200ms 间隔）打破 Standby → _uds_init() → 嗅探
      0x18FF260D 上的 AWK 帧(01 41 57 4B)作唤醒证据（1.5s，超时不拦截）
      → TesterPresent 0x3E 00 最多连发 8 次（覆盖 Boot→App CAN 黑窗）
@@ -27,7 +27,7 @@ ZCANPRO 脚本 — 读取 APP 侧版本号 DID 0xF195 / 0xF180 / 0xF193
   - TX 静默失败：transmit/send 用返回值报错而非抛异常，can_send 现检查
     返回值（1/True=成功，0/False/负=失败；None/未知类型放行），失败落
     具体错误日志并换下一种发送形式重试；每次发送打 发送方式+返回值 日志。
-  - Standby 唤醒不足：wake_mcu 先 raw 连发 3 帧 3E 80 打破 SIT1145
+  - Standby 唤醒不足：wake_mcu 先 raw 连发 3 帧 3E 00 打破 SIT1145
     Standby（首帧被 WUP 吃掉后 UDS 层不重发的问题），再 init + 3E 00×8。
   - 预期版本：QC_JYF_MCU1_FW_1.1.1 → QC_JYF_MCU1_FW_1.1.2（固件已升 1.1.2）。
 
@@ -428,19 +428,19 @@ def _sniff_wk_evidence(bus_id, seconds=1.5):
 
 def wake_mcu(bus_id):
     """唤醒链（2026-10-01）：
-    1. raw 连发 3 帧 02 3E 80（suppress，200ms 间隔）打破 SIT1145
+    1. raw 连发 3 帧 02 3E 00（suppress，200ms 间隔）打破 SIT1145
        Standby——旧实现只靠 uds 3E 00，首帧被 WUP 吃掉后 UDS 层不重发，
        ECU 醒了也没人再问（参考 zcanpro_ext_ota_auto.wake_bus）；
     2. _uds_init() 开接收通路，嗅探 AWK 帧作唤醒证据（1.5s，不拦截）；
     3. uds 3E 00 等 7E，最多重试 8 次（OTA-ARCH-0920-D3/P0，覆盖
        Boot→App CAN 黑窗最坏 ~5s；每次 UDS 超时 2s + 间隔 0.5s ≈ 20s）。"""
-    # 1) raw 3E 80 burst 打破 Standby
+    # 1) raw 3E 00 burst 打破 Standby
     for i in range(1, 4):
         if stopTask:
             raise RuntimeError("用户停止")
         try:
-            can_send(bus_id, UDS_REQ_ID, [0x02, 0x3E, 0x80])
-            _log("[Tx raw] 02 3E 80 (%d/3, 打破 Standby)" % i)
+            can_send(bus_id, UDS_REQ_ID, [0x02, 0x3E, 0x00])
+            _log("[Tx raw] 02 3E 00 (%d/3, 打破 Standby)" % i)
         except Exception as e:
             _log("Standby 唤醒帧 %d/3 发送失败: %s" % (i, e))
         time.sleep(0.2)
@@ -483,7 +483,7 @@ def run(bus_id):
     _log("zcanpro API: " + ", ".join(names))
     _log("")
 
-    # 唤醒链：raw 3E 80 burst → _uds_init() → AWK 嗅探 → 3E 00×8
+    # 唤醒链：raw 3E 00 burst → _uds_init() → AWK 嗅探 → 3E 00×8
     # （init 移入 wake_mcu；V1.0.0：必须 uds_init，ZLG 才会开接收）
     online = wake_mcu(bus_id)
     if online:

@@ -549,7 +549,7 @@ def charge_state_name(state):
 #     62 21 13 后字节为 0xFE（boot_safe_mode.c:155），而非“正响应”本身；
 #   - 无应答 ≠ 不在 APP：SIT1145 空闲 180s（CAN_LP_IDLE_TIMEOUT_MS）进
 #     Standby，首帧只当 ISO 11898-2 WUP 被消耗，MCU 收不到内容。先唤醒
-#     burst（3E 80 suppress ×3 + 0.2s）×3，再释放 UDS 通道 raw 监听生命
+#     burst（3E 00 ×3 + 0.2s）×3，再释放 UDS 通道 raw 监听生命
 #     周期帧（0x18FF260D）：AWK 01 41 57 4B / BOOTUP 01 41 00 = APP 已启动
 #     正证据；ABT 01 41 42 54 cause step A5 00（500ms）= Boot safe mode。
 #   实现与 python_tools/zcanpro_ext_ota_auto.py wake_bus/probe_in_app 同构。
@@ -562,7 +562,7 @@ SAFE_MODE_RESP_ID   = UDS_RESP_ID               # 0x18DA030D
 SAFE_MODE_MARKER    = (0x62, 0x21, 0x13, 0xFE)  # Boot safe mode 应答标记（不含 ISO-TP PCI）
 DID_ACTIVE_SLOT     = 0x2113
 PROBE_ROUNDS        = 3
-WAKE_BURST_ROUNDS   = 3      # （3E 80 ×3 + 0.2s）×3
+WAKE_BURST_ROUNDS   = 3      # （3E 00 ×3 + 0.2s）×3
 WAKE_BURST_COUNT    = 3
 WAKE_BURST_GAP_S    = 0.2
 LIFE_LISTEN_S       = 2.0
@@ -703,7 +703,7 @@ def _listen_lifecycle(bus_id, listen_s=LIFE_LISTEN_S):
 
 
 def wake_bus(bus_id, listen_s=LIFE_LISTEN_S):
-    """Standby 唤醒收敛：（3E 80 suppress ×3 + 0.2s）×3 后释放 UDS 通道
+    """Standby 唤醒收敛：（3E 00 ×3 + 0.2s）×3 后释放 UDS 通道
     监听生命周期帧。返回 (证据列表, 全部收帧)。证据 (类型,data)：
     AWK/BOOTUP=APP 启动正证据；ABT=Boot safe mode 正证据（500ms 心跳，
     无需再发 UDS 探测）。"""
@@ -711,7 +711,7 @@ def wake_bus(bus_id, listen_s=LIFE_LISTEN_S):
         raise RuntimeError("用户停止脚本")
     for _b in range(WAKE_BURST_ROUNDS):
         for _i in range(WAKE_BURST_COUNT):
-            uds_try(bus_id, SID_TP, [0x80], suppress=1)
+            uds_try(bus_id, SID_TP, [0x00], suppress=1)
             time.sleep(WAKE_BURST_GAP_S)
     return _listen_lifecycle(bus_id, listen_s=listen_s)
 
@@ -792,7 +792,7 @@ def probe_location(bus_id):
             _log("0x34 未识别应答（仅取证，不参与定位）: %s" % _hex(detail))
             forensics.append(("round%d 0x34" % attempt, detail))
         # 本轮两探皆无应答 → 唤醒收敛 + 生命周期监听（Standby 首帧只当 WUP）
-        _log("两探无应答 → 唤醒 burst（3E 80 ×%d + %.1fs）×%d + 生命周期监听 %.1fs"
+        _log("两探无应答 → 唤醒 burst（3E 00 ×%d + %.1fs）×%d + 生命周期监听 %.1fs"
              % (WAKE_BURST_COUNT, WAKE_BURST_GAP_S, WAKE_BURST_ROUNDS, LIFE_LISTEN_S))
         found, all_frames = wake_bus(bus_id)
         forensics.append(("round%d listen %.1fs" % (attempt, LIFE_LISTEN_S), all_frames))
@@ -815,7 +815,7 @@ def probe_location(bus_id):
         return ("APP", "生命周期帧 [%s] %s 正证据：APP 已启动"
                 "（UDS 探测无应答，链路/会话异常；后续 UDS 步骤若失败请检查链路）"
                 % (lt.upper(), _hex(dat[:8])))
-    _log("探测取证：共 %d 轮，每轮唤醒 burst（3E 80 ×%d + %.1fs）×%d + 监听 %.1fs；"
+    _log("探测取证：共 %d 轮，每轮唤醒 burst（3E 00 ×%d + %.1fs）×%d + 监听 %.1fs；"
          "UDS 探测与生命周期帧均无证据"
          % (PROBE_ROUNDS, WAKE_BURST_COUNT, WAKE_BURST_GAP_S,
             WAKE_BURST_ROUNDS, LIFE_LISTEN_S))
