@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.52";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.53";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -167,19 +167,19 @@ static uint8_t  g_qi_last_fault_detail[4] = {0U};  /*!< DID 0x2110, 4-byte fault
 /* Qi persistent config (loaded from NVM at init) */
 static uint16_t g_qi_power_limit_mw   = 1500U;  /*!< DID 0x210D, 1500 mW = 15W default */
 
-/** @brief  SIT1145 Normal + CAN online. Power-on is Normal (idle 30 s → Standby). */
+/** @brief  SIT1145 Normal + CAN online. Power-on is Normal (idle 30 s → Sleep). */
 static uint8_t  g_can_awake = 0;
 static uint8_t  g_need_lifecycle_announce = 0;
 static uint32_t g_uds_last_ms = 0;
-static uint32_t g_standby_since_ms = 0;
+static uint32_t g_sleep_since_ms = 0;
 static uint32_t g_announce_due_ms = 0;
-static uint8_t  g_lp_ever_standby = 0;
+static uint8_t  g_lp_ever_sleep = 0;
 static uint8_t  g_lp_wup_count = 0;
-static uint8_t  g_lp_woke_from_standby = 0;
+static uint8_t  g_lp_woke_from_sleep = 0;
 static uint8_t  g_lp_last_wake_src = 0;
-static uint16_t g_lp_last_standby_sec = 0;
-/** sticky：can_lp_hold_standby 两次 standby_mode_set 失败置 1（DID 0x2119 flags bit2） */
-static uint8_t  g_lp_standby_fail = 0;
+static uint16_t g_lp_last_sleep_sec = 0;
+/** sticky：can_lp_enter_sleep 两次 standby_mode_set 失败置 1（DID 0x2119 flags bit2） */
+static uint8_t  g_lp_sleep_fail = 0;
 /** 上电（trial/非 trial 同路径）推迟到 __enable_irq() 之后再 enter_normal：
  *  harvest/wait_cts 依赖 SysTick；init 统一置 1 */
 static uint8_t  g_lp_need_online = 0;
@@ -197,7 +197,7 @@ static uint8_t  g_lp_need_online = 0;
  * pre-wipe latch / wipe-stuck / post-wipe relatch / clear+release outcomes.
  * Bit positions 0x01/0x02/0x08/0x10/0x20/0x80 keep round-2 meanings;
  * 0x04 (was STUCK) and 0x40 (was RELEASED) are repurposed. Reset per
- * Standby entry.
+ * Sleep entry.
  * ------------------------------------------------------------------------ */
 #define WIPE_STAT_VALID        0x01U  /* a diagnostic record exists */
 #define WIPE_STAT_FLAG_PRESENT 0x02U  /* CAN flag at a pin-low check (round-3 always clears it, never skip-clears) */
@@ -210,14 +210,14 @@ static uint8_t  g_lp_need_online = 0;
 static uint8_t  g_lp_wipe_ev24 = 0xFFU;   /* 0x24 TRANSCEIVER_EVENT snapshot */
 static uint8_t  g_lp_wipe_ev63 = 0xFFU;   /* 0x63 TRX_EVENT_STATUS snapshot */
 static uint8_t  g_lp_wipe_stat = 0U;      /* WIPE_STAT_* bit set */
-static uint8_t  g_lp_wipe_attempts = 0U;  /* clear+wait attempts this Standby (sat., includes one-shot wipe) */
+static uint8_t  g_lp_wipe_attempts = 0U;  /* clear+wait attempts this sleep entry (sat., includes one-shot wipe) */
 static uint32_t g_lp_wipe_last_ms = 0U;   /* tick of last clear attempt (throttle) */
 /** round-3: one-shot unconditional event wipe (0x24/0x63/0x64/0x61) runs on
- *  the first poll at inhibit expiry; armed by can_lp_hold_standby() on every
- *  Standby entry, consumed in can_protocol_poll() */
+ *  the first poll at inhibit expiry; armed by can_lp_enter_sleep() on every
+ *  Sleep entry, consumed in can_protocol_poll() */
 static uint8_t  g_lp_pre_wipe_due = 0U;
 
-/** ignore self-wake for a short window after entering Standby */
+/** ignore self-wake for a short window after entering Sleep */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
 /** min interval between stale-pin clear+wait attempts while RXD is stuck:
  *  the tight main loop would otherwise re-run the <=5ms busy-wait every
@@ -228,9 +228,9 @@ static uint8_t  g_lp_pre_wipe_due = 0U;
 /** after CAN online, spin-poll RX so host hardware retransmit of 10 01 can be ACKed */
 #define CAN_LP_RX_HARVEST_MS      30U
 
-/** 30 s with no UDS RX/TX → SIT1145 Standby (ISO 11898-2 WUP can wake)
- *  受 CAN_LP_STANDBY_ENABLE 总开关控制（can_protocol.h）：
- *  =1（含未定义，生产语义）：上电即 Normal，仅空闲超时进 Standby；
+/** 30 s with no UDS RX/TX → SIT1145 Sleep (ISO 11898-2 WUP can wake)
+ *  受 CAN_LP_SLEEP_ENABLE 总开关控制（can_protocol.h）：
+ *  =1（含未定义，生产语义）：上电即 Normal，仅空闲超时进 Sleep；
  *  =0：空闲停机整段不编译 */
 #define CAN_LP_IDLE_TIMEOUT_MS  (30UL * 1000UL)
 
@@ -249,7 +249,7 @@ static uint8_t g_lp_ident_sent;
  *         reads IDLE/TRANSMITTED from the previous frame and wait_tx_idle
  *         returns instantly. The caller then takes the CAN offline before
  *         the frame ever reaches the bus (root cause of the missing SB
- *         marker on Standby entry).
+ *         marker on Sleep entry).
  * @retval 1 = frame enqueued and confirmed transmitted, 0 = send rejected
  *         or completion wait failed/aborted
  */
@@ -286,12 +286,12 @@ static uint8_t can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
 /** 识别帧打到 0x18FF260D。harvest 结束只能走这条，避免抢在 50 01 前面占 UDS ID */
 static void can_lp_send_ident_bus(void)
 {
-  if (g_lp_woke_from_standby != 0U)
+  if (g_lp_woke_from_sleep != 0U)
   {
     can_lp_tx_marker(LIFECYCLE_BOOTUP, 0x57U, 0x4BU, g_lp_wup_count,
                      g_lp_last_wake_src,
-                     (uint8_t)(g_lp_last_standby_sec & 0xFFU),
-                     (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU));
+                     (uint8_t)(g_lp_last_sleep_sec & 0xFFU),
+                     (uint8_t)((g_lp_last_sleep_sec >> 8) & 0xFFU));
   }
   else
   {
@@ -313,7 +313,7 @@ static void can_lp_send_ident(void)
     uds[i] = 0xCCU;
   }
 
-  if (g_lp_woke_from_standby != 0U)
+  if (g_lp_woke_from_sleep != 0U)
   {
     uds[0] = 0x07U;
     uds[1] = LIFECYCLE_BOOTUP;
@@ -322,7 +322,7 @@ static void can_lp_send_ident(void)
     uds[4] = 0x4BU;
     uds[5] = g_lp_wup_count;
     uds[6] = g_lp_last_wake_src;
-    uds[7] = (uint8_t)(g_lp_last_standby_sec & 0xFFU);
+    uds[7] = (uint8_t)(g_lp_last_sleep_sec & 0xFFU);
   }
   else
   {
@@ -350,23 +350,23 @@ static void can_lp_enter_normal(void)
   }
 
   now = timer_get_tick();
-  if (g_lp_ever_standby != 0U)
+  if (g_lp_ever_sleep != 0U)
   {
-    dur_sec = (now - g_standby_since_ms) / 1000U;
+    dur_sec = (now - g_sleep_since_ms) / 1000U;
     if (dur_sec > 0xFFFFU)
     {
       dur_sec = 0xFFFFU;
     }
-    g_lp_last_standby_sec = (uint16_t)dur_sec;
+    g_lp_last_sleep_sec = (uint16_t)dur_sec;
     if (g_lp_wup_count < 0xFFU)
     {
       g_lp_wup_count++;
     }
-    g_lp_woke_from_standby = 1U;
+    g_lp_woke_from_sleep = 1U;
   }
   else
   {
-    g_lp_woke_from_standby = 0U;
+    g_lp_woke_from_sleep = 0U;
   }
 
   /* TXD 必须先回到 CAN AF，再切 Normal */
@@ -405,10 +405,10 @@ static void can_lp_enter_normal(void)
   g_need_lifecycle_announce = 1U;
   g_announce_due_ms = timer_get_tick() + CAN_LP_ANNOUNCE_DELAY_MS;
 
-  /* Standby 下第一帧只当 WUP，MCU 收不到。主机 CAN 控制器会无 ACK 重发，
+  /* Sleep 下第一帧只当 WUP，MCU 收不到。主机 CAN 控制器会无 ACK 重发，
    * 这里空转收 RX，赶在重发窗口内 ACK 并回 50 01；quiet 期内禁止 BOOTUP。
    * trial 上电不是 WUP，且 SysTick 未跑时 harvest 会死等，跳过。 */
-  if (g_lp_ever_standby != 0U)
+  if (g_lp_ever_sleep != 0U)
   {
     t0 = timer_get_tick();
     while ((timer_get_tick() - t0) < CAN_LP_RX_HARVEST_MS)
@@ -424,14 +424,14 @@ static void can_lp_enter_normal(void)
   }
 }
 
-/* 低功耗进入函数：受 CAN_LP_STANDBY_ENABLE 总开关控制（can_protocol.h）。
+/* 低功耗进入函数：受 CAN_LP_SLEEP_ENABLE 总开关控制（can_protocol.h）。
  * =1（含未定义，生产语义）：空闲超时进 Sleep（sit1145_sleep_enter）；
  * =0：空闲停机整段不编译，唤醒/恢复路径不受影响。
  *
  * Sleep 模式（唯一，2026-10-16 起 Standby 路径已移除）：
  * SPI 断开，CAN 唤醒（CWE），PA11 电平检测唤醒。 */
-#if !defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)
-static void can_lp_hold_standby(void)
+#if !defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)
+static void can_lp_enter_sleep(void)
 {
   /* ---- 诊断帧：进低功耗前把 SIT1145 寄存器快照发到总线 ----
    * CAN ID 0x18FF270D，8B payload:
@@ -441,7 +441,7 @@ static void can_lp_hold_standby(void)
    *   [3] TRANSCEIVER_EVENT (0x24)
    *   [4] CAN_CONTROL (0x20)      CMC=[1:0], CPNC=[4], PNCOK=[5]
    *   [5] TRX_EVENT_STATUS (0x63)
-   *   [6] bit0=g_lp_standby_fail bit1=g_lp_ever_standby
+   *   [6] bit0=g_lp_sleep_fail bit1=g_lp_ever_sleep
    *   [7] 0xA5 结束标记
    * 发送用 handle 确认（同 can_lp_tx_marker），防止 wait_tx_idle
    * 提前返回导致帧丢在邮箱被 offline 截断。 */
@@ -461,8 +461,8 @@ static void can_lp_hold_standby(void)
     diag[3] = ev24;
     diag[4] = cctl;
     diag[5] = ev63;
-    diag[6] = (uint8_t)((g_lp_standby_fail != 0U ? 0x01U : 0U) |
-                        (g_lp_ever_standby != 0U ? 0x02U : 0U));
+    diag[6] = (uint8_t)((g_lp_sleep_fail != 0U ? 0x01U : 0U) |
+                        (g_lp_ever_sleep != 0U ? 0x02U : 0U));
     diag[7] = 0xA5U;
     if (can_driver_send(0x18FF270DU, diag, 8) == 0)
     {
@@ -484,19 +484,19 @@ static void can_lp_hold_standby(void)
   /* ---- Sleep 模式 ----
    * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control → 进 Sleep。
    * SPI 随 Sleep 断开，后续唤醒检测只看 PA11 电平（RXD 被 SIT1145 在
-   * 唤醒事件期间强制拉低）。CAN 引脚切换到 Standby 配置（TXD 不驱动）。
-   * 唤醒后 SIT1145 自动回 Standby，SPI 恢复可用，再切 Normal。 */
+   * 唤醒事件期间强制拉低）。CAN 引脚切换到低功耗配置（TXD 不驱动）。
+   * 唤醒后 SIT1145 自动回 Standby（芯片硬件行为），SPI 恢复可用，再切 Normal。 */
   if (sit1145_sleep_enter() == 0U)
   {
     /* 进 Sleep 前 CAN Control 回读失败：置 sticky 标志（DID 0x2119 bit2） */
-    g_lp_standby_fail = 1U;
+    g_lp_sleep_fail = 1U;
   }
-  can_driver_pins_standby();
+  can_driver_pins_sleep();
 
   g_can_awake = 0U;
-  g_standby_since_ms = timer_get_tick();
-  g_lp_ever_standby = 1U;
-  /* reset round-3 wipe diagnostics for this Standby entry */
+  g_sleep_since_ms = timer_get_tick();
+  g_lp_ever_sleep = 1U;
+  /* reset round-3 wipe diagnostics for this Sleep entry */
   g_lp_wipe_ev24 = 0xFFU;
   g_lp_wipe_ev63 = 0xFFU;
   g_lp_wipe_stat = 0U;
@@ -505,7 +505,7 @@ static void can_lp_hold_standby(void)
   g_lp_pre_wipe_due = 1U;
 }
 
-static void can_lp_enter_standby(void)
+static void can_lp_go_sleep(void)
 {
   if (g_can_awake != 0U)
   {
@@ -522,9 +522,9 @@ static void can_lp_enter_standby(void)
                              g_lp_wup_count, 0U, 0U, 0U);
     }
   }
-  can_lp_hold_standby();
+  can_lp_enter_sleep();
 }
-#endif /* CAN_LP_STANDBY_ENABLE */
+#endif /* CAN_LP_SLEEP_ENABLE */
 
 /* ========================================================================== */
 /*  Private helper functions                                                 */
@@ -1253,14 +1253,14 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 1U;
       return 0;
     case DID_SIT1145_LP_STATUS:
-      /* [0] bit0=ever_standby bit1=last_wake_was_wup bit2=standby_fail(sticky)
-       * [1] wup_count  [2-3] last_standby_sec LE */
-      out[0] = (uint8_t)((g_lp_ever_standby != 0U) | ((g_lp_woke_from_standby != 0U) << 1) |
-                         ((g_lp_standby_fail != 0U) << 2) |
+      /* [0] bit0=ever_sleep bit1=last_wake_was_wup bit2=sleep_fail(sticky)
+       * [1] wup_count  [2-3] last_sleep_sec LE */
+      out[0] = (uint8_t)((g_lp_ever_sleep != 0U) | ((g_lp_woke_from_sleep != 0U) << 1) |
+                         ((g_lp_sleep_fail != 0U) << 2) |
                          ((g_lp_last_wake_src & 0x0FU) << 4));
       out[1] = g_lp_wup_count;
-      out[2] = (uint8_t)(g_lp_last_standby_sec & 0xFFU);
-      out[3] = (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU);
+      out[2] = (uint8_t)(g_lp_last_sleep_sec & 0xFFU);
+      out[3] = (uint8_t)((g_lp_last_sleep_sec >> 8) & 0xFFU);
       *olen = 4U;
       return 0;
     case DID_SIT1145_LP_WIPE_DIAG:
@@ -1283,7 +1283,7 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
        *         (was round-2 RELEASED) | bit7 snapshot at wake decision
        *     PA11 itself: flags are read first, PA11 second (round-3), so no
        *     stat bit implies PA11 low; PA11 at wake time = WK src byte
-       * [3] clear+wait attempt count this Standby (saturating, includes
+       * [3] clear+wait attempt count this Sleep (saturating, includes
        *     the one-shot unconditional wipe) */
       out[0] = g_lp_wipe_ev24;
       out[1] = g_lp_wipe_ev63;
@@ -2504,7 +2504,7 @@ void can_protocol_init(void)
   /* load persistent Qi config from NVM (nvm_drv_init already called in main) */
   qi_nvm_load_config();
 
-  /* 上电即 Normal，空闲 CAN_LP_IDLE_TIMEOUT_MS（UDS 无收发）后进 Standby。
+  /* 上电即 Normal，空闲 CAN_LP_IDLE_TIMEOUT_MS（UDS 无收发）后进 Sleep。
    * trial 与非 trial 同路径置 g_lp_need_online，由首次 can_protocol_poll
    * 延时 can_lp_enter_normal（SysTick 已就绪；harvest / sit1145_wait_cts /
    * wait_tx_idle 都看 timer_get_tick）完成 sit1145_normal_mode_set +
@@ -2711,7 +2711,7 @@ void can_protocol_poll(void)
 
   if (g_can_awake == 0U)
   {
-    if ((now - g_standby_since_ms) >= CAN_LP_WAKE_INHIBIT_MS)
+    if ((now - g_sleep_since_ms) >= CAN_LP_WAKE_INHIBIT_MS)
     {
       uint8_t src = 0U;
       uint8_t allow_wake = 0U;
@@ -2756,7 +2756,7 @@ void can_protocol_poll(void)
        *         dead SPI must never swallow a bus wake) — the ONLY remaining
        *         path where the raw pin decides, kept byte-identical to
        *         round-2 (SPI-dead + pin low => src=1 wake).
-       * Direction (d) raw-RX sniff rejected: in Standby the SIT1145 RXD
+       * Direction (d) raw-RX sniff rejected: in Sleep the SIT1145 RXD
        * carries wake-event levels, not frame data — sniffing frames requires
        * the transceiver in Normal, which already means we committed to the
        * wake; delaying WK by 1-5ms would also eat TC-S003's verified
@@ -2974,7 +2974,7 @@ void can_protocol_poll(void)
          * present at the initial check — stale pin only, phantom
          * consumed, keep sleeping */
       }
-      /* else: flags clean + RXD released — normal quiet standby, sleep */
+      /* else: flags clean + RXD released — normal quiet, sleep */
 
       if (allow_wake != 0U)
       {
@@ -3014,13 +3014,13 @@ void can_protocol_poll(void)
       ((int32_t)(now - g_announce_due_ms) >= 0))
   {
     g_need_lifecycle_announce = 0U;
-    if (g_lp_woke_from_standby != 0U)
+    if (g_lp_woke_from_sleep != 0U)
     {
       /* 01 41 57 4B cnt src secL secH — 与上电 BOOTUP 01 41 00 区分 */
       can_lp_tx_marker(LIFECYCLE_BOOTUP, 0x57U, 0x4BU, g_lp_wup_count,
                        g_lp_last_wake_src,
-                       (uint8_t)(g_lp_last_standby_sec & 0xFFU),
-                       (uint8_t)((g_lp_last_standby_sec >> 8) & 0xFFU));
+                       (uint8_t)(g_lp_last_sleep_sec & 0xFFU),
+                       (uint8_t)((g_lp_last_sleep_sec >> 8) & 0xFFU));
     }
     else
     {
@@ -3056,8 +3056,8 @@ void can_protocol_poll(void)
     }
   }
 
-#if (!defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)) && (CAN_LP_IDLE_TIMEOUT_MS > 0U)
-  /* No Standby while charging: judge straight from the Hall sensor chain
+#if (!defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)) && (CAN_LP_IDLE_TIMEOUT_MS > 0U)
+  /* No Sleep while charging: judge straight from the Hall sensor chain
    * (g_qi_charger_enable from DID 0x2101 + board_hall_open() on PA0) - the
    * exact condition board_charge_poll() uses to drive the charge switch,
    * so it never depends on Qi-chip state reporting (g_qi_charge_state via
@@ -3070,10 +3070,10 @@ void can_protocol_poll(void)
   }
   /* 有符号比较（同 g_announce_due_ms 判定风格）：同轮 poll 内 mark_uds（响应发送 /
    * 唤醒 enter_normal）刷新 g_uds_last_ms 后，过期 now 参与无符号减法会下溢成
-   * 巨大值导致误进 Standby */
+   * 巨大值导致误进 Sleep */
   else if ((int32_t)(now - g_uds_last_ms) >= (int32_t)CAN_LP_IDLE_TIMEOUT_MS)
   {
-    can_lp_enter_standby();
+    can_lp_go_sleep();
     return;
   }
 #endif

@@ -471,17 +471,6 @@ uint8_t sit1145_read_reg(uint8_t addr);
 uint8_t sit1145_normal_mode_set(void);
 
 /**
- * @brief  切换到 Standby 模式
- * @note   Standby 模式：低功耗监听状态。
- *         - CAN 总线被动（不发送帧）
- *         - SPI 接口仍可访问（可读写寄存器）
- *         - 收发器监听 CAN 总线，检测到 WUP 模式后置位 CW 标志
- *         - RXD 引脚在唤醒事件期间被强制拉低
- * @retval 1 成功，0 失败
- */
-uint8_t sit1145_standby_mode_set(void);
-
-/**
  * @brief  切换到 Sleep 模式
  * @note   Sleep 模式：最低功耗。
  *         ⚠️ SPI 接口在 Sleep 模式下完全不可用！

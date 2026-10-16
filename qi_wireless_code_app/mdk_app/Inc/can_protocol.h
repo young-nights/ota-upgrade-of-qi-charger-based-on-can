@@ -46,30 +46,30 @@ extern "C" {
 #define CAN_ID_LIFECYCLE_BROADCAST   0x18FF260DU
 
 /* ========================================================================== */
-/*  CAN low-power (Standby) compile switch                                    */
+/*  CAN low-power (Sleep) compile switch                                    */
 /* ========================================================================== */
 
 /**
- * @brief  SIT1145 Standby 进入总开关（编译期单一开关）
- * @note   =1：空闲 CAN_LP_IDLE_TIMEOUT_MS（UDS 无收发）后进 Standby；
- *             上电即 Normal，sit1145_init() 不进 Standby，由首次
+ * @brief  SIT1145 Sleep 进入总开关（编译期单一开关）
+ * @note   =1：空闲 CAN_LP_IDLE_TIMEOUT_MS（UDS 无收发）后进 Sleep；
+ *             上电即 Normal，sit1145_init() 不进 Sleep，由首次
  *             can_protocol_poll 的 can_lp_enter_normal 完成
  *             sit1145_normal_mode_set + can_driver_online。
- *         =0：空闲停机整段不编译（can_lp_hold_standby / can_lp_enter_standby
+ *         =0：空闲停机整段不编译（can_lp_enter_sleep / can_lp_go_sleep
  *             定义与空闲超时判定），CAN 常在线；唤醒/恢复代码仍编译，无入口触发。
- *         未定义时默认=启用空闲超时进 Standby（生产语义，防误配）；
+ *         未定义时默认=启用空闲超时进 Sleep（生产语义，防误配）；
  *         各调用点统一用
- *         #if !defined(CAN_LP_STANDBY_ENABLE) || (CAN_LP_STANDBY_ENABLE != 0U)
- *         形式判定。受控调用点：can_protocol.c can_lp_hold_standby /
- *         can_lp_enter_standby 定义与调用点、can_protocol.c 空闲超时判定。
+ *         #if !defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)
+ *         形式判定。受控调用点：can_protocol.c can_lp_enter_sleep /
+ *         can_lp_go_sleep 定义与调用点、can_protocol.c 空闲超时判定。
  */
-#define CAN_LP_STANDBY_ENABLE        1
+#define CAN_LP_SLEEP_ENABLE        1
 
 /**
  * @brief  低功耗模式：Sleep（唯一模式，2026-10-16 起 Standby 路径已移除）
  * @note   SIT1145 进 Sleep：SPI 关闭，CAN 唤醒（CWE），PA11/RXD 电平检测唤醒。
- *         唤醒后芯片自动回 Standby，SPI 恢复可用，再切 Normal。
- *         CAN_LP_STANDBY_ENABLE=1 时生效。
+ *         唤醒后芯片自动回 Standby（芯片硬件行为），SPI 恢复可用，再切 Normal。
+ *         CAN_LP_SLEEP_ENABLE=1 时生效。
  */
 
 /* ========================================================================== */
@@ -159,7 +159,7 @@ extern "C" {
 #define DID_POWER_LIMIT             0x210DU   /*!< power limit, uint16 mW, R/W+NVM (500/1000/1500) */
 #define DID_LAST_FAULT_DETAIL       0x2110U   /*!< last fault detail, 4B */
 #define DID_CLAMP_STATE             0x2118U   /*!< PA0 hall: 0=closed, 1=open */
-#define DID_SIT1145_LP_STATUS       0x2119U   /*!< SIT1145 LP: flags, wup_cnt, last_standby_sec */
+#define DID_SIT1145_LP_STATUS       0x2119U   /*!< SIT1145 LP: flags, wup_cnt, last_sleep_sec */
 #define DID_SIT1145_LP_WIPE_DIAG    0x211AU   /*!< SIT1145 LP round-2 wipe diagnostics: ev24/ev63/stat/attempts (4B, SF) */
 #define DID_ECDSA_PUBKEY            0x2120U   /*!< ECDSA P-256 public key, 65-byte SEC1 */
 #define DID_QI_IAP_STATUS           0x2132U   /*!< Qi IAP 状态（读）：state/progress/版本/已发/总长 */

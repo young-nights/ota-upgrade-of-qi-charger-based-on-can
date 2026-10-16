@@ -281,21 +281,6 @@ uint8_t sit1145_normal_mode_set(void)
 }
 
 /**
- * @brief  切换 SIT1145 到 Standby 模式
- * @note   Standby 模式特点：
- *         - 低功耗监听状态
- *         - CAN 总线被动（不发送帧）
- *         - SPI 接口仍可访问（可读写寄存器）
- *         - 收发器监听 CAN 总线，检测到 ISO 11898-2 WUP 模式后
- *           置位 CW 标志并强制 RXD(PA11) 拉低
- * @retval 1=成功，0=失败
- */
-uint8_t sit1145_standby_mode_set(void)
-{
-  return sit1145_set_mode(SIT1145_MC_STANDBY_MODE);
-}
-
-/**
  * @brief  切换 SIT1145 到 Sleep 模式
  * @note   Sleep 模式特点：
  *         - 最低功耗

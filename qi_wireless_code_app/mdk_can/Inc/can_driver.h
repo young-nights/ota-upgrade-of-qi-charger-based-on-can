@@ -208,7 +208,7 @@ void can_driver_pins_active(void);
 /**
  * @brief  PA12 GPIO out low, PA11 GPIO in pull-up (SIT1145 Standby WUP listen)
  */
-void can_driver_pins_standby(void);
+void can_driver_pins_sleep(void);
 
 #ifdef __cplusplus
 }
