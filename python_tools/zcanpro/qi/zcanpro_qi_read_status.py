@@ -2,12 +2,12 @@
 """
 ZCANPRO 脚本 — 查询 Qi 芯片 IAP 升级状态
 
-读 DID 0x2132（8 字节）：
-  [0] state:    0x00=空闲, 0x01=升级中, 0x02=成功, 0x03=失败
-  [1] progress: 0~100 百分比
-  [2-3] version: uint16 LE, Qi 芯片版本
-  [4-5] sent:   uint16 LE, 已传字节数
-  [6-7] total:  uint16 LE, 固件总长
+读 DID 0x2132（9 字节）：
+  [0]   state:    0x00=空闲, 0x01=升级中, 0x02=成功, 0x03=失败
+  [1]   progress: 0~100 百分比
+  [2-4] version:  3 字节 major.minor.patch
+  [5-6] sent:     uint16 LE, 已传字节数
+  [7-8] total:    uint16 LE, 固件总长
 
 不需要编程会话或安全解锁，任意会话可读。
 
@@ -127,21 +127,23 @@ def uds_try(bus_id, sid, payload):
 # ======== 主流程 ========
 
 def read_status(bus_id):
-    """读取一次 DID 0x2132，返回 (state, progress, version, sent, total)"""
+    """读取一次 DID 0x2132，返回 (state, progress, ver_major, ver_minor, ver_patch, sent, total)"""
     rx = uds_req(bus_id, SID_RDBI, [(DID_QI_IAP_STATUS >> 8) & 0xFF, DID_QI_IAP_STATUS & 0xFF])
 
-    # 响应: 62 [DID_H] [DID_L] [8 bytes]
-    if len(rx) < 5:
+    # 响应: 62 [DID_H] [DID_L] [9 bytes]
+    if len(rx) < 12:
         raise RuntimeError("DID 0x%04X 响应过短: %s" % (DID_QI_IAP_STATUS, _hex(rx)))
 
     data = rx[3:]  # 跳过 62 DID_H DID_L
-    state    = data[0] if len(data) > 0 else 0xFF
-    progress = data[1] if len(data) > 1 else 0
-    version  = (data[2] | (data[3] << 8)) if len(data) > 3 else 0
-    sent     = (data[4] | (data[5] << 8)) if len(data) > 5 else 0
-    total    = (data[6] | (data[7] << 8)) if len(data) > 7 else 0
+    state      = data[0]
+    progress   = data[1]
+    ver_major  = data[2]
+    ver_minor  = data[3]
+    ver_patch  = data[4]
+    sent       = data[5] | (data[6] << 8)
+    total      = data[7] | (data[8] << 8)
 
-    return state, progress, version, sent, total
+    return state, progress, ver_major, ver_minor, ver_patch, sent, total
 
 
 def run_once(bus_id):
@@ -149,20 +151,18 @@ def run_once(bus_id):
     _log("======== Qi IAP 状态查询 ========")
     uds_init()
 
-    state, progress, version, sent, total = read_status(bus_id)
+    state, progress, vmaj, vmin, vpat, sent, total = read_status(bus_id)
 
     state_str = STATE_NAMES.get(state, "未知 (0x%02X)" % state)
     _log("状态:     %s" % state_str)
     _log("进度:     %d%%" % progress)
-    # 版本渲染与固件 0x2013 一致：整数 X 直接拼 "QC_JYF_MCU2_FW_1.1.X"
-    # （can_protocol.c qi_ver_send_full_response），不是 BCD 拆 nibble
-    _log("Qi 版本:  0x%04X (QC_JYF_MCU2_FW_1.1.%d)" % (version, version))
+    _log("Qi 版本:  %d.%d.%d (QC_JYF_MCU2_FW_%d.%d.%d)" % (vmaj, vmin, vpat, vmaj, vmin, vpat))
     _log("已发送:   %d / %d 字节" % (sent, total))
 
     if total > 0:
         _log("传输比:   %.1f%%" % (sent * 100.0 / total))
 
-    return state, progress, version, sent, total
+    return state, progress, vmaj, vmin, vpat, sent, total
 
 
 def run_poll(bus_id):
@@ -172,15 +172,15 @@ def run_poll(bus_id):
 
     while not stopTask:
         try:
-            state, progress, version, sent, total = read_status(bus_id)
+            state, progress, vmaj, vmin, vpat, sent, total = read_status(bus_id)
         except Exception as e:
             _log("读取失败: %s" % e)
             time.sleep(POLL_INTERVAL)
             continue
 
         state_str = STATE_NAMES.get(state, "未知 (0x%02X)" % state)
-        _log("[%s] 进度 %d%%  已发 %d/%d  版本 0x%04X" % (
-            state_str, progress, sent, total, version))
+        _log("[%s] 进度 %d%%  已发 %d/%d  版本 %d.%d.%d" % (
+            state_str, progress, sent, total, vmaj, vmin, vpat))
 
         if state == 0x02:
             _log("升级成功!")

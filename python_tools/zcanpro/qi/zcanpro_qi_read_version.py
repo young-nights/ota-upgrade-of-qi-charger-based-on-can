@@ -2,8 +2,8 @@
 """
 ZCANPRO 脚本 — 读取 Qi 芯片固件版本
 
-读 DID 0x2133（uint16 LE），来自 UART 0x01 上报缓存。
-未收到上报时为 0x0000。
+读 DID 0x2133（3 字节 major.minor.patch），来自 UART 0x01 上报缓存。
+未收到上报时为 0.0.0。
 
 不需要编程会话或安全解锁，任意会话可读。
 
@@ -108,19 +108,19 @@ def run(bus_id):
 
     rx = uds_req(bus_id, SID_RDBI, [(DID_QI_FW_VERSION >> 8) & 0xFF, DID_QI_FW_VERSION & 0xFF])
 
-    # 响应: 62 [DID_H] [DID_L] [ver_lo] [ver_hi]
-    if len(rx) < 5:
+    # 响应: 62 [DID_H] [DID_L] [major] [minor] [patch]
+    if len(rx) < 6:
         raise RuntimeError("DID 0x%04X 响应过短: %s" % (DID_QI_FW_VERSION, _hex(rx)))
 
-    ver_lo = rx[3]
-    ver_hi = rx[4]
-    version = ver_lo | (ver_hi << 8)
+    major = rx[3]
+    minor = rx[4]
+    patch = rx[5]
 
-    _log("DID 0x%04X = %04X" % (DID_QI_FW_VERSION, version))
-    # 渲染与固件 0x2013 一致：整数 X 拼 "QC_JYF_MCU2_FW_1.1.X"，非 BCD 拆分
-    _log("Qi 芯片固件版本: QC_JYF_MCU2_FW_1.1.%d (raw 0x%04X)" % (version, version))
+    _log("DID 0x%04X = %d.%d.%d (raw %02X %02X %02X)"
+         % (DID_QI_FW_VERSION, major, minor, patch, major, minor, patch))
+    _log("Qi 芯片固件版本: QC_JYF_MCU2_FW_%d.%d.%d" % (major, minor, patch))
 
-    if version == 0x0000:
+    if major == 0 and minor == 0 and patch == 0:
         _log("提示: 版本为 0，MCU 尚未收到 Qi 芯片 UART 0x01 上报")
 
 

@@ -506,13 +506,13 @@ class QiFrameParser(object):
         """状态上报解码（docs/4 §2.1/2.2/2.3）：
         content = 01 st1 st2 pw(2) ver(2) [SEQ]"""
         st1, st2 = content[1], content[2]
-        # 实时功率/版本号均为 uint16 LE（固件解析 data[2-3]/data[4-5] 同为 LE）
+        # 实时功率 uint16 LE；版本 3 字节 major.minor.patch（帧偏移 8-10）
         pw = content[3] | (content[4] << 8)
-        ver = content[5] | (content[6] << 8)
+        vmaj, vmin, vpat = content[5], content[6], content[7]
         bits = [name for b, name in STATUS1_BITS if (st1 >> b) & 1]
         _log("        状态1=0x%02X[%s] 状态2=0x%02X(充电次数低8=%d) "
-             "实时功率=0x%04X Qi版本=0x%04X"
-             % (st1, ",".join(bits) if bits else "无", st2, st2, pw, ver))
+             "实时功率=0x%04X Qi版本=%d.%d.%d"
+             % (st1, ",".join(bits) if bits else "无", st2, st2, pw, vmaj, vmin, vpat))
 
 
 # ======== 模式 A：--listen ========

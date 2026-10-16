@@ -466,16 +466,21 @@ def run_qi_iap(bus_id):
         rx = uds_req(bus_id, SID_RDBI, [0x21, 0x32])
         state = rx[3] if len(rx) > 3 else 0xFF
         prog = rx[4] if len(rx) > 4 else 0
+        vmaj = rx[5] if len(rx) > 5 else 0
+        vmin = rx[6] if len(rx) > 6 else 0
+        vpat = rx[7] if len(rx) > 7 else 0
         state_cn = {0x00: "Idle", 0x01: "In Progress", 0x02: "Success",
                     0x03: "Failed", 0x04: "Wait ACK"}.get(state, "0x%02X" % state)
-        _log("IAP 状态: %s (progress=%d%%)" % (state_cn, prog))
+        _log("IAP 状态: %s (progress=%d%%) Qi版本=%d.%d.%d" % (state_cn, prog, vmaj, vmin, vpat))
     except Exception as e:
         _log("IAP 状态读取失败: %s" % e)
 
     try:
         rx = uds_req(bus_id, SID_RDBI, [0x21, 0x33])
-        ver = (rx[4] << 8) | rx[3] if len(rx) >= 5 else 0
-        _log("Qi 固件版本: 0x%04X (%d)" % (ver, ver))
+        vmaj = rx[3] if len(rx) > 3 else 0
+        vmin = rx[4] if len(rx) > 4 else 0
+        vpat = rx[5] if len(rx) > 5 else 0
+        _log("Qi 固件版本: %d.%d.%d" % (vmaj, vmin, vpat))
     except Exception as e:
         _log("Qi 版本读取失败: %s" % e)
 
