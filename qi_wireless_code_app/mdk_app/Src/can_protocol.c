@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.54";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.55";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -114,7 +114,7 @@ static uint8_t  g_sa_sig_block_seq        = 0;
 #define QI_VER_STR_PREFIX          "QC_JYF_MCU2_FW_"
 #define QI_VER_STR_PREFIX_LEN      15U
 #define QI_VER_DIGITS_MAX          3U    /* 每段十进制最多 3 位 (0~255) */
-#define QI_VER_STR_LEN_MAX         23U   /* 15B 前缀 + 3+1+3+1+3 = 23 */
+#define QI_VER_STR_LEN_MAX         26U   /* 15B 前缀 + 最长 "255.255.255" 11B */
 
 /* 编译期自检：前缀恰 15 字节、串上限 = 前缀 + "xxx.xxx.xxx" */
 typedef char qi_ver_str_len_ok[(sizeof(QI_VER_STR_PREFIX) - 1U == QI_VER_STR_PREFIX_LEN)
