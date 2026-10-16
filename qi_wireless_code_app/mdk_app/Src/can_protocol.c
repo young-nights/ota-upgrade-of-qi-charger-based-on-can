@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.53";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.54";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -106,19 +106,19 @@ static uint8_t  g_sa_sig_block_seq        = 0;
 #define QI_VER_PROBE_POWERUP_MS    200U   /*!< 上电版本探测：Qi 芯片启动等待 */
 #define QI_VER_PROBE_LISTEN_MS    1000U   /*!< 上电版本探测：被动监听 CMD 0x01 超时 */
 
-/* DID 0x2013 应答版本串：固定前缀 "QC_JYF_MCU2_FW_1.1."（19B）+
- * Qi 版本号十进制数字（1~5B）。Qi 读回版本为整数（0~任意值，2B LE
- * 上限 65535），X 直接用该整数的十进制数字替换（例：读回 3 →
- * "QC_JYF_MCU2_FW_1.1.3"；读回 12 → "QC_JYF_MCU2_FW_1.1.12"）。
+/* DID 0x2013 应答版本串：固定前缀 "QC_JYF_MCU2_FW_"（15B）+
+ * Qi 版本号三段十进制 "x.x.x"（3~8B）。Qi 读回版本为 3 字节
+ * major.minor.patch（帧偏移 8-10），格式化为 "x.x.x"
+ * （例：读回 01 02 01 → "QC_JYF_MCU2_FW_1.2.1"）。
  * 拼接用 memcpy+单字节赋值，勿 sprintf。 */
-#define QI_VER_STR_PREFIX          "QC_JYF_MCU2_FW_1.1."
-#define QI_VER_STR_PREFIX_LEN      19U
-#define QI_VER_DIGITS_MAX          5U    /* uint16 十进制最多 5 位 */
-#define QI_VER_STR_LEN_MAX         24U   /* 19B 前缀 + 5B 数字 */
+#define QI_VER_STR_PREFIX          "QC_JYF_MCU2_FW_"
+#define QI_VER_STR_PREFIX_LEN      15U
+#define QI_VER_DIGITS_MAX          3U    /* 每段十进制最多 3 位 (0~255) */
+#define QI_VER_STR_LEN_MAX         23U   /* 15B 前缀 + 3+1+3+1+3 = 23 */
 
-/* 编译期自检：前缀恰 19 字节、串上限 = 前缀 + 5 位数字（改前缀/宏时当场报错） */
+/* 编译期自检：前缀恰 15 字节、串上限 = 前缀 + "xxx.xxx.xxx" */
 typedef char qi_ver_str_len_ok[(sizeof(QI_VER_STR_PREFIX) - 1U == QI_VER_STR_PREFIX_LEN)
-                            && (QI_VER_STR_PREFIX_LEN + QI_VER_DIGITS_MAX == QI_VER_STR_LEN_MAX) ? 1 : -1];
+                            && (QI_VER_STR_PREFIX_LEN + 11U == QI_VER_STR_LEN_MAX) ? 1 : -1];
 
 static uint32_t g_qi_iap_last_tx_ms = 0U;
 
@@ -126,7 +126,9 @@ static uint8_t  g_qi_iap_state    = QI_IAP_IDLE;
 static uint8_t  g_qi_iap_progress = 0U;
 static uint16_t g_qi_iap_total    = 0U;
 static uint16_t g_qi_iap_sent     = 0U;
-static uint16_t g_qi_fw_version       = 0U; /*!< Qi 版本缓存（整数 0~65535）：DID 0x2133/0x2132 读出源（2B LE 原样）；0x2013 主动问询路径存完整整数值，用于拼完整版本串。由 0x01 上报解析或 0x2013 问询回复更新。版本 0 为合法值，有效性判据用 g_qi_fw_version_valid（原「!=0 判有效」取舍废弃） */
+static uint8_t  g_qi_ver_major         = 0U; /*!< Qi 版本 major（帧偏移 8） */
+static uint8_t  g_qi_ver_minor         = 0U; /*!< Qi 版本 minor（帧偏移 9） */
+static uint8_t  g_qi_ver_patch         = 0U; /*!< Qi 版本 patch（帧偏移 10） */
 static uint8_t  g_qi_fw_version_valid = 0U; /*!< 版本缓存有效标志：0=无缓存（超时兜底回 NRC 0x22），1=已缓存（含版本 0） */
 
 /** @brief  deferred UDS response while waiting for Qi chip ACK */
@@ -587,111 +589,96 @@ static void proto_send_nrc(uint8_t service_id, uint8_t nrc)
 }
 
 /**
- * @brief  Qi 版本回复数据 → 整数版本值（稳健化）
- * @note   Qi 版本号语义为整数（0~任意值，2B LE 上限 65535），非个位数。
- *         兼容两种载荷形态：
- *         1) ASCII 十进制数字串（如 "12"）：全字节为 '0'~'9' 时按十进制
- *            解析（溢出饱和到 65535）；
- *         2) 大端整数：实测 Qi 芯片版本字段高位在前（2026-10-10 修正 LE→BE）；
- *            1B 退化为该字节数值。
+ * @brief  Qi 版本回复数据 → major.minor.patch 三字节（稳健化）
+ * @note   Qi 版本号为 3 字节 major.minor.patch（帧偏移 8-10），
+ *         例：01 02 01 → 1.2.1。兼容 2 字节（高位=minor，低位=patch，
+ *         major=0）与 3 字节格式。
  * @param  data: 回复数据指针
- * @param  len:  数据字节数
- * @retval 版本整数值 0~65535（len==0 或空指针返回 0）
+ * @param  len:  数据字节数（≥3 取前 3 字节，2 取 2 字节，1 取 1 字节）
+ * @param  major: [out] major
+ * @param  minor: [out] minor
+ * @param  patch: [out] patch
  */
-static uint16_t qi_ver_parse_value(const uint8_t *data, uint8_t len)
+static void qi_ver_parse_xyz(const uint8_t *data, uint8_t len,
+                             uint8_t *major, uint8_t *minor, uint8_t *patch)
 {
-  uint8_t  i;
-  uint8_t  all_ascii = 1U;
-  uint32_t v = 0U;
-
+  *major = 0U;
+  *minor = 0U;
+  *patch = 0U;
   if ((data == (const uint8_t *)0) || (len == 0U))
   {
-    return 0U;
+    return;
   }
-  for (i = 0U; i < len; i++)
+  if (len >= 3U)
   {
-    if ((data[i] < (uint8_t)'0') || (data[i] > (uint8_t)'9'))
-    {
-      all_ascii = 0U;
-      break;
-    }
+    *major = data[0];
+    *minor = data[1];
+    *patch = data[2];
   }
-  if (all_ascii != 0U)
+  else if (len == 2U)
   {
-    for (i = 0U; i < len; i++)
-    {
-      v = (v * 10U) + (uint32_t)(data[i] - (uint8_t)'0');
-      if (v > 0xFFFFU)
-      {
-        return 0xFFFFU;                 /* 饱和：规格 2B，超出按上限 */
-      }
-    }
-    return (uint16_t)v;
-  }
-  /* 大端整数（实测 Qi 芯片版本字段高位在前，2026-10-10 修正 LE→BE） */
-  v = (uint32_t)((uint32_t)data[0] << 8);
-  if (len >= 2U)
-  {
-    v |= (uint32_t)data[1];
+    *minor = data[0];
+    *patch = data[1];
   }
   else
   {
-    v = (uint32_t)data[0];               /* 单字节：直接取值 */
+    *patch = data[0];
   }
-  return (uint16_t)v;
 }
 
 /**
- * @brief  整数版本值 → 十进制数字串（逆序回填，勿 sprintf）
- * @param  ver: 版本整数值 0~65535
- * @param  out: 输出缓冲（至少 QI_VER_DIGITS_MAX 字节），高位在前
- * @retval 数字位数 1~5
+ * @brief  major.minor.patch → "x.x.x" 十进制串（勿 sprintf）
+ * @param  major/minor/patch: 版本三段值 0~255
+ * @param  out: 输出缓冲（至少 11 字节），格式 "xxx.xxx.xxx"
+ * @retval 输出字符串长度
  */
-static uint8_t qi_ver_format_digits(uint16_t ver, char *out)
+static uint8_t qi_ver_format_xyz(uint8_t major, uint8_t minor,
+                                 uint8_t patch, char *out)
 {
-  char    tmp[QI_VER_DIGITS_MAX];
   uint8_t n = 0U;
-  uint8_t i;
+  char    tmp[QI_VER_DIGITS_MAX];
+  uint8_t t, i;
 
-  do
-  {
-    tmp[n] = (char)('0' + (char)(ver % 10U));
-    ver    = (uint16_t)(ver / 10U);
-    n++;
-  } while ((ver != 0U) && (n < QI_VER_DIGITS_MAX));
-
-  for (i = 0U; i < n; i++)
-  {
-    out[i] = tmp[(uint8_t)(n - 1U - i)];
-  }
+  /* major */
+  t = 0U;
+  { uint8_t v = major; do { tmp[t] = (char)('0' + (v % 10U)); v /= 10U; t++; } while (v && t < QI_VER_DIGITS_MAX); }
+  for (i = 0U; i < t; i++) out[n++] = tmp[t - 1U - i];
+  out[n++] = '.';
+  /* minor */
+  t = 0U;
+  { uint8_t v = minor; do { tmp[t] = (char)('0' + (v % 10U)); v /= 10U; t++; } while (v && t < QI_VER_DIGITS_MAX); }
+  for (i = 0U; i < t; i++) out[n++] = tmp[t - 1U - i];
+  out[n++] = '.';
+  /* patch */
+  t = 0U;
+  { uint8_t v = patch; do { tmp[t] = (char)('0' + (v % 10U)); v /= 10U; t++; } while (v && t < QI_VER_DIGITS_MAX); }
+  for (i = 0U; i < t; i++) out[n++] = tmp[t - 1U - i];
   return n;
 }
 
 /**
- * @brief  发 DID 0x2013 完整正响应：62 20 13 + ASCII "QC_JYF_MCU2_FW_1.1.X"
- * @note   X 为 Qi 版本整数的十进制数字（1~5B），响应 3+19+1~5 = 23~27B > 7，
- *         proto_send_response 自动走 g_tx_pend 多帧延迟路径
- *         （can_protocol_poll 末尾 proto_flush_pending_tx 泵出，27 服务
- *         34 字节 seed/key 同机制）。严禁在帧回调里直接 isotp_tx_send
- *         多帧（FC 会卡死，见 proto_send_response 注释）。
- * @param  ver: Qi 版本整数值 0~65535
+ * @brief  发 DID 0x2013 完整正响应：62 20 13 + ASCII "QC_JYF_MCU2_FW_x.x.x"
+ * @note   响应 3+15+3~8 = 21~26B > 7，proto_send_response 自动走
+ *         g_tx_pend 多帧延迟路径（can_protocol_poll 末尾
+ *         proto_flush_pending_tx 泵出，27 服务 34 字节 seed/key 同机制）。
+ *         严禁在帧回调里直接 isotp_tx_send 多帧（FC 会卡死）。
  * @retval none
  */
-static void qi_ver_send_full_response(uint16_t ver)
+static void qi_ver_send_full_response(void)
 {
-  uint8_t  resp[3U + QI_VER_STR_LEN_MAX];   /* 27B 上限: 62 20 13 + 24B ASCII */
-  char     digits[QI_VER_DIGITS_MAX];
-  uint8_t  ndigits;
+  uint8_t  resp[3U + QI_VER_STR_LEN_MAX];
+  char     xyz[11];  /* "xxx.xxx.xxx" */
+  uint8_t  nxyz;
   uint16_t total;
 
-  ndigits = qi_ver_format_digits(ver, digits);
-  total   = (uint16_t)(3U + QI_VER_STR_PREFIX_LEN + ndigits);
+  nxyz  = qi_ver_format_xyz(g_qi_ver_major, g_qi_ver_minor, g_qi_ver_patch, xyz);
+  total = (uint16_t)(3U + QI_VER_STR_PREFIX_LEN + nxyz);
 
   resp[0] = UDS_SID_READ_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
   resp[1] = 0x20U;
   resp[2] = 0x13U;
   memcpy(&resp[3], QI_VER_STR_PREFIX, QI_VER_STR_PREFIX_LEN);
-  memcpy(&resp[3U + QI_VER_STR_PREFIX_LEN], digits, ndigits);
+  memcpy(&resp[3U + QI_VER_STR_PREFIX_LEN], xyz, nxyz);
   proto_send_response(resp, total);
 }
 
@@ -926,7 +913,7 @@ static void qi_ver_refresh_poll(void)
     if (g_qi_ver_q_state == 1U)
     {
       g_qi_ver_q_state = 0U;
-      qi_ver_send_full_response(g_qi_fw_version);
+      qi_ver_send_full_response();
     }
     board_iap_hold_power(0U);
     return;
@@ -1371,21 +1358,23 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 1U;
       return 0;
     case DID_QI_IAP_STATUS:
-      /* [0]state [1]progress [2-3]Qi版本 LE [4-5]已发 LE [6-7]总长 LE */
+      /* [0]state [1]progress [2-4]Qi版本 major.minor.patch [5-6]已发 LE [7-8]总长 LE */
       out[0] = (g_qi_iap_state == QI_IAP_WAIT_ACK) ? QI_IAP_IN_PROGRESS : g_qi_iap_state;
       out[1] = g_qi_iap_progress;
-      out[2] = (uint8_t)(g_qi_fw_version & 0xFFU);
-      out[3] = (uint8_t)((g_qi_fw_version >> 8) & 0xFFU);
-      out[4] = (uint8_t)(g_qi_iap_sent & 0xFFU);
-      out[5] = (uint8_t)((g_qi_iap_sent >> 8) & 0xFFU);
-      out[6] = (uint8_t)(g_qi_iap_total & 0xFFU);
-      out[7] = (uint8_t)((g_qi_iap_total >> 8) & 0xFFU);
-      *olen = 8U;
+      out[2] = g_qi_ver_major;
+      out[3] = g_qi_ver_minor;
+      out[4] = g_qi_ver_patch;
+      out[5] = (uint8_t)(g_qi_iap_sent & 0xFFU);
+      out[6] = (uint8_t)((g_qi_iap_sent >> 8) & 0xFFU);
+      out[7] = (uint8_t)(g_qi_iap_total & 0xFFU);
+      out[8] = (uint8_t)((g_qi_iap_total >> 8) & 0xFFU);
+      *olen = 9U;
       return 0;
     case DID_QI_FW_VERSION:
-      out[0] = (uint8_t)(g_qi_fw_version & 0xFFU);
-      out[1] = (uint8_t)((g_qi_fw_version >> 8) & 0xFFU);
-      *olen = 2U;
+      out[0] = g_qi_ver_major;
+      out[1] = g_qi_ver_minor;
+      out[2] = g_qi_ver_patch;
+      *olen = 3U;
       return 0;
     default:
       return -1;
@@ -1498,7 +1487,7 @@ static void handle_read_data_by_id(uint8_t *data, uint16_t len)
       if (g_qi_fw_version_valid != 0U)
       {
         /* 自动上报已到达，缓存已刷新，直接拼串回复 */
-        qi_ver_send_full_response(g_qi_fw_version);
+        qi_ver_send_full_response();
         return;
       }
       /* 缓存无效：发 pending，等 qi_ver_refresh_poll 超时后回 NRC 0x22 */
@@ -2199,7 +2188,7 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
   /* ---- Qi 版本查询回复（DID 0x2013 主动问询）----
    * 主格式：CMD 0x03 + 版本（整数，规格 2B LE，宽松接受 data_len>=1）；
    * 兼容：Qi 侧用通用 ACK(0x00) 携带版本（仅在 IAP 空闲时采纳，避免误吞
-   * IAP ACK）。按整数稳健化解析（qi_ver_parse_value：ASCII 十进制数字串
+   * IAP ACK）。按整数稳健化解析（qi_ver_parse_xyz：三字节 major.minor.patch
    * 或小端整数），缓存完整整数值并置有效标志，并回
    * 62 20 13 + ASCII "QC_JYF_MCU2_FW_1.1.X"（X=十进制数字，变长 23~27B，
    * proto_send_response 自动走 g_tx_pend 多帧延迟路径，帧回调内安全）；
@@ -2222,10 +2211,10 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
     }
     if (vsrc != (const uint8_t *)0)
     {
-      g_qi_fw_version       = qi_ver_parse_value(vsrc, vlen);
+      qi_ver_parse_xyz(vsrc, vlen, &g_qi_ver_major, &g_qi_ver_minor, &g_qi_ver_patch);
       g_qi_fw_version_valid = 1U;
       g_qi_ver_q_state      = 0U;
-      qi_ver_send_full_response(g_qi_fw_version);
+      qi_ver_send_full_response();
       return;
     }
   }
@@ -2312,36 +2301,35 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
     /* 帧布局（docs/4. IAP数据通信协议规范.md §2.1，0 基帧偏移）：
      *   data[0-1] = status1/status2（帧偏移 4-5）
      *   data[2-3] = 实时功率 LE mW（帧偏移 6-7）
-     *   data[4-5] = 版本号 BE（帧偏移 8-9，高位在前；2026-10-10 修正 LE→BE）
+     *   data[4-6] = 版本号 major.minor.patch（帧偏移 8-10，三字节）
      * 扩展帧 (≥13B) 额外字段：
-     *   data[6]   = voltage, data[7] = current, data[8] = temp
-     *   data[9]   = FOD, data[10] = reserved, data[11] = fault
-     *   data[12]  = thermal derate
+     *   data[7]   = voltage, data[8] = current, data[9] = temp
+     *   data[10]  = FOD, data[11] = reserved, data[12] = fault
+     *   data[13]  = thermal derate
      *
-     * NOTE: 曾按 data[2-3]=version/data[4-5]=power 解析（与规格书
-     *       装反），2026-09-22 对齐规格书修正。
-     * NOTE: 版本字段曾按 LE 解析，2026-10-10 实测 Qi 芯片上报 BE（高位在前）。 */
+     * NOTE: 版本从 2 字节 BE 整数改为 3 字节 major.minor.patch（2026-10-16）。 */
     g_qi_output_power_mw = (uint16_t)frame->data[2]
                          | ((uint16_t)frame->data[3] << 8);
-    g_qi_fw_version = ((uint16_t)frame->data[4] << 8U)
-                    | (uint16_t)frame->data[5];
+    g_qi_ver_major = frame->data[4];
+    g_qi_ver_minor = frame->data[5];
+    g_qi_ver_patch = frame->data[6];
     g_qi_fw_version_valid = 1U;
 
     /* 扩展帧额外字段 */
-    if (frame->data_len >= 13U)
+    if (frame->data_len >= 14U)
     {
-      g_qi_voltage_raw = frame->data[6];
-      g_qi_current_raw = frame->data[7];
-      g_qi_pcb_temp = frame->data[8];
-      if (frame->data[9] != 0x00U)
+      g_qi_voltage_raw = frame->data[7];
+      g_qi_current_raw = frame->data[8];
+      g_qi_pcb_temp = frame->data[9];
+      if (frame->data[10] != 0x00U)
       {
-        g_qi_fod_status = frame->data[9];
+        g_qi_fod_status = frame->data[10];
       }
-      if (frame->data[11] != 0x00U)
+      if (frame->data[12] != 0x00U)
       {
-        g_qi_fault_code = frame->data[11];
+        g_qi_fault_code = frame->data[12];
       }
-      g_qi_thermal_derate = frame->data[12];
+      g_qi_thermal_derate = frame->data[13];
     }
 
     return;
@@ -2654,7 +2642,7 @@ static void qi_ver_query_poll(void)
   if (g_qi_fw_version_valid != 0U)
   {
     /* 缓存为完整整数版本值（问询回复与 0x01 上报同源），直接拼串 */
-    qi_ver_send_full_response(g_qi_fw_version);
+    qi_ver_send_full_response();
   }
   else
   {
@@ -3136,10 +3124,12 @@ void can_proto_qi_version_probe(void)
   /* 如果 Flash 中已有缓存版本，直接加载到 RAM */
   if (g_qi_fw_version_valid == 0U)
   {
-    uint16_t cached;
-    if (device_info_read_qi_version(&cached) == 0)
+    uint8_t cmaj, cmin, cpk;
+    if (device_info_read_qi_version(&cmaj, &cmin, &cpk) == 0)
     {
-      g_qi_fw_version = cached;
+      g_qi_ver_major = cmaj;
+      g_qi_ver_minor = cmin;
+      g_qi_ver_patch = cpk;
       g_qi_fw_version_valid = 1U;
     }
   }
@@ -3166,11 +3156,11 @@ void can_proto_qi_version_probe(void)
   /* 持久化到 Flash（仅当 RAM 版本有效且与 Flash 不同时写入） */
   if (g_qi_fw_version_valid != 0U)
   {
-    uint16_t cached;
-    if ((device_info_read_qi_version(&cached) != 0) ||
-        (cached != g_qi_fw_version))
+    uint8_t cmaj, cmin, cpk;
+    if ((device_info_read_qi_version(&cmaj, &cmin, &cpk) != 0) ||
+        (cmaj != g_qi_ver_major) || (cmin != g_qi_ver_minor) || (cpk != g_qi_ver_patch))
     {
-      (void)device_info_write_qi_version(g_qi_fw_version);
+      (void)device_info_write_qi_version(g_qi_ver_major, g_qi_ver_minor, g_qi_ver_patch);
     }
   }
 
@@ -3181,9 +3171,11 @@ void can_proto_qi_version_probe(void)
   board_5v_set(0U);
 }
 
-uint16_t qi_fw_version_get(void)
+void qi_fw_version_get(uint8_t *major, uint8_t *minor, uint8_t *patch)
 {
-  return g_qi_fw_version;
+  *major = g_qi_ver_major;
+  *minor = g_qi_ver_minor;
+  *patch = g_qi_ver_patch;
 }
 
 uint8_t qi_fw_version_valid(void)

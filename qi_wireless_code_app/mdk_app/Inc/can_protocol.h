@@ -135,7 +135,7 @@ extern "C" {
 
 /** @brief  Firmware management DIDs */
 #define DID_FW_TYPE                 0x2010U   /*!< firmware type, uint8, read/write */
-#define DID_QI_VERSION_QUERY        0x2013U   /*!< 读 Qi 芯片固件版本（主动问询）；应答 62 20 13 + ASCII "QC_JYF_MCU2_FW_1.1.X"（X=Qi 版本整数的十进制数字，变长 23~27B） */
+#define DID_QI_VERSION_QUERY        0x2013U   /*!< 读 Qi 芯片固件版本（主动问询）；应答 62 20 13 + ASCII "QC_JYF_MCU2_FW_x.x.x"（三段版本号，变长 21~26B） */
 
 /** @brief  Device-specific DIDs (defined in peripheral SRS) */
 #define DID_OTA_STATE               0x2112U   /*!< OTA status: 0=idle 1=dl 2=validating 3=pending 5=confirmed 6=rolled_back 7=failed 8=MCU2-in-progress 9=MCU2-no-app A=MCU2-confirmed */
@@ -162,8 +162,8 @@ extern "C" {
 #define DID_SIT1145_LP_STATUS       0x2119U   /*!< SIT1145 LP: flags, wup_cnt, last_sleep_sec */
 #define DID_SIT1145_LP_WIPE_DIAG    0x211AU   /*!< SIT1145 LP round-2 wipe diagnostics: ev24/ev63/stat/attempts (4B, SF) */
 #define DID_ECDSA_PUBKEY            0x2120U   /*!< ECDSA P-256 public key, 65-byte SEC1 */
-#define DID_QI_IAP_STATUS           0x2132U   /*!< Qi IAP 状态（读）：state/progress/版本/已发/总长 */
-#define DID_QI_FW_VERSION           0x2133U   /*!< Qi 芯片固件版本（读）：来自 UART 0x01 上报 */
+#define DID_QI_IAP_STATUS           0x2132U   /*!< Qi IAP 状态（读）：state/progress/版本3B/已发/总长 */
+#define DID_QI_FW_VERSION           0x2133U   /*!< Qi 芯片固件版本（读）：3B major.minor.patch */
 #define DID_QI_UART_SNIFF           0x2140U   /*!< Qi UART 抓取读取（读，任意会话）：62 21 40 [flags][len][data...]，siphon 分次 */
 #define DID_QI_UART_TX              0x2141U   /*!< Qi UART 透传发送（写）：payload 1~64B 原样经 UART 发给 Qi 芯片；门禁同 0x2010 */
 
@@ -283,7 +283,7 @@ uint8_t can_protocol_is_security_unlocked(void);
  * @brief  上电版本探测：PB2 上电 → 被动监听 CMD 0x01 → 缓存+持久化 → PB2 关闭
  */
 void     can_proto_qi_version_probe(void);
-uint16_t qi_fw_version_get(void);
+void qi_fw_version_get(uint8_t *major, uint8_t *minor, uint8_t *patch);
 uint8_t  qi_fw_version_valid(void);
 
 #ifdef __cplusplus

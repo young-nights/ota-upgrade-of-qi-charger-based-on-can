@@ -188,11 +188,11 @@ int8_t device_info_write_pubkey(const uint8_t *pubkey65)
   return 0;
 }
 
-int8_t device_info_read_qi_version(uint16_t *ver_out)
+int8_t device_info_read_qi_version(uint8_t *major, uint8_t *minor, uint8_t *patch)
 {
   device_info_t info;
 
-  if (ver_out == (uint16_t *)0)
+  if ((major == (uint8_t *)0) || (minor == (uint8_t *)0) || (patch == (uint8_t *)0))
   {
     return -1;
   }
@@ -204,11 +204,13 @@ int8_t device_info_read_qi_version(uint16_t *ver_out)
   {
     return -1;
   }
-  *ver_out = info.qi_fw_version;
+  *major = info.qi_fw_ver_major;
+  *minor = info.qi_fw_ver_minor;
+  *patch = info.qi_fw_ver_patch;
   return 0;
 }
 
-int8_t device_info_write_qi_version(uint16_t ver)
+int8_t device_info_write_qi_version(uint8_t major, uint8_t minor, uint8_t patch)
 {
   device_info_t info;
   const uint32_t *src;
@@ -222,7 +224,9 @@ int8_t device_info_write_qi_version(uint16_t ver)
     return -1;
   }
 
-  info.qi_fw_version       = ver;
+  info.qi_fw_ver_major     = major;
+  info.qi_fw_ver_minor     = minor;
+  info.qi_fw_ver_patch     = patch;
   info.qi_fw_version_valid = 0x01U;
   info.crc32 = di_crc_struct(&info);
 
