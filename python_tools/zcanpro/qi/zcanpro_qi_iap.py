@@ -63,6 +63,7 @@ PRIVATE_KEY_PATH = os.path.join(REPO_ROOT, "docs", "keys", "private.pem")
 
 # 固件搜索目录
 QI_FW_DIRS = [
+    os.path.join(REPO_ROOT, "python_tools", "iap bin"),
     os.path.join(REPO_ROOT, "qi_wireless_code_app", "mdk_project", "Objects"),
     os.path.join(TOOLS_DIR, "..", "app bin"),
 ]
@@ -362,8 +363,8 @@ def _pick_firmware():
             if not name.endswith(".bin"):
                 continue
             low = name.lower()
-            # Qi 固件命名模式：qi_fw / mcu2 / qi_app
-            if any(k in low for k in ("qi_fw", "mcu2", "qi_app", "qi_iap")):
+            # Qi 固件命名模式：qi_fw / mcu2 / qi_app / QI_IAP_Ver / qi_iap
+            if any(k in low for k in ("qi_fw", "mcu2", "qi_app", "qi_iap", "iap_ver")):
                 path = os.path.join(d, name)
                 candidates.append((os.path.getmtime(path), path))
     if not candidates:
