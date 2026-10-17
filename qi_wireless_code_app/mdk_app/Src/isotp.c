@@ -44,8 +44,7 @@ static uint8_t g_fc_pending_status = 0;
  * proto_send_response 可能覆写 g_tx_pend；MF 发送从此副本读取。 */
 static uint8_t g_tx_copy[ISOTP_MAX_PAYLOAD];
 
-static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
-                             uint8_t wait_confirm)
+static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len)
 {
   uint8_t h_before;
   uint8_t h_after;
@@ -64,17 +63,16 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
     have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
     if (can_driver_send(can_id, frame, len) == 0)
     {
-      /* CF ordering: wait for THIS frame on the bus before the next CF
-       * is enqueued — otherwise SN reorders and the host ISO-TP assembly
-       * fails. SF frames have no ordering constraint, so skip the wait
-       * to avoid 50ms+ latency per single-frame response. */
-      if (wait_confirm != 0U)
+      /* PTB 优先于 STB。CF 若未等上一帧上总线就塞进 STB，SN 会乱序，
+       * 主机 ISO-TP 组帧失败（ZCANPRO 表现为 22 F195 无应答）。
+       * 用 handle 精确等本帧上总线，不用 wait_tx_idle 笼统判定——
+       * 笼统判定会被其他帧（lifecycle 广播等）的 TRANSMITTED 提前
+       * 满足，下一 CF 在本帧未上总线时入队，SN 乱序（0x27 seed
+       * 多帧 CF out of sequence 根因）。 */
+      if ((can_driver_last_tx_handle(&h_after) == 0) &&
+          ((have_prev == 0U) || (h_after != h_before)))
       {
-        if ((can_driver_last_tx_handle(&h_after) == 0) &&
-            ((have_prev == 0U) || (h_after != h_before)))
-        {
-          (void)can_driver_wait_tx_frame(h_after, ISOTP_N_AS_TIMEOUT_MS);
-        }
+        (void)can_driver_wait_tx_frame(h_after, ISOTP_N_AS_TIMEOUT_MS);
       }
       return 0;
     }
@@ -492,7 +490,7 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
     {
       frame[i] = 0xCCU;
     }
-    return isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE, 0U);
+    return isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE);
   }
 
   /* MF only: copy payload to internal buffer. isotp_wait_cts processes
@@ -510,7 +508,7 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
       frame[2 + i] = payload[i];
     }
   }
-  if (isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE, 1U) != 0)
+  if (isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE) != 0)
   {
     return -1;
   }
@@ -562,7 +560,7 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
     {
       frame[i] = 0xCCU;
     }
-    if (isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE, 1U) != 0)
+    if (isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE) != 0)
     {
       return -1;
     }
