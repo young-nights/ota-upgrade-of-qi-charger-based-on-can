@@ -1259,6 +1259,126 @@ def _raw_send(bus_id, can_id, data):
     return False
 
 
+def uds_req_mf(bus_id, sid, payload, timeout_s=3.0):
+    """手动 ISO-TP 多帧发送 + 单帧/多帧接收。
+
+    ZCANPRO uds_request 不支持 host→ECU 多帧发送（>7B UDS 请求必超时），
+    此函数绕过 ZCANPRO 的 ISO-TP 栈，用 _raw_send 手动组 FF/FC/CF。
+
+    ISO-TP 多帧协议（ISO 15765-2）：
+      FF: 10 <len12> <6B payload>       — 首帧，声明总长
+      FC: 30 <BS> <STmin> ...           — ECU 回 CTS（本函数等这个）
+      CF: 2n <7B payload>               — 后续帧，n=SN(1..15→0)
+
+    适用于 0x34 RequestDownload(11B) / 0x36 TransferData(>7B) 等。
+    应答若为多帧（>7B），自动回 FC 并组帧。
+    """
+    uds = [sid] + list(payload)
+    total = len(uds)
+    if total == 0:
+        raise RuntimeError("UDS payload 为空")
+
+    # 单帧：≤7B，直接 SF 发送
+    if total <= 7:
+        sf = [total & 0x0F] + uds + [0xCC] * (7 - total)
+        _raw_send(bus_id, UDS_REQ_ID, sf)
+    else:
+        # FF：PCI=0x10, 12-bit length
+        ff = [0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6]
+        ff += [0xCC] * (8 - len(ff))
+        _raw_send(bus_id, UDS_REQ_ID, ff)
+        _log("[Tx FF] %s" % _hex([0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6]))
+
+        # 等 FC
+        fc = _wait_isotp_fc(bus_id, timeout_s)
+        if fc is None:
+            raise RuntimeError("ISO-TP FC 超时（ECU 未回 Flow Control）")
+        bs = fc[1] if len(fc) > 1 else 0
+        stmin_raw = fc[2] if len(fc) > 2 else 0
+        stmin = 0.001 if stmin_raw == 0 else (stmin_raw / 1000.0 if stmin_raw <= 0x7F else 0.001)
+
+        # CF 循环
+        offset = 6
+        sn = 1
+        cf_in_block = 0
+        while offset < total:
+            if bs != 0 and cf_in_block >= bs:
+                fc = _wait_isotp_fc(bus_id, timeout_s)
+                if fc is None:
+                    raise RuntimeError("ISO-TP FC 超时（BS 等待）")
+                bs = fc[1] if len(fc) > 1 else 0
+                stmin_raw = fc[2] if len(fc) > 2 else 0
+                stmin = 0.001 if stmin_raw == 0 else (stmin_raw / 1000.0 if stmin_raw <= 0x7F else 0.001)
+                cf_in_block = 0
+            if stmin > 0:
+                time.sleep(stmin)
+            chunk = uds[offset:offset + 7]
+            cf = [0x20 | (sn & 0x0F)] + chunk + [0xCC] * (8 - 1 - len(chunk))
+            _raw_send(bus_id, UDS_REQ_ID, cf)
+            offset += len(chunk)
+            sn = (sn + 1) & 0x0F
+            cf_in_block += 1
+        _log("[Tx CF] %d 帧（共 %d 字节）" % ((total - 6 + 6) // 7 + 1, total))
+
+    # 接收应答（单帧或多帧）
+    return _recv_uds_response(bus_id, sid, timeout_s)
+
+
+def _wait_isotp_fc(bus_id, timeout_s=2.0):
+    """等待 ISO-TP Flow Control 帧（PCI=0x3n）。返回 FC data 或 None。"""
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        if stopTask:
+            raise RuntimeError("用户停止脚本")
+        for cid, dat in _recv_frames(bus_id):
+            if (cid & 0x1FFFFFFF) == (UDS_RESP_ID & 0x1FFFFFFF) and len(dat) >= 1:
+                if (dat[0] & 0xF0) == 0x30:
+                    return list(dat)
+        time.sleep(0.005)
+    return None
+
+
+def _recv_uds_response(bus_id, sid, timeout_s=3.0):
+    """接收 UDS 应答（单帧 SF 或多帧 FF+CF）。多帧自动回 FC 并组帧。"""
+    t0 = time.time()
+    ff_buf = None
+    ff_total = 0
+    cf_buf = b""
+    expected_sn = 1
+
+    while time.time() - t0 < timeout_s:
+        if stopTask:
+            raise RuntimeError("用户停止脚本")
+        for cid, dat in _recv_frames(bus_id):
+            if (cid & 0x1FFFFFFF) != (UDS_RESP_ID & 0x1FFFFFFF):
+                continue
+            if len(dat) < 1:
+                continue
+            pci = dat[0] & 0xF0
+            if pci == 0x00:
+                # SF: 0n <payload>
+                n = dat[0] & 0x0F
+                return list(dat[1:1 + n])
+            elif pci == 0x10:
+                # FF: 1n nn <6B>
+                ff_total = ((dat[0] & 0x0F) << 8) | dat[1]
+                ff_buf = bytes(dat[2:8])
+                # 回 FC: 30 00 01 CC CC CC CC CC
+                _raw_send(bus_id, UDS_REQ_ID, [0x30, 0x00, 0x01, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC])
+                _log("[Tx FC] 30 00 01")
+            elif pci == 0x20 and ff_buf is not None:
+                # CF: 2n <7B>
+                sn = dat[0] & 0x0F
+                if sn == expected_sn:
+                    cf_buf += bytes(dat[1:8])
+                    expected_sn = (expected_sn + 1) & 0x0F
+                    if ff_buf is not None and len(ff_buf) + len(cf_buf) >= ff_total:
+                        full = ff_buf + cf_buf
+                        return list(full[:ff_total])
+        time.sleep(0.005)
+    raise RuntimeError("UDS 应答超时 SID=0x%02X" % sid)
+
+
 def _raw_probe_safe_mode(bus_id, sniff_s=2.0):
     """失败路径取证：raw 发 22 2113 探测帧（ISO-TP SF）后监听 Boot safe
     mode 应答：现行固件为 ISO-TP 单帧 05 62 21 13 FE <fail_step>
@@ -1519,7 +1639,7 @@ def run_ota(bus_id):
         addr = [(addr_val >> 24) & 0xFF, (addr_val >> 16) & 0xFF,
                 (addr_val >> 8) & 0xFF, addr_val & 0xFF]
         _log("---- RequestDownload %d @ 0x%08X ----" % (size, addr_val))
-        uds_req(bus_id, SID_RD, [0x00, 0x44] + addr + sz)
+        uds_req_mf(bus_id, SID_RD, [0x00, 0x44] + addr + sz)
         _log("---- TransferData ----")
         seq = 1
         off = 0
@@ -1527,7 +1647,7 @@ def run_ota(bus_id):
             if stopTask:
                 raise RuntimeError("用户停止")
             chunk = image[off:off + TRANSFER_BLOCK_DATA]
-            uds_req(bus_id, SID_TD, [seq] + _to_list(chunk))
+            uds_req_mf(bus_id, SID_TD, [seq] + _to_list(chunk))
             off += len(chunk)
             seq = (seq + 1) & 0xFF
             if off == size or (off % (TRANSFER_BLOCK_DATA * 16) == 0):
