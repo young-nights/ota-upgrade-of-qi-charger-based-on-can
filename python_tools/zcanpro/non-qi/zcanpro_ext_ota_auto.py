@@ -800,7 +800,16 @@ def send_security_key(bus_id, sig, seed=None, priv=None):
     off = 0
     while off < 64:
         piece = sig[off:off + SA_SIG_CHUNK]
-        uds_req(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
+        # 重试 3 次：CAN 偶发丢帧导致 27 03 超时
+        for _try in range(3):
+            try:
+                uds_req(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
+                break
+            except RuntimeError:
+                if _try == 2:
+                    raise
+                _log("27 03 %02X 超时，重试 %d/2" % (seq, _try + 1))
+                time.sleep(0.3)
         off += len(piece)
         seq += 1
     _log("27 03 已送 64 字节 / %d 帧" % (seq - 1))

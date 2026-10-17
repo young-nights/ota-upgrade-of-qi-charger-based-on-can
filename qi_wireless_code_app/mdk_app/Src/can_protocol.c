@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.3";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.4";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -1918,6 +1918,16 @@ static void handle_security_access(uint8_t *data, uint16_t len)
       g_sa_sig_block_seq = 0;
       g_sa_sig_bytes_received = 0;
       memset(g_sa_sig_buf, 0, 64);
+    }
+    /* 幂等：重复帧（host 重试，上一次已收但应答丢失）直接回正响应，
+     * 不重复计数/写入。比对 g_sa_sig_block_seq 当前值（已处理的最后一帧） */
+    if (block_seq == g_sa_sig_block_seq && g_sa_sig_block_seq != 0U)
+    {
+      resp[0] = UDS_SID_SECURITY_ACCESS + UDS_POSITIVE_RESPONSE_OFFSET;
+      resp[1] = 0x03U;
+      resp[2] = block_seq;
+      proto_send_response(resp, 3);
+      return;
     }
     g_sa_sig_block_seq++;
     if (g_sa_sig_block_seq == 0x00U)
