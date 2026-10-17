@@ -753,26 +753,10 @@ def run(bus_id):
     _log("---- 进入扩展会话（10 03）----")
     uds_req(bus_id, SID_DSC, [0x03])
 
-    # 2. 安全解锁（seed 32 字节，d64e8c2 起；失败重试为完整重签重发流程）
+    # 2. 安全解锁（send_security_key 完整流程：27 01 取 seed →
+    # 签名+自检 → 27 03 分片 → 27 02 验签，含 seed=0/锁定处理）
     _log("---- 安全解锁 ----")
-    unlocked = False
-    try:
-        rx = uds_req(bus_id, SID_SA, [0x01])
-        if len(rx) < 34:
-            raise RuntimeError("seed 响应过短: %d 字节, 期望 67 01 + 32 字节 seed（≥34）" % len(rx))
-        seed = _to_bytes(rx[2:34])
-        _log("seed(32B) " + _hex(rx[2:34]))
-        if seed == b"\x00" * 32:
-            unlocked = True
-            _log("已解锁 (seed=0，32 字节全 0)")
-    except UdsNrcError as e:
-        if e.nrc not in (NRC_EXCEEDED_ATTEMPTS, NRC_REQUIRED_TIME_DELAY):
-            raise
-        _log("27 01 NRC 0x%02X：设备 SecurityAccess 锁定（fail_count≥3，约30s），S3 keepalive 等待 %.0fs 后完整解锁" % (e.nrc, SA_LOCKOUT_WAIT_S))
-        _s3_keepalive_wait(bus_id)
-    if not unlocked:
-        _log("SecurityAccess 解锁中（每次尝试完整重做：27 01 → 重签 → 27 03 → 27 02）...")
-        send_security_key(bus_id, priv)
+    send_security_key(bus_id, priv)
     _log("安全解锁成功")
 
     # 3. 写功率 (DID 0x210D, uint16 LE mW)——经 S3 兜底包装：写撞 NRC 0x22/0x33

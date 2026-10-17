@@ -1053,26 +1053,10 @@ def run_charge_stop(bus_id):
     uds_req(bus_id, SID_DSC, [0x03])   # 预期 50 03 00 32 01 F4
     _log("[PASS] Step 1 扩展会话已建立（10 03 → 50 03）")
 
-    # Step 2: 安全解锁（seed 32 字节，d64e8c2 起；签名本地自检后才发 27 03）
+    # Step 2: 安全解锁（send_security_key 完整流程：27 01 取 seed →
+    # 签名+自检 → 27 03 分片 → 27 02 验签，含 seed=0/锁定处理）
     _log("---- Step 2: 安全解锁 ----")
-    unlocked = False
-    try:
-        rx = uds_req(bus_id, SID_SA, [0x01])
-        if len(rx) < 34:
-            raise RuntimeError("seed 响应过短: %d 字节, 期望 67 01 + 32 字节 seed（≥34）" % len(rx))
-        seed = _to_bytes(rx[2:34])
-        _log("seed(32B) " + _hex(rx[2:34]))
-        if seed == b"\x00" * 32:
-            unlocked = True
-            _log("已解锁 (seed=0，32 字节全 0)，跳过签名")
-    except UdsNrcError as e:
-        if e.nrc not in (NRC_EXCEEDED_ATTEMPTS, NRC_REQUIRED_TIME_DELAY):
-            raise
-        _log("27 01 NRC 0x%02X：设备 SecurityAccess 锁定（fail_count≥3，约30s），S3 keepalive 等待 %.0fs 后完整解锁" % (e.nrc, SA_LOCKOUT_WAIT_S))
-        _s3_keepalive_wait(bus_id)
-    if not unlocked:
-        _log("SecurityAccess 解锁中（每次尝试完整重做：27 01 → 重签 → 自检 → 27 03 → 27 02）...")
-        send_security_key(bus_id, priv)
+    send_security_key(bus_id, priv)
     _log("[PASS] Step 2 安全解锁成功")
 
     # Step 3: 停止充电。先信息读当前状态（RDBI 无门禁），再写停止值。
