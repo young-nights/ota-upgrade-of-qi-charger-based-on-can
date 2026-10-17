@@ -713,58 +713,33 @@ def uds_init():
 
 
 def uds_req(bus_id, sid, payload, suppress=0, wait_pending_s=0):
-    """NRC 0x78 is not final.
+    """UDS 请求：统一走 uds_req_mf（手动 ISO-TP）。
 
-    注意（实测定性）：本机 ZCANPRO 库内部消化 NRC 0x78（不把 7F xx 78 当返回
-    数据抛给脚本），并把 enhanced_timeout_ms 当绝对上限计时。因此下面
-    wait_pending_s>0 的 0x78 重试分支在本库上可能不触发。0x31 仍走
-    uds_request，enhanced_timeout_ms=120s 覆盖擦槽。
+    ZCANPRO uds_request 在 WSL shim 下不可靠（多帧请求发不出、
+    多帧应答丢尾帧），统一用手动 ISO-TP 收发。
     """
     if stopTask:
         raise RuntimeError("用户停止脚本")
-    req = {
-        "src_addr": UDS_REQ_ID,
-        "dst_addr": UDS_RESP_ID,
-        "suppress_response": 1 if suppress else 0,
-        "sid": sid,
-        "data": list(payload),
-    }
     t_end = time.time() + float(wait_pending_s)
-    logged_tx = False
     while True:
         if stopTask:
             raise RuntimeError("用户停止脚本")
-        if not logged_tx:
-            _log("[Tx] %02X %s%s" % (sid, _hex(payload[:16]) + (" ..." if len(payload) > 16 else ""),
-                                     " (suppress)" if suppress else ""))
-            logged_tx = True
-        resp = zcanpro.uds_request(bus_id, req)
+        data = uds_req_mf(bus_id, sid, payload)
         if suppress:
             return None
-        data = list((resp or {}).get("data") or [])
         if data:
-            _log("[Rx] " + _hex(data[:24]))
             sm_step = _safe_mode_step(data)
             if sm_step is not None:
-                # 库若把 Boot safe mode 应答帧当响应数据透传（历史裸帧
-                # 62 21 13 FE <step> 或 ISO-TP SF 05 62 21 13 FE <step>，
-                # _safe_mode_step 双格式识别），立即按 safe mode 报错，
-                # 不得误判为 APP DID 0x2113 正响应。
                 raise SafeModeError(sm_step)
         if len(data) >= 3 and data[0] == SID_NRC:
             if data[2] == NRC_RCRRP:
                 if wait_pending_s <= 0 or time.time() >= t_end:
-                    raise RuntimeError("SID=0x%02X 只收到 NRC 0x78，ZCANPRO 未等到最终响应" % sid)
-                _log("SID=0x%02X NRC 0x78，MCU 忙，继续等待" % sid)
+                    raise RuntimeError("SID=0x%02X 只收到 NRC 0x78" % sid)
                 time.sleep(1.0)
                 continue
             raise UdsNrcError(data[1], data[2])
-        if not resp or not resp.get("result"):
-            raise RuntimeError("无应答 SID=0x%02X %s" % (sid, (resp or {}).get("result_msg", "")))
         if not data:
-            # 库层成功但零应答字节（帧未上线/设备静默）：如实报无应答，
-            # 不误报"非正响应"（后者暗示收到过应答数据）。
-            raise RuntimeError("无应答 SID=0x%02X %s" % (sid, (resp or {}).get("result_msg", "")))
+            raise RuntimeError("无应答 SID=0x%02X" % sid)
         if data[0] != (sid + SID_PR):
             raise RuntimeError("非正响应 SID=0x%02X %s" % (sid, _hex(data)))
         return data
@@ -788,10 +763,8 @@ def read_did_u8(bus_id, did):
 def send_security_key(bus_id, sig, seed=None, priv=None):
     """SecurityAccess 解锁：27 03 分片 + 27 02 验签。
 
-    不走 27 02 整包（66B 多帧）：ZCANPRO uds_request 不支持 host→ECU
-    多帧发送，整包必超时，且 ISO-TP 残缺帧会污染 ECU 状态机（后续
-    27 03 撞 NRC 0x24）。27 03 每帧 4B 单帧（SA_SIG_CHUNK=4），
-    ZCANPRO 可正常发送。
+    27 03 每帧 6B，走 uds_req_mf（ZCANPRO uds_request 在 WSL shim 下
+    不可靠）。不做超时重试——重试产生残留应答导致响应错位。
     """
     sig = _to_bytes(sig)
     if len(sig) != 64:
@@ -800,16 +773,7 @@ def send_security_key(bus_id, sig, seed=None, priv=None):
     off = 0
     while off < 64:
         piece = sig[off:off + SA_SIG_CHUNK]
-        # 重试 3 次：CAN 偶发丢帧导致 27 03 超时
-        for _try in range(3):
-            try:
-                uds_req(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
-                break
-            except RuntimeError:
-                if _try == 2:
-                    raise
-                _log("27 03 %02X 超时，重试 %d/2" % (seq, _try + 1))
-                time.sleep(0.3)
+        uds_req_mf(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
         off += len(piece)
         seq += 1
     _log("27 03 已送 64 字节 / %d 帧" % (seq - 1))
@@ -1291,6 +1255,7 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0):
     if total <= 7:
         sf = [total & 0x0F] + uds + [0xCC] * (7 - total)
         _raw_send(bus_id, UDS_REQ_ID, sf)
+        _log("[Tx] %02X %s" % (sid, _hex(payload[:16]) + (" ..." if len(payload) > 16 else "")))
     else:
         # FF：PCI=0x10, 12-bit length
         ff = [0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6]
@@ -1342,17 +1307,10 @@ def _wait_isotp_fc(bus_id, timeout_s=2.0):
         if stopTask:
             raise RuntimeError("用户停止脚本")
         for cid, dat in _recv_frames(bus_id):
-            cid29 = cid & 0x1FFFFFFF
-            if cid29 == (UDS_RESP_ID & 0x1FFFFFFF) and len(dat) >= 1:
+            if (cid & 0x1FFFFFFF) == (UDS_RESP_ID & 0x1FFFFFFF) and len(dat) >= 1:
                 if (dat[0] & 0xF0) == 0x30:
-                    _log("[Rx FC] %s" % _hex(dat[:8]))
                     return list(dat)
-                else:
-                    _log("[Rx-dbg] FC等待中收到非FC UDS帧 PCI=%02X %s" % (dat[0] & 0xF0, _hex(dat[:8])))
-            else:
-                _log("[Rx-dbg] FC等待中收到非UDS帧 ID=%08X %s" % (cid29, _hex(dat[:8])))
         time.sleep(0.005)
-    _log("[Rx-dbg] FC 等待超时 %.1fs" % timeout_s)
     return None
 
 
@@ -1370,34 +1328,34 @@ def _recv_uds_response(bus_id, sid, timeout_s=3.0):
         for cid, dat in _recv_frames(bus_id):
             cid29 = cid & 0x1FFFFFFF
             if cid29 != (UDS_RESP_ID & 0x1FFFFFFF):
-                _log("[Rx-dbg] 非UDS ID %08X %s" % (cid29, _hex(dat[:8])))
                 continue
             if len(dat) < 1:
                 continue
             pci = dat[0] & 0xF0
-            _log("[Rx-dbg] UDS PCI=%02X %s" % (pci, _hex(dat[:8])))
             if pci == 0x00:
-                # SF: 0n <payload>
                 n = dat[0] & 0x0F
                 return list(dat[1:1 + n])
             elif pci == 0x10:
-                # FF: 1n nn <6B>
+                if ff_buf is not None:
+                    continue
                 ff_total = ((dat[0] & 0x0F) << 8) | dat[1]
                 ff_buf = bytes(dat[2:8])
-                # 回 FC: 30 00 01 CC CC CC CC CC
-                _raw_send(bus_id, UDS_REQ_ID, [0x30, 0x00, 0x01, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC])
-                _log("[Tx FC] 30 00 01")
+                _log("[Rx FF] total=%d, 发 FC" % ff_total)
+                ok = _raw_send(bus_id, UDS_REQ_ID, [0x30, 0x00, 0x01, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC])
+                _log("[Tx FC] %s" % ("OK" if ok else "FAIL"))
             elif pci == 0x20 and ff_buf is not None:
-                # CF: 2n <7B>
                 sn = dat[0] & 0x0F
                 if sn == expected_sn:
                     cf_buf += bytes(dat[1:8])
                     expected_sn = (expected_sn + 1) & 0x0F
-                    if ff_buf is not None and len(ff_buf) + len(cf_buf) >= ff_total:
+                    _log("[Rx CF] sn=%d got=%d/%d" % (sn, len(ff_buf) + len(cf_buf), ff_total))
+                    if len(ff_buf) + len(cf_buf) >= ff_total:
                         full = ff_buf + cf_buf
                         return list(full[:ff_total])
-        time.sleep(0.005)
-    raise RuntimeError("UDS 应答超时 SID=0x%02X" % sid)
+                else:
+                    _log("[Rx CF] sn=%d 期望 %d，跳过" % (sn, expected_sn))
+        time.sleep(0.001)
+    raise RuntimeError("UDS 应答超时 SID=0x%02X (got %d/%d)" % (sid, len(ff_buf) + len(cf_buf) if ff_buf else 0, ff_total if ff_buf else 0))
 
 
 def _raw_probe_safe_mode(bus_id, sniff_s=2.0):
@@ -1660,6 +1618,14 @@ def run_ota(bus_id):
         addr = [(addr_val >> 24) & 0xFF, (addr_val >> 16) & 0xFF,
                 (addr_val >> 8) & 0xFF, addr_val & 0xFF]
         _log("---- RequestDownload %d @ 0x%08X ----" % (size, addr_val))
+        # 清空残留应答（27 03 重试产生的延迟应答会干扰 FC 等待）
+        for _ in range(5):
+            try:
+                if not _recv_frames(bus_id):
+                    break
+            except Exception:
+                break
+            time.sleep(0.05)
         uds_req_mf(bus_id, SID_RD, [0x00, 0x44] + addr + sz)
         _log("---- TransferData ----")
         seq = 1
