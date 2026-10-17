@@ -323,26 +323,28 @@ uint8_t sit1145_sleep_enter(void)
   /* 2) 使能 CAN 唤醒（CWE=1）——WAKE 引脚恒高不可用，仅依赖 CAN WUP */
   sit1145_wake_enable();
 
-  /* 3) CAN Control：CFDC=1, PNCOK=0, CPNC=0, CMC=01 */
+  /* 3) CAN Control：CFDC=1, PNCOK=0, CPNC=0, CMC=01
+   *    回读验证 + 重试——配置失败时 CAN 唤醒不可靠，不进 Sleep */
   can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
                | SIT1145_CAN_NETW_INVALID
                | SIT1145_SEL_WAKEUP_DIS
                | SIT1145_CAN_MODE_NORMAL;
-  sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
-  if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) != can_ctrl_val)
   {
-    /* SPI readback failed: retry once after 1ms (transient bus glitch) */
-    sit1145_delay_ms(1U);
-    sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
-    if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) != can_ctrl_val)
+    uint8_t attempt;
+    for (attempt = 0U; attempt < 3U; attempt++)
     {
-      return 0U;
+      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
+      if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) == can_ctrl_val)
+      {
+        /* 4) 进 Sleep（SPI 断开，无法回读） */
+        sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
+        return 1U;
+      }
+      sit1145_delay_ms(1U);
     }
   }
-
-  /* 4) 进 Sleep（SPI 断开，无法回读） */
-  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
-  return 1U;
+  /* CAN Control 配置失败：不进 Sleep，调用方降级处理 */
+  return 0U;
 }
 
 /**

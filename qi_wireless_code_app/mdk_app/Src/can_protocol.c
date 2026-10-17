@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.57";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.58";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -485,14 +485,17 @@ static void can_lp_enter_sleep(void)
   can_driver_offline();
 
   /* ---- Sleep 模式 ----
-   * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control → 进 Sleep。
-   * SPI 随 Sleep 断开，后续唤醒检测只看 PA11 电平（RXD 被 SIT1145 在
-   * 唤醒事件期间强制拉低）。CAN 引脚切换到低功耗配置（TXD 不驱动）。
-   * 唤醒后 SIT1145 自动回 Standby（芯片硬件行为），SPI 恢复可用，再切 Normal。 */
+   * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control（回读验证
+   * ×3）→ 进 Sleep。CAN Control 配置失败时不进 Sleep——CAN 唤醒不可靠，
+   * 保持 CAN 在线等下次空闲超时重试。 */
   if (sit1145_sleep_enter() == 0U)
   {
-    /* 进 Sleep 前 CAN Control 回读失败：置 sticky 标志（DID 0x2119 bit2） */
     g_lp_sleep_fail = 1U;
+    /* 配置失败：恢复 CAN 在线，不进 Sleep。g_uds_last_ms 已过期，
+     * 下次 poll 空闲判定会再次触发 can_lp_go_sleep 重试。 */
+    can_driver_pins_active();
+    can_driver_online();
+    return;
   }
   can_driver_pins_sleep();
 
