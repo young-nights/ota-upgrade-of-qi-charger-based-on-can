@@ -29,10 +29,6 @@ static uint8_t g_fc_fs = 0;
 static uint8_t g_fc_bs = 0;
 static uint8_t g_fc_stmin = 0;
 
-static uint8_t g_stash_valid = 0;
-static uint8_t g_stash_len = 0;
-static uint8_t g_stash[ISOTP_CAN_FRAME_SIZE];
-
 /* FC 延迟发送：FF 在 ISR 上下文到达时只置标志，FC 由 isotp_poll()
  * 在主循环发出。Flash 擦除（__disable_irq）后 CAN 常处 bus-off，
  * ISR 内阻塞重试 FC 必然全失败；主循环上下文可做 bus-off 恢复。 */
@@ -249,7 +245,6 @@ void isotp_init(isotp_complete_cb_t cb)
   rx_ctx.last_cf_ms   = 0;
   complete_callback   = cb;
   g_fc_flag           = 0;
-  g_stash_valid       = 0;
   g_fc_pending        = 0;
 }
 
@@ -405,25 +400,6 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
     default:
       break;
   }
-}
-
-static void isotp_stash_frame(uint8_t *data, uint8_t n)
-{
-  uint8_t i;
-  if (g_stash_valid != 0U)
-  {
-    return;
-  }
-  g_stash_len = n;
-  if (g_stash_len > ISOTP_CAN_FRAME_SIZE)
-  {
-    g_stash_len = ISOTP_CAN_FRAME_SIZE;
-  }
-  for (i = 0; i < g_stash_len; i++)
-  {
-    g_stash[i] = data[i];
-  }
-  g_stash_valid = 1;
 }
 
 static int8_t isotp_wait_cts(uint8_t *out_bs, uint8_t *out_stmin)
@@ -587,12 +563,6 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
     offset += copy_len;
     sn = (sn + 1U) & 0x0FU;
     cf_in_block++;
-  }
-
-  if (g_stash_valid != 0U)
-  {
-    g_stash_valid = 0;
-    isotp_rx_process(g_stash, g_stash_len);
   }
 
   return 0;
