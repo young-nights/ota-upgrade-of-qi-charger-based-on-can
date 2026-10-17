@@ -278,7 +278,11 @@ def can_recv(bus_id):
 
     if _rx_logged < 3:
         _rx_logged += 1
-        _log("receive 原始: %s" % (repr(raw)[:240],))
+        items_dbg = _unwrap_receive(raw)
+        if items_dbg:
+            _log("[Rx] %d 帧: %s" % (len(items_dbg), repr(raw)[:240]))
+        else:
+            _log("[Rx] 无帧")
 
     items = _unwrap_receive(raw)
     out = []
@@ -305,7 +309,7 @@ def isotp_raw_request(bus_id, sid, payload, timeout_s=2.5):
     req = [sid] + list(payload)
     pci = [len(req)] + req
     can_send(bus_id, UDS_REQ_ID, pci)
-    _log("[Tx raw] %s" % _hex(_pad8(pci)))
+    _log("[Tx] %s" % _hex(_pad8(pci)))
 
     t0 = time.time()
     total = None
@@ -335,7 +339,7 @@ def isotp_raw_request(bus_id, sid, payload, timeout_s=2.5):
                 if not fc_sent:
                     can_send(bus_id, UDS_REQ_ID, [0x30, 0x00, 0x0A])
                     fc_sent = True
-                    _log("[Tx raw] FC 30 00 0A")
+                    _log("[Tx] FC 30 00 0A")
                 t0 = time.time()
             elif pci_t == 0x20:
                 cfs[dat[0] & 0x0F] = list(dat[1:8])
@@ -434,15 +438,15 @@ def wake_mcu(bus_id):
     2. _uds_init() 开接收通路，嗅探 AWK 帧作唤醒证据（1.5s，不拦截）；
     3. uds 3E 00 等 7E，最多重试 8 次（OTA-ARCH-0920-D3/P0，覆盖
        Boot→App CAN 黑窗最坏 ~5s；每次 UDS 超时 2s + 间隔 0.5s ≈ 20s）。"""
-    # 1) raw 3E 00 burst 打破 Standby
+    # 1) raw 3E 00 burst 唤醒（suppress，200ms 间隔）
     for i in range(1, 4):
         if stopTask:
             raise RuntimeError("用户停止")
         try:
             can_send(bus_id, UDS_REQ_ID, [0x02, 0x3E, 0x00])
-            _log("[Tx raw] 02 3E 00 (%d/3, 打破 Standby)" % i)
+            _log("[Tx] 3E 00 (%d/3) 抑制正响应" % i)
         except Exception as e:
-            _log("Standby 唤醒帧 %d/3 发送失败: %s" % (i, e))
+            _log("[Tx] 3E 00 (%d/3) 发送失败: %s" % (i, e))
         time.sleep(0.2)
 
     # 2) 开接收 + AWK 证据嗅探（init 同时保证下面 uds 3E 00 可用）
@@ -518,10 +522,10 @@ def run(bus_id):
     _uds_init()
 
     can_send(bus_id, UDS_REQ_ID, [0x02, 0x3E, 0x00])
-    _log("[Tx raw] 02 3E 00")
+    _log("[Tx] 3E 00")
     time.sleep(0.2)
     can_send(bus_id, UDS_REQ_ID, [0x03, 0x22, 0x21, 0x13])
-    _log("[Tx raw] 03 22 21 13")
+    _log("[Tx] 22 21 13")
 
     saw_boot, saw_app, saw_life, n = _sniff(bus_id, 1.5)
     if saw_boot is not None:
