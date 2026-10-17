@@ -44,18 +44,31 @@ static uint8_t g_fc_pending_status = 0;
  * proto_send_response 可能覆写 g_tx_pend；MF 发送从此副本读取。 */
 static uint8_t g_tx_copy[ISOTP_MAX_PAYLOAD];
 
-static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len)
+/**
+ * @brief  发送一帧 CAN（带重试）
+ * @param  can_id:   CAN ID
+ * @param  frame:    8B 帧数据
+ * @param  len:      DLC
+ * @param  fast:     1=快速模式（CF 连发）：跳过 pre-wait 和确认等待，
+ *                   STmin 已保证帧间隔，无需等 TX idle
+ *                   0=完整模式（FF/FC）：pre-wait + 确认，防 SN 乱序
+ * @retval 0=成功，-1=失败
+ */
+static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
+                             uint8_t fast)
 {
   uint8_t h_before;
   uint8_t h_after;
   uint8_t have_prev;
   uint32_t start;
 
-  /* Pre-wait for TX idle: after wake from Sleep, WK/BOOTUP lifecycle
-   * frames may still occupy the mailboxes. 50ms is enough for a
-   * lifecycle frame at 250kbps (~0.5ms); 1s would burn the entire
-   * host timeout budget before the FF is even sent. */
-  (void)can_driver_wait_tx_idle(50U);
+  if (fast == 0U)
+  {
+    /* Pre-wait for TX idle: after wake from Sleep, WK/BOOTUP lifecycle
+     * frames may still occupy the mailboxes. 50ms is enough for a
+     * lifecycle frame at 250kbps (~0.5ms). */
+    (void)can_driver_wait_tx_idle(50U);
+  }
 
   start = timer_get_tick();
   while ((timer_get_tick() - start) < ISOTP_N_AS_TIMEOUT_MS)
@@ -63,16 +76,16 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len)
     have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
     if (can_driver_send(can_id, frame, len) == 0)
     {
-      /* PTB 优先于 STB。CF 若未等上一帧上总线就塞进 STB，SN 会乱序，
-       * 主机 ISO-TP 组帧失败（ZCANPRO 表现为 22 F195 无应答）。
-       * 用 handle 精确等本帧上总线，不用 wait_tx_idle 笼统判定——
-       * 笼统判定会被其他帧（lifecycle 广播等）的 TRANSMITTED 提前
-       * 满足，下一 CF 在本帧未上总线时入队，SN 乱序（0x27 seed
-       * 多帧 CF out of sequence 根因）。 */
-      if ((can_driver_last_tx_handle(&h_after) == 0) &&
-          ((have_prev == 0U) || (h_after != h_before)))
+      if (fast == 0U)
       {
-        (void)can_driver_wait_tx_frame(h_after, ISOTP_N_AS_TIMEOUT_MS);
+        /* CF ordering: wait for THIS frame on the bus before the next CF
+         * is enqueued — otherwise SN reorders and the host ISO-TP assembly
+         * fails. SF/FC have no ordering constraint, so skip the wait. */
+        if ((can_driver_last_tx_handle(&h_after) == 0) &&
+            ((have_prev == 0U) || (h_after != h_before)))
+        {
+          (void)can_driver_wait_tx_frame(h_after, ISOTP_N_AS_TIMEOUT_MS);
+        }
       }
       return 0;
     }
@@ -496,7 +509,7 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
     {
       frame[i] = 0xCCU;
     }
-    return isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE);
+    return isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE, 1U);
   }
 
   /* MF only: copy payload to internal buffer. isotp_wait_cts processes
@@ -514,7 +527,7 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
       frame[2 + i] = payload[i];
     }
   }
-  if (isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE) != 0)
+  if (isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE, 0U) != 0)
   {
     return -1;
   }
@@ -566,7 +579,7 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
     {
       frame[i] = 0xCCU;
     }
-    if (isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE) != 0)
+    if (isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE, 1U) != 0)
     {
       return -1;
     }
