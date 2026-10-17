@@ -129,10 +129,44 @@ class LPTest:
                     return "UDS"
         return None
 
+    def probe_device_state(self):
+        """探测设备当前状态：返回 'awake' 或 'sleep'。
+        超时 3s（唤醒+响应需 ~2s，1.5s 不够会误判 Sleep）。"""
+        _log("探测设备状态...")
+        self.z.send_can(UDS_REQ_ID, bytes([0x03, 0x22, 0xF1, 0x95, 0xCC, 0xCC, 0xCC, 0xCC]))
+        t0 = time.time()
+        while (time.time() - t0) < 3.0:
+            for cid, d in self.pump_frames():
+                if cid == UDS_RESP_ID:
+                    _log("设备在线（有 UDS 响应）")
+                    return "awake"
+        _log("设备无响应（可能已在 Sleep）")
+        return "sleep"
+
     def run_cycle(self, cycle_num):
         """单次进入/唤醒测试。返回 (enter_ok, wake_ok, detail)。"""
         _log("==== 周期 %d ====" % cycle_num)
 
+        # 0. 探测设备状态
+        state = self.probe_device_state()
+
+        if state == "sleep":
+            # 设备已在 Sleep，跳过进入验证，直接测唤醒
+            _log("设备已在 Sleep，跳过进入验证，直接测唤醒")
+            time.sleep(0.3)  # 过 inhibit 窗口
+            self.send_wake()
+            wake_src = self.wait_wake(5.0)
+            if wake_src is None:
+                self.send_wake()
+                wake_src = self.wait_wake(5.0)
+            if wake_src is None:
+                return (True, False, "already_sleep_no_wake;")
+            _log("唤醒成功（%s）" % wake_src)
+            time.sleep(0.2)
+            lp = self.read_did_2119(2.0)
+            if lp:
+                _log("DID 0x2119: flags=0x%02X wup_cnt=%d last_sleep=%ds" % lp)
+            return (True, True, "already_sleep;")
         # 1. 等待/确认进入 Sleep
         if self.no_wait_idle:
             _log("跳过空闲等待，直接监测 Sleep 诊断帧（最多 %ds）" % int(self.idle_s + 5))
