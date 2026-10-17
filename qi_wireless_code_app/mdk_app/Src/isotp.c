@@ -478,13 +478,6 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
     return -1;
   }
 
-  /* Copy payload to internal buffer: isotp_wait_cts processes incoming
-   * UDS requests inline, and proto_send_response may overwrite g_tx_pend
-   * (the caller's buffer). All frame construction below reads from
-   * g_tx_copy, so the transfer is immune to buffer reuse. */
-  memcpy(g_tx_copy, payload, len);
-  payload = g_tx_copy;
-
   if (len <= 7U)
   {
     uint16_t i;
@@ -499,6 +492,12 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
     }
     return isotp_can_send(can_id, frame, ISOTP_CAN_FRAME_SIZE);
   }
+
+  /* MF only: copy payload to internal buffer. isotp_wait_cts processes
+   * incoming UDS requests inline; a nested SF isotp_tx_send must NOT
+   * overwrite this buffer while the MF transfer is still reading from it. */
+  memcpy(g_tx_copy, payload, len);
+  payload = g_tx_copy;
 
   frame[0] = ISOTP_PCI_TYPE_FF | (uint8_t)((len >> 8) & 0x0FU);
   frame[1] = (uint8_t)(len & 0xFFU);
