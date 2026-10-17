@@ -113,6 +113,12 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
   uint8_t have_prev;
   int8_t  wait_rc;
 
+  /* Pre-wait for TX idle: the previous UDS response (e.g. 27 01 seed
+   * multi-frame) may still be transmitting when the next request's FF
+   * arrives. Without this, can_driver_send rejects both mailboxes and
+   * FC never reaches the host (27 02 66B / 0x34 11B multi-frame timeout). */
+  (void)can_driver_wait_tx_idle(50U);
+
   have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
 
   if (can_driver_send(can_id, fc_data, ISOTP_CAN_FRAME_SIZE) != 0)
