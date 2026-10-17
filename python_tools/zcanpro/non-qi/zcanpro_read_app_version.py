@@ -438,15 +438,15 @@ def wake_mcu(bus_id):
     2. _uds_init() 开接收通路，嗅探 AWK 帧作唤醒证据（1.5s，不拦截）；
     3. uds 3E 00 等 7E，最多重试 8 次（OTA-ARCH-0920-D3/P0，覆盖
        Boot→App CAN 黑窗最坏 ~5s；每次 UDS 超时 2s + 间隔 0.5s ≈ 20s）。"""
-    # 1) raw 3E 00 burst 唤醒（suppress，200ms 间隔）
+    # 1) raw 3E 00 burst 唤醒（200ms 间隔连发 3 帧，提高 Standby 唤醒成功率）
     for i in range(1, 4):
         if stopTask:
             raise RuntimeError("用户停止")
         try:
             can_send(bus_id, UDS_REQ_ID, [0x02, 0x3E, 0x00])
-            _log("[Tx] 3E 00 (%d/3) 抑制正响应" % i)
+            _log("[Tx] 3E 00 唤醒帧 %d/3" % i)
         except Exception as e:
-            _log("[Tx] 3E 00 (%d/3) 发送失败: %s" % (i, e))
+            _log("[Tx] 3E 00 唤醒帧 %d/3 发送失败: %s" % (i, e))
         time.sleep(0.2)
 
     # 2) 开接收 + AWK 证据嗅探（init 同时保证下面 uds 3E 00 可用）
