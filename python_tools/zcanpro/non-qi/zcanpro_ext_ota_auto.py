@@ -786,38 +786,16 @@ def read_did_u8(bus_id, did):
 
 
 def send_security_key(bus_id, sig, seed=None, priv=None):
-    """27 02 + 64-byte key. On 0x24 re-request seed and retry once.
-    27 03 chunked fallback on timeout (ZCANPRO uds_request cannot send
-    multi-frame requests — 66B 27 02 always times out) or NRC 0x12/0x13."""
+    """SecurityAccess 解锁：27 03 分片 + 27 02 验签。
+
+    不走 27 02 整包（66B 多帧）：ZCANPRO uds_request 不支持 host→ECU
+    多帧发送，整包必超时，且 ISO-TP 残缺帧会污染 ECU 状态机（后续
+    27 03 撞 NRC 0x24）。27 03 每帧 4B 单帧（SA_SIG_CHUNK=4），
+    ZCANPRO 可正常发送。
+    """
     sig = _to_bytes(sig)
     if len(sig) != 64:
         raise RuntimeError("ECDSA 签名须 64 字节, 实际 %d" % len(sig))
-    time.sleep(0.08)
-    try:
-        _log("SendKey 27 02 + 64 字节（整包）")
-        return uds_req(bus_id, SID_SA, [0x02] + _to_list(sig), wait_pending_s=45)
-    except UdsNrcError as e:
-        if e.nrc == 0x24 and seed is not None and priv is not None:
-            _log("27 02 NRC 0x24，重新 27 01 再送 27 02")
-            time.sleep(0.1)
-            rx = uds_req(bus_id, SID_SA, [0x01])
-            if len(rx) >= 34:
-                seed2 = _to_bytes(rx[2:34])
-                if seed2 != b"\x00" * 32:
-                    sig = ecdsa_sign_msg(priv, seed2)
-            time.sleep(0.08)
-            try:
-                return uds_req(bus_id, SID_SA, [0x02] + _to_list(sig), wait_pending_s=45)
-            except RuntimeError:
-                _log("27 02 整包仍超时，改 27 03 分片")
-        elif e.nrc not in (0x12, 0x13):
-            raise
-        else:
-            _log("27 02 整包 NRC 0x%02X，改 27 03 分片" % e.nrc)
-    except RuntimeError as e:
-        # ZCANPRO uds_request 不支持 host→ECU 多帧发送，66B 整包必超时。
-        # 直接走 27 03 分片（每帧 4B 单帧，ZCANPRO 可发）。
-        _log("27 02 整包超时（ZCANPRO 不支持多帧发送），改 27 03 分片: %s" % e)
     seq = 1
     off = 0
     while off < 64:
