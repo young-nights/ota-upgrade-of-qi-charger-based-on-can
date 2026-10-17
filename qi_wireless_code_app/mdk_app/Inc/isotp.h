@@ -68,8 +68,9 @@ extern "C" {
 /** @brief  N_Cr timeout waiting for next Consecutive Frame (ms) */
 #define ISOTP_N_CR_TIMEOUT_MS           1000U
 
-/** @brief  N_As timeout for a single CAN frame transmit (ms) */
-#define ISOTP_N_AS_TIMEOUT_MS           1000U
+/** @brief  N_As timeout for a single CAN frame transmit (ms).
+ *          250kbps: frame ~0.5ms; 50ms is ample margin for enqueue+confirm. */
+#define ISOTP_N_AS_TIMEOUT_MS           50U
 
 /* exported types ------------------------------------------------------------*/
 
