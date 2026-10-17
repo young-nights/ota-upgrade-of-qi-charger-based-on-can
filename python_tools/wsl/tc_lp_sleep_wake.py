@@ -88,15 +88,19 @@ class LPTest:
         _log("发送唤醒帧 18FF0101 AA 55")
 
     def read_did_2119(self, timeout_s=2.0):
-        """读 DID 0x2119（SIT1145 LP 状态），返回 (flags, wup_cnt, last_sec) 或 None。"""
+        """读 DID 0x2119（SIT1145 LP 状态），返回 (flags, wup_cnt, last_sec) 或 None。
+        CAN 数据含 ISO-TP SF PCI 字节：07 62 21 19 [flags] [cnt] [sec_lo] [sec_hi]。"""
         self.z.send_can(UDS_REQ_ID, DID_LP_STATUS_REQ)
         t0 = time.time()
         while (time.time() - t0) < timeout_s:
             for cid, d in self.pump_frames():
-                if cid == UDS_RESP_ID and len(d) >= 6 and d[0] == 0x62 and d[1] == 0x21 and d[2] == 0x19:
-                    flags = d[3]
-                    wup_cnt = d[4]
-                    last_sec = (d[5] << 8) | d[6] if len(d) >= 7 else 0
+                if cid != UDS_RESP_ID or len(d) < 8:
+                    continue
+                # ISO-TP SF: d[0]=PCI(0x07), d[1]=0x62, d[2]=0x21, d[3]=0x19
+                if (d[0] & 0xF0) == 0x00 and d[1] == 0x62 and d[2] == 0x21 and d[3] == 0x19:
+                    flags = d[4]
+                    wup_cnt = d[5]
+                    last_sec = d[6] | (d[7] << 8)
                     return (flags, wup_cnt, last_sec)
         return None
 

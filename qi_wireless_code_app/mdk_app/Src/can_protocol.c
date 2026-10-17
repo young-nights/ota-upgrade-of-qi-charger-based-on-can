@@ -380,14 +380,25 @@ static void can_lp_enter_normal(void)
    * only touches 0x23 EVENT_EN (sit1145_wake_enable) and 0x01 MODE_CONTROL,
    * so CANCtrl still holds the init value, which equals that official
    * sequence. CTS is already validated inside sit1145_normal_mode_set. */
-  for (retry = 0U; retry < 3U; retry++)
   {
-    if (sit1145_normal_mode_set() != 0U)
+    uint8_t mode_ok = 0U;
+    for (retry = 0U; retry < 3U; retry++)
     {
-      break;
+      if (sit1145_normal_mode_set() != 0U)
+      {
+        mode_ok = 1U;
+        break;
+      }
+      t0 = timer_get_tick();
+      while ((timer_get_tick() - t0) < 10U) { __NOP(); }
     }
-    t0 = timer_get_tick();
-    while ((timer_get_tick() - t0) < 10U) { __NOP(); }
+    if (mode_ok == 0U)
+    {
+      /* SIT1145 切 Normal 失败（3 次重试全败）：置 sticky 标志（DID 0x2119
+       * bit2），继续走完收尾——CAN 控制器仍可尝试通信，但收发器可能
+       * 异常。下次进 Sleep 时 sit1145_sleep_enter 会重新配置 CAN Control。 */
+      g_lp_sleep_fail = 1U;
+    }
   }
 
   /* 清 CW，等 RXD 从唤醒强制低恢复成隐性，再开 CAN，否则会 bus-off */
