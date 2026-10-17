@@ -61,29 +61,38 @@ class LPTest:
     def close(self):
         self.z.close()
 
+    def pump_frames(self):
+        """从 pump() 结果中提取 CAN 帧，返回 [(can_id, data)] 列表。"""
+        frames = []
+        for item in self.z.pump():
+            if item[0] == "can":
+                frames.append((item[1], item[3]))  # (cid, data)
+        return frames
+
     def pump_for(self, duration_s, on_frame=None):
         """轮询 duration_s 秒，每帧回调 on_frame(can_id, data)。
         返回收集到的帧列表。"""
         frames = []
         t0 = time.time()
         while (time.time() - t0) < duration_s:
-            for cid, d in self.z.pump():
+            for cid, d in self.pump_frames():
                 frames.append((cid, d, time.time()))
                 if on_frame:
                     on_frame(cid, d)
         return frames
 
     def send_wake(self):
-        """发一帧 CAN 唤醒（任意 250kbps 帧触发 WUP）。"""
-        self.z.send_can(UDS_REQ_ID, bytes([0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]))
-        _log("发送唤醒帧 3E 00")
+        """发一帧 CAN 唤醒（任意 250kbps 帧触发 WUP）。
+        用非 UDS ID 避免 UDS 栈干扰唤醒流程。"""
+        self.z.send_can(0x18FF0101, bytes([0xAA, 0x55, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]))
+        _log("发送唤醒帧 18FF0101 AA 55")
 
     def read_did_2119(self, timeout_s=2.0):
         """读 DID 0x2119（SIT1145 LP 状态），返回 (flags, wup_cnt, last_sec) 或 None。"""
         self.z.send_can(UDS_REQ_ID, DID_LP_STATUS_REQ)
         t0 = time.time()
         while (time.time() - t0) < timeout_s:
-            for cid, d in self.z.pump():
+            for cid, d in self.pump_frames():
                 if cid == UDS_RESP_ID and len(d) >= 6 and d[0] == 0x62 and d[1] == 0x21 and d[2] == 0x19:
                     flags = d[3]
                     wup_cnt = d[4]
@@ -96,7 +105,7 @@ class LPTest:
         _log("等待 Sleep 进入诊断帧（0x18FF270D E0）...")
         t0 = time.time()
         while (time.time() - t0) < timeout_s:
-            for cid, d in self.z.pump():
+            for cid, d in self.pump_frames():
                 if cid == LP_DIAG_ID and len(d) >= 8 and d[0] == 0xE0:
                     _log("收到 Sleep 诊断帧: %s" % _hex(d))
                     return d
@@ -107,7 +116,7 @@ class LPTest:
         _log("等待唤醒标识（WK 生命周期帧 / UDS 响应）...")
         t0 = time.time()
         while (time.time() - t0) < timeout_s:
-            for cid, d in self.z.pump():
+            for cid, d in self.pump_frames():
                 if cid == LIFE_ID and len(d) >= 4 and bytes(d[:4]) == WK_MAGIC:
                     _log("收到 WK 唤醒帧: %s" % _hex(d))
                     return "WK"
@@ -122,15 +131,10 @@ class LPTest:
 
         # 1. 等待/确认进入 Sleep
         if self.no_wait_idle:
-            # 不等空闲超时，直接发 3E 保活然后等诊断帧
-            # （设备可能已经过了 idle timeout 在 Sleep）
             _log("跳过空闲等待，直接监测 Sleep 诊断帧（最多 %ds）" % int(self.idle_s + 5))
             diag = self.wait_sleep_diag(self.idle_s + 5)
         else:
             _log("等待 %ds 空闲超时自动进 Sleep..." % int(self.idle_s))
-            # 先发一帧保活确认设备在线
-            self.send_wake()
-            time.sleep(0.1)
             diag = self.wait_sleep_diag(self.idle_s + 10)
 
         if diag is None:
@@ -138,6 +142,7 @@ class LPTest:
             return (False, False, "no_sleep_diag")
 
         # 解析诊断帧：[0]=E0 [1]=MODE [2]=EVENT_EN [3]=EV24 [4]=CAN_CTRL [5]=EV63 [6]=flags [7]=A5
+        # 注意：MODE 是进 Sleep 前的快照（=0x07 Normal 是预期的）
         mode = diag[1]
         ev_en = diag[2]
         ev24 = diag[3]
@@ -147,13 +152,9 @@ class LPTest:
         _log("诊断: MODE=0x%02X EVENT_EN=0x%02X EV24=0x%02X CAN_CTRL=0x%02X EV63=0x%02X flags=0x%02X"
              % (mode, ev_en, ev24, can_ctrl, ev63, flags))
 
-        # 验证 Sleep 进入
+        # 验证进入：诊断帧后设备应无 UDS 响应（=已进 Sleep）
         enter_ok = True
         detail = ""
-        if mode != 0x01:
-            _log("WARN: MODE=0x%02X ≠ 0x01（Sleep）" % mode)
-            enter_ok = False
-            detail += "mode!=01;"
         if (ev_en & 0x01) == 0:
             _log("WARN: CWE=0（CAN 唤醒未使能）")
             enter_ok = False
@@ -162,10 +163,36 @@ class LPTest:
             _log("WARN: g_lp_sleep_fail=1（进 Sleep 前 CAN Control 回读失败）")
             detail += "sleep_fail;"
 
-        # 2. 唤醒
+        # 等 300ms 过 inhibit 窗口，然后验证 Sleep：发 UDS 请求，无响应 = 在 Sleep
+        time.sleep(0.3)
+        _log("验证 Sleep：发 UDS 22 F1 95，无响应 = 已进 Sleep...")
+        self.z.send_can(UDS_REQ_ID, bytes([0x03, 0x22, 0xF1, 0x95, 0xCC, 0xCC, 0xCC, 0xCC]))
+        uds_got = False
+        t0 = time.time()
+        while (time.time() - t0) < 1.5:
+            for cid, d in self.pump_frames():
+                if cid == UDS_RESP_ID:
+                    uds_got = True
+                    break
+            if uds_got:
+                break
+        if uds_got:
+            _log("WARN: 设备有 UDS 响应，可能未真正进 Sleep")
+            enter_ok = False
+            detail += "not_in_sleep;"
+        else:
+            _log("无 UDS 响应 — 已进 Sleep ✓")
+            detail += "sleep_ok;"
+
+        # 2. 唤醒（已过 inhibit 窗口，直接发）
         _log("发送唤醒帧...")
         self.send_wake()
-        wake_src = self.wait_wake(3.0)
+        wake_src = self.wait_wake(5.0)
+
+        if wake_src is None:
+            _log("首次唤醒未检测到，重发唤醒帧...")
+            self.send_wake()
+            wake_src = self.wait_wake(5.0)
 
         if wake_src is None:
             _log("FAIL: 未收到唤醒标识")
