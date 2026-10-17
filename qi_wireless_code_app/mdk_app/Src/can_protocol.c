@@ -150,6 +150,12 @@ static uint8_t  g_qi_ver_q_state    = 0U;   /*!< 0=idle, 1=waiting Qi 回复 */
 static uint8_t  g_qi_ver_refresh_pending = 0U;  /*!< IAP 后版本刷新待处理（主循环轮询） */
 static uint32_t g_qi_ver_q_start_ms = 0U;
 
+/* SecurityAccess 验签开关（2026-10-17）：
+ * =1 严格验签（正常）：uECC_verify 校验 ECDSA 签名，失败 NRC 0x35
+ * =0 跳过验签（临时测试用）：27 02 直接解锁，不校验签名
+ * 与 ota_download.c OTA_VERIFY_ENFORCE 同风格，测试完必须恢复=1 */
+#define SA_VERIFY_ENFORCE  1
+
 /* ========================================================================== */
 /*  Qi charging state variables                                              */
 /* ========================================================================== */
@@ -1969,7 +1975,12 @@ static void handle_security_access(uint8_t *data, uint16_t len)
     }
     proto_begin_long_op(UDS_SID_SECURITY_ACCESS);
     sha256_hash(g_seed, 32U, hash);
+#if SA_VERIFY_ENFORCE == 0
+    /* 验签旁路（SA_VERIFY_ENFORCE=0）：跳过 uECC_verify，直接解锁 */
+    if (1)
+#else
     if (uECC_verify(g_app_ecdsa_pubkey, hash, g_sa_sig_buf) == 1)
+#endif
     {
       security_unlocked = 1;
       g_security_fail_count = 0;
