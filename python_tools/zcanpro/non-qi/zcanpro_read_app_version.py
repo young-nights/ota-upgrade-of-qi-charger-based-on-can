@@ -280,7 +280,8 @@ def can_recv(bus_id):
         _rx_logged += 1
         items_dbg = _unwrap_receive(raw)
         if items_dbg:
-            _log("[Rx] %d 帧: %s" % (len(items_dbg), repr(raw)[:240]))
+            _log("[Rx] %d 帧:" % len(items_dbg))
+            _log(_decode_frames_short(items_dbg))
         else:
             _log("[Rx] 无帧")
 
@@ -292,6 +293,35 @@ def can_recv(bus_id):
             continue
         out.append(parsed)
     return out
+
+
+def _decode_frame_text(can_id, data):
+    """单帧 → 可读文本：UDS 0x18DA030D / 生命周期 0x18FF260D / 其他"""
+    d = list(data)
+    hexs = _hex(d)
+    if can_id == (UDS_RESP_ID & 0x1FFFFFFF):
+        if len(d) >= 3 and d[0] == 0x02 and d[1] == 0x7E:
+            return "%08X UDS %s  (TesterPresent 正响应)" % (can_id, hexs)
+        if len(d) >= 3 and d[0] == 0x03 and d[1] == 0x7F:
+            return "%08X UDS %s  (NRC SID=%02X code=%02X)" % (can_id, hexs, d[2], d[3] if len(d) > 3 else 0)
+        return "%08X UDS %s" % (can_id, hexs)
+    if can_id == 0x18FF260D:
+        if len(d) >= 4 and d[:4] == [0x01, 0x41, 0x57, 0x4B]:
+            return "%08X LIFE %s  (WK 唤醒帧)" % (can_id, hexs)
+        if len(d) >= 4 and d[:4] == [0x01, 0x41, 0x00, 0x00]:
+            return "%08X LIFE %s  (BOOTUP 上电帧)" % (can_id, hexs)
+        return "%08X LIFE %s" % (can_id, hexs)
+    return "%08X %s" % (can_id, hexs)
+
+
+def _decode_frames_short(items):
+    """多帧列表 → 可读文本（每帧一行缩进）"""
+    lines = []
+    for f in items:
+        cid = f.get("can_id", 0) & 0x1FFFFFFF if isinstance(f, dict) else 0
+        dat = f.get("data", []) if isinstance(f, dict) else []
+        lines.append("      " + _decode_frame_text(cid, dat))
+    return "\n".join(lines)
 
 
 def _assemble(head, total, cfs):
