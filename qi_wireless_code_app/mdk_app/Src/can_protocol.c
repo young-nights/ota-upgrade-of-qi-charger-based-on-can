@@ -28,6 +28,7 @@
 #include "can_driver.h"
 #include "ota_trigger.h"
 #include "ota_download.h"
+#include "app_config.h"
 #include "isotp.h"
 #include "timer_drv.h"
 #include "lifecycle.h"
@@ -150,11 +151,7 @@ static uint8_t  g_qi_ver_q_state    = 0U;   /*!< 0=idle, 1=waiting Qi 回复 */
 static uint8_t  g_qi_ver_refresh_pending = 0U;  /*!< IAP 后版本刷新待处理（主循环轮询） */
 static uint32_t g_qi_ver_q_start_ms = 0U;
 
-/* SecurityAccess 验签开关（2026-10-17）：
- * =1 严格验签（正常）：uECC_verify 校验 ECDSA 签名，失败 NRC 0x35
- * =0 跳过验签（临时测试用）：27 02 直接解锁，不校验签名
- * 与 ota_download.c OTA_VERIFY_ENFORCE 同风格，测试完必须恢复=1 */
-#define SA_VERIFY_ENFORCE  1
+/* SA_VERIFY_ENFORCE 定义已移至 app_config.h（编译期开关集中管理） */
 
 /* ========================================================================== */
 /*  Qi charging state variables                                              */

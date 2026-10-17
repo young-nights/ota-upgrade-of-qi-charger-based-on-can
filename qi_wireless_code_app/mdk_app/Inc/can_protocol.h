@@ -49,21 +49,8 @@ extern "C" {
 /*  CAN low-power (Sleep) compile switch                                    */
 /* ========================================================================== */
 
-/**
- * @brief  SIT1145 Sleep 进入总开关（编译期单一开关）
- * @note   =1：空闲 CAN_LP_IDLE_TIMEOUT_MS（UDS 无收发）后进 Sleep；
- *             上电即 Normal，sit1145_init() 不进 Sleep，由首次
- *             can_protocol_poll 的 can_lp_enter_normal 完成
- *             sit1145_normal_mode_set + can_driver_online。
- *         =0：空闲停机整段不编译（can_lp_enter_sleep / can_lp_go_sleep
- *             定义与空闲超时判定），CAN 常在线；唤醒/恢复代码仍编译，无入口触发。
- *         未定义时默认=启用空闲超时进 Sleep（生产语义，防误配）；
- *         各调用点统一用
- *         #if !defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)
- *         形式判定。受控调用点：can_protocol.c can_lp_enter_sleep /
- *         can_lp_go_sleep 定义与调用点、can_protocol.c 空闲超时判定。
- */
-#define CAN_LP_SLEEP_ENABLE        1
+/* CAN_LP_SLEEP_ENABLE 定义已移至 app_config.h（编译期开关集中管理） */
+#include "app_config.h"
 
 /**
  * @brief  低功耗模式：Sleep（唯一模式，2026-10-16 起 Standby 路径已移除）
