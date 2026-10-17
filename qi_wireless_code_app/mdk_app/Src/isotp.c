@@ -52,9 +52,10 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len)
   uint32_t start;
 
   /* Pre-wait for TX idle: after wake from Sleep, WK/BOOTUP lifecycle
-   * frames may still occupy the mailboxes. Without this, can_driver_send
-   * fails immediately and the retry loop burns the full N_As timeout. */
-  (void)can_driver_wait_tx_idle(ISOTP_N_AS_TIMEOUT_MS);
+   * frames may still occupy the mailboxes. 50ms is enough for a
+   * lifecycle frame at 250kbps (~0.5ms); 1s would burn the entire
+   * host timeout budget before the FF is even sent. */
+  (void)can_driver_wait_tx_idle(50U);
 
   start = timer_get_tick();
   while ((timer_get_tick() - start) < ISOTP_N_AS_TIMEOUT_MS)

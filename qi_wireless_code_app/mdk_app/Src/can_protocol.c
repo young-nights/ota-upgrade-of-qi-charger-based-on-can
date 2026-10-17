@@ -565,8 +565,14 @@ static void proto_flush_pending_tx(void)
   {
     return;
   }
-  g_tx_pend_len = 0U;
-  (void)isotp_tx_send(CAN_PROTO_UDS_RESPONSE, g_tx_pend, n);
+  /* Only clear on success: if isotp_tx_send fails (TX mailbox busy after
+   * wake, FC timeout), keep g_tx_pend so the next can_protocol_poll
+   * retries. Clearing unconditionally dropped the response permanently
+   * (22 F1 95 first multi-frame after wake: no response, host timeout). */
+  if (isotp_tx_send(CAN_PROTO_UDS_RESPONSE, g_tx_pend, n) == 0)
+  {
+    g_tx_pend_len = 0U;
+  }
 }
 
 static void proto_send_response(uint8_t *data, uint16_t len)
