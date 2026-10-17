@@ -1301,6 +1301,7 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0):
         offset = 6
         sn = 1
         cf_in_block = 0
+        cf_count = 0
         while offset < total:
             if bs != 0 and cf_in_block >= bs:
                 fc = _wait_isotp_fc(bus_id, timeout_s)
@@ -1318,7 +1319,8 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0):
             offset += len(chunk)
             sn = (sn + 1) & 0x0F
             cf_in_block += 1
-        _log("[Tx CF] %d 帧（共 %d 字节）" % ((total - 6 + 6) // 7 + 1, total))
+            cf_count += 1
+        _log("[Tx CF] %d 帧" % cf_count)
 
     # 接收应答（单帧或多帧）
     return _recv_uds_response(bus_id, sid, timeout_s)
@@ -1331,10 +1333,17 @@ def _wait_isotp_fc(bus_id, timeout_s=2.0):
         if stopTask:
             raise RuntimeError("用户停止脚本")
         for cid, dat in _recv_frames(bus_id):
-            if (cid & 0x1FFFFFFF) == (UDS_RESP_ID & 0x1FFFFFFF) and len(dat) >= 1:
+            cid29 = cid & 0x1FFFFFFF
+            if cid29 == (UDS_RESP_ID & 0x1FFFFFFF) and len(dat) >= 1:
                 if (dat[0] & 0xF0) == 0x30:
+                    _log("[Rx FC] %s" % _hex(dat[:8]))
                     return list(dat)
+                else:
+                    _log("[Rx-dbg] FC等待中收到非FC UDS帧 PCI=%02X %s" % (dat[0] & 0xF0, _hex(dat[:8])))
+            else:
+                _log("[Rx-dbg] FC等待中收到非UDS帧 ID=%08X %s" % (cid29, _hex(dat[:8])))
         time.sleep(0.005)
+    _log("[Rx-dbg] FC 等待超时 %.1fs" % timeout_s)
     return None
 
 
@@ -1350,11 +1359,14 @@ def _recv_uds_response(bus_id, sid, timeout_s=3.0):
         if stopTask:
             raise RuntimeError("用户停止脚本")
         for cid, dat in _recv_frames(bus_id):
-            if (cid & 0x1FFFFFFF) != (UDS_RESP_ID & 0x1FFFFFFF):
+            cid29 = cid & 0x1FFFFFFF
+            if cid29 != (UDS_RESP_ID & 0x1FFFFFFF):
+                _log("[Rx-dbg] 非UDS ID %08X %s" % (cid29, _hex(dat[:8])))
                 continue
             if len(dat) < 1:
                 continue
             pci = dat[0] & 0xF0
+            _log("[Rx-dbg] UDS PCI=%02X %s" % (pci, _hex(dat[:8])))
             if pci == 0x00:
                 # SF: 0n <payload>
                 n = dat[0] & 0x0F
