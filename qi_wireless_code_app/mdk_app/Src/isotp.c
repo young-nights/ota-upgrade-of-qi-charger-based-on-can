@@ -9,6 +9,7 @@
 #include "can_driver.h"
 #include "timer_drv.h"
 #include "at32f422_426.h"
+#include <string.h>
 
 /* FC 送达确认与重试参数（FC 发送竞态修复 + 残余竞态加固）：
  * 总尝试 ≤5 次，尝试间 5ms tick 间隔；单帧上总线确认窗口 50ms——
@@ -39,12 +40,23 @@ static volatile uint8_t g_fc_pending = 0;
 static uint32_t g_fc_pending_can_id = 0;
 static uint8_t g_fc_pending_status = 0;
 
+/* TX payload 副本：isotp_wait_cts 期间处理新 UDS 请求时，
+ * proto_send_response 可能覆写 g_tx_pend；MF 发送从此副本读取。 */
+static uint8_t g_tx_copy[ISOTP_MAX_PAYLOAD];
+
 static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len)
 {
   uint8_t h_before;
   uint8_t h_after;
   uint8_t have_prev;
-  uint32_t start = timer_get_tick();
+  uint32_t start;
+
+  /* Pre-wait for TX idle: after wake from Sleep, WK/BOOTUP lifecycle
+   * frames may still occupy the mailboxes. Without this, can_driver_send
+   * fails immediately and the retry loop burns the full N_As timeout. */
+  (void)can_driver_wait_tx_idle(ISOTP_N_AS_TIMEOUT_MS);
+
+  start = timer_get_tick();
   while ((timer_get_tick() - start) < ISOTP_N_AS_TIMEOUT_MS)
   {
     have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
@@ -435,7 +447,14 @@ static int8_t isotp_wait_cts(uint8_t *out_bs, uint8_t *out_stmin)
     }
     if ((n == 0U) || ((data[0] & ISOTP_PCI_TYPE_MASK) != ISOTP_PCI_TYPE_FC))
     {
-      isotp_stash_frame(data, n);
+      /* Non-FC frame: process IMMEDIATELY (was: stash for later).
+       * Stashing delayed UDS handling until isotp_tx_send completed,
+       * causing host timeout on rapid successive requests (SecurityAccess
+       * retry, 22 F1 95 after wake). Processing inline lets the UDS
+       * handler generate a response — SF responses are sent inline (safe,
+       * isotp_tx_send has its own payload copy); MF responses queue in
+       * g_tx_pend and are flushed on the next can_protocol_poll. */
+      isotp_rx_process(data, n);
       continue;
     }
     isotp_rx_process(data, n);
@@ -457,6 +476,13 @@ int8_t isotp_tx_send(uint32_t can_id, uint8_t *payload, uint16_t len)
   {
     return -1;
   }
+
+  /* Copy payload to internal buffer: isotp_wait_cts processes incoming
+   * UDS requests inline, and proto_send_response may overwrite g_tx_pend
+   * (the caller's buffer). All frame construction below reads from
+   * g_tx_copy, so the transfer is immune to buffer reuse. */
+  memcpy(g_tx_copy, payload, len);
+  payload = g_tx_copy;
 
   if (len <= 7U)
   {
