@@ -713,36 +713,50 @@ def uds_init():
 
 
 def uds_req(bus_id, sid, payload, suppress=0, wait_pending_s=0):
-    """UDS 请求：统一走 uds_req_mf（手动 ISO-TP）。
+    """UDS 请求：单帧请求用 ZCANPRO uds_request，多帧请求用 uds_req_mf。
 
-    ZCANPRO uds_request 在 WSL shim 下不可靠（多帧请求发不出、
-    多帧应答丢尾帧），统一用手动 ISO-TP 收发。
+    ZCANPRO uds_request 能正确接收多帧应答（ECU→host），但不能发送
+    多帧请求（host→ECU）。因此：
+    - 单帧请求（≤7B）：用 uds_request（它处理多帧应答组装）
+    - 多帧请求（>7B，如 0x34/0x36）：用 uds_req_mf 手动 ISO-TP
     """
     if stopTask:
         raise RuntimeError("用户停止脚本")
-    t_end = time.time() + float(wait_pending_s)
-    while True:
-        if stopTask:
-            raise RuntimeError("用户停止脚本")
-        data = uds_req_mf(bus_id, sid, payload)
-        if suppress:
-            return None
-        if data:
-            sm_step = _safe_mode_step(data)
-            if sm_step is not None:
-                raise SafeModeError(sm_step)
-        if len(data) >= 3 and data[0] == SID_NRC:
-            if data[2] == NRC_RCRRP:
-                if wait_pending_s <= 0 or time.time() >= t_end:
-                    raise RuntimeError("SID=0x%02X 只收到 NRC 0x78" % sid)
-                time.sleep(1.0)
-                continue
-            raise UdsNrcError(data[1], data[2])
-        if not data:
-            raise RuntimeError("无应答 SID=0x%02X" % sid)
-        if data[0] != (sid + SID_PR):
-            raise RuntimeError("非正响应 SID=0x%02X %s" % (sid, _hex(data)))
-        return data
+    uds = [sid] + list(payload)
+    if len(uds) <= 7:
+        req = {
+            "src_addr": UDS_REQ_ID,
+            "dst_addr": UDS_RESP_ID,
+            "suppress_response": 1 if suppress else 0,
+            "sid": sid,
+            "data": list(payload),
+        }
+        t_end = time.time() + float(wait_pending_s)
+        while True:
+            if stopTask:
+                raise RuntimeError("用户停止脚本")
+            resp = zcanpro.uds_request(bus_id, req)
+            if suppress:
+                return None
+            data = list((resp or {}).get("data") or [])
+            if data:
+                sm_step = _safe_mode_step(data)
+                if sm_step is not None:
+                    raise SafeModeError(sm_step)
+            if len(data) >= 3 and data[0] == SID_NRC:
+                if data[2] == NRC_RCRRP:
+                    if wait_pending_s <= 0 or time.time() >= t_end:
+                        raise RuntimeError("SID=0x%02X 只收到 NRC 0x78" % sid)
+                    time.sleep(1.0)
+                    continue
+                raise UdsNrcError(data[1], data[2])
+            if not data:
+                raise RuntimeError("无应答 SID=0x%02X" % sid)
+            if data[0] != (sid + SID_PR):
+                raise RuntimeError("非正响应 SID=0x%02X %s" % (sid, _hex(data)))
+            return data
+    else:
+        return uds_req_mf(bus_id, sid, payload)
 
 
 def uds_try(bus_id, sid, payload, suppress=0):
@@ -773,9 +787,12 @@ def send_security_key(bus_id, sig, seed=None, priv=None):
     off = 0
     while off < 64:
         piece = sig[off:off + SA_SIG_CHUNK]
-        uds_req_mf(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
+        uds_req(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
         off += len(piece)
         seq += 1
+    _log("27 03 已送 64 字节 / %d 帧" % (seq - 1))
+    time.sleep(0.15)
+    return uds_req(bus_id, SID_SA, [0x02], wait_pending_s=45)
     _log("27 03 已送 64 字节 / %d 帧" % (seq - 1))
     time.sleep(0.15)
     return uds_req(bus_id, SID_SA, [0x02], wait_pending_s=45)

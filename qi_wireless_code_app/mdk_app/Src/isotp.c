@@ -60,30 +60,35 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
 
   if (fast == 0U)
   {
-    /* Pre-wait for TX idle: after wake from Sleep, WK/BOOTUP lifecycle
-     * frames may still occupy the mailboxes. 50ms is enough for a
-     * lifecycle frame at 250kbps (~0.5ms). */
+    /* Full mode (FF/FC): pre-wait + confirm. */
     (void)can_driver_wait_tx_idle(50U);
-  }
-
-  start = timer_get_tick();
-  while ((timer_get_tick() - start) < ISOTP_N_AS_TIMEOUT_MS)
-  {
-    have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
-    if (can_driver_send(can_id, frame, len) == 0)
+    start = timer_get_tick();
+    while ((timer_get_tick() - start) < ISOTP_N_AS_TIMEOUT_MS)
     {
-      if (fast == 0U)
+      have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
+      if (can_driver_send(can_id, frame, len) == 0)
       {
-        /* CF ordering: wait for THIS frame on the bus before the next CF
-         * is enqueued — otherwise SN reorders and the host ISO-TP assembly
-         * fails. SF/FC have no ordering constraint, so skip the wait. */
         if ((can_driver_last_tx_handle(&h_after) == 0) &&
             ((have_prev == 0U) || (h_after != h_before)))
         {
           (void)can_driver_wait_tx_frame(h_after, ISOTP_N_AS_TIMEOUT_MS);
         }
+        return 0;
       }
-      return 0;
+    }
+  }
+  else
+  {
+    /* Fast mode (CF/SF): pre-wait + retry, no confirm. */
+    (void)can_driver_wait_tx_idle(50U);
+    start = timer_get_tick();
+    while ((timer_get_tick() - start) < 500U)
+    {
+      if (can_driver_send(can_id, frame, len) == 0)
+      {
+        return 0;
+      }
+      isotp_delay_ms(1U);
     }
   }
   return -1;
