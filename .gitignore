@@ -83,3 +83,10 @@ python_tools/burn bin/
 # Keil build output directories
 **/Objects/
 */Listings/
+
+# .NET / Visual Studio (QiChargerStationTool)
+.vs/
+**/bin/
+**/obj/
+*.user
+*.suo
