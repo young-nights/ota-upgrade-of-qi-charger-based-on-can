@@ -463,10 +463,16 @@ def run_ota(dev, fw_path):
     else:
         sig = ecdsa_sign_msg(priv, seed)
         _log("SendKey 签名 %d 字节" % len(sig))
-        # 27 03 分片发送（每帧 4B，共 16 帧）
+        # 27 03 分片发送（每帧 4B，共 16 帧）；每 4 帧发 3E 保活防 S3 超时
         seq = 1
         off = 0
         while off < 64:
+            if seq == 5 or seq == 9 or seq == 13:
+                try:
+                    tp.send_sf(bytes([0x3E, 0x00]))
+                    tp.recv_response(timeout=1.0, expect_sid=0x3E)
+                except Exception:
+                    pass
             piece = sig[off:off + SA_SIG_CHUNK]
             payload = [0x03, seq] + list(piece)
             for attempt in range(3):
@@ -528,17 +534,22 @@ def run_ota(dev, fw_path):
     addr = [(BACKUP_BASE >> 24) & 0xFF, (BACKUP_BASE >> 16) & 0xFF,
             (BACKUP_BASE >> 8) & 0xFF, BACKUP_BASE & 0xFF]
     tp.drain(0.1)
+    try:
+        tp.send_sf(bytes([0x3E, 0x00]))
+        tp.recv_response(timeout=1.5, expect_sid=0x3E)
+        _log("  [TP] 3E 保活 OK")
+    except Exception:
+        _log("  [TP] 3E 保活失败（继续）")
     for i in range(3):
         try:
-            rx = uds.request(SID_RD, [0x00, 0x44] + addr + sz, timeout=5.0)
+            rx = uds.request(SID_RD, [0x00, 0x44] + addr + sz, timeout=8.0)
             _log("[Rx] %s" % _hex(rx))
             break
         except Exception as e:
             _log("0x34 第 %d/3 次失败: %s" % (i + 1, e))
-            # 确认 ECU 是否还活着
             try:
                 tp.send_sf(bytes([0x3E, 0x00]))
-                rx2 = tp.recv_response(timeout=2.0)
+                rx2 = tp.recv_response(timeout=2.0, expect_sid=0x3E)
                 _log("  [TP] 3E 00 → %s（ECU 活着）" % _hex(rx2))
             except Exception as e2:
                 _log("  [TP] 3E 00 也失败: %s（ECU 可能挂了）" % e2)
