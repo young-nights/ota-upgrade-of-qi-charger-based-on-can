@@ -158,8 +158,10 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
    * (b) ABORTED/REJECTED——硬件终态失败帧不会再上总线，返回 -1 重试
    * 两者都返回 -1 无法区分。保守策略：超时窗口 50ms 内帧大概率已
    * 完成（250kbps 单帧 ~0.5ms），返回 -1 触发重试。重试产生重复 FC
-   * 对 ISO-TP 安全（接收方幂等处理）。 */
-  return -1;
+   * 对 ISO-TP 安全（接收方幂等处理）。
+   * 但返回 1（已入队未确认）必须区别于 -1（未入队）：前者 FC 实际
+   * 已发到总线，rx_ctx.state 不能被清。 */
+  return 1;
 }
 
 /**
@@ -224,13 +226,21 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
       can_driver_offline();
       can_driver_online();
     }
-    if (isotp_send_fc_try(can_id, fc_data) == 0)
     {
-      return;
+      int8_t rc = isotp_send_fc_try(can_id, fc_data);
+      if (rc == 0)
+      {
+        return;
+      }
+      if (rc > 0)
+      {
+        /* FC 已入队（确认超时但帧大概率已上总线），不重试不清洗 */
+        return;
+      }
     }
   }
 
-  /* 全部尝试失败：清 RX 状态，不留 RX_IN_PROGRESS 脏状态 */
+  /* 全部尝试连 can_driver_send 都失败：清 RX 状态，不留 RX_IN_PROGRESS 脏状态 */
   rx_ctx.state = ISOTP_RX_STATE_IDLE;
 }
 
