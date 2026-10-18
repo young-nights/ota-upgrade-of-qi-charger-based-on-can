@@ -172,25 +172,37 @@
       </StackPanel>
     </Border>
 
-    <!-- 右：日志 + 记录 -->
-    <Border Grid.Row="1" Grid.Column="2" CornerRadius="4" Padding="8" Margin="0,0,0,6">
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+    <!-- 右：运行日志 + 操作记录（上下两栏，边框分隔） -->
+    <Grid Grid.Row="1" Grid.Column="2" Margin="6,0,0,6">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="3*"/>
+        <RowDefinition Height="12"/>
+        <RowDefinition Height="2*"/>
+      </Grid.RowDefinitions>
+
+      <!-- 运行日志 -->
+      <Border Grid.Row="0" CornerRadius="4" BorderBrush="#B0BEC5" BorderThickness="1">
         <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Text="运行日志" FontWeight="Bold" Margin="2,0,0,6"/>
+          <Border DockPanel.Dock="Top" Background="#ECEFF1" Padding="8,6">
+            <TextBlock Text="运行日志" FontWeight="Bold" Foreground="#37474F"/>
+          </Border>
           <ListBox x:Name="LstLog" FontFamily="Consolas" FontSize="11"
                    ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                   BorderThickness="0"/>
+                   BorderThickness="0" Padding="4"/>
         </DockPanel>
-        <DockPanel Grid.Column="1" Margin="6,0,0,0">
-          <TextBlock DockPanel.Dock="Top" Text="操作记录" FontWeight="Bold" Margin="2,0,0,6"/>
-          <ListBox x:Name="LstResult" BorderThickness="0"/>
+      </Border>
+
+      <!-- 操作记录 -->
+      <Border Grid.Row="2" CornerRadius="4" BorderBrush="#B0BEC5" BorderThickness="1">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Background="#E8EAF6" Padding="8,6">
+            <TextBlock Text="操作记录" FontWeight="Bold" Foreground="#283593"/>
+          </Border>
+          <ListBox x:Name="LstResult" BorderThickness="0" Padding="4"
+                   FontSize="12"/>
         </DockPanel>
-      </Grid>
-    </Border>
+      </Border>
+    </Grid>
 
     <TextBlock Grid.Row="2" Grid.ColumnSpan="3"
                Text="ZQWL-CANFD 250k ext · UDS 0x18DA0D03 / 0x18DA030D"
