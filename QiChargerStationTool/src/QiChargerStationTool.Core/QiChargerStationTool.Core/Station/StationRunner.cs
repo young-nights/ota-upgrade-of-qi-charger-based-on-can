@@ -72,6 +72,7 @@ public sealed class StationRunner
     {
         yield return new ConnectStep();
         if (c.DoReadVersion) yield return new ReadVersionStep();
+        if (c.DoReadSn) yield return new ReadSnStep();
         if (c.DoWriteSn) yield return new WriteSnStep();
         if (c.DoOtaUpgrade) yield return new OtaUpgradeStep();
         if (c.DoChargeTest) yield return new ChargeTestStep();

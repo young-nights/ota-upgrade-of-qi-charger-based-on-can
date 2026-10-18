@@ -1,45 +1,10 @@
-using System.Text;
 using QiChargerStationTool.Core.Protocol;
 
 namespace QiChargerStationTool.Core.Station.Steps;
 
 /// <summary>
-/// Production SN write: 10 02 → SA unlock (27 03 chunks + 27 02) → 2E F18C.
-/// Full ECDSA seed sign can be added later; here we do SA then SN write.
-/// </summary>
-public sealed class WriteSnStep : ITestStep
-{
-    public string Name => "写 SN";
-    public bool Critical => true;
-
-    public async Task<TestStepResult> RunAsync(StationContext ctx, CancellationToken ct)
-    {
-        await Task.Yield();
-        var sn = ctx.Config.SnCode;
-        if (string.IsNullOrWhiteSpace(sn))
-            return new TestStepResult { Name = Name, Status = TestStepStatus.Skipped, Message = "未配置 SN" };
-
-        try
-        {
-            ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }); // programming
-            // SecurityAccess: real signature required — raise clear error if not wired
-            return new TestStepResult
-            {
-                Name = Name,
-                Status = TestStepStatus.Failed,
-                Message = "SA 签名未接入（需私钥+seed 签名），请用 python_tools/sn_write_prod.py 或接入 Security/Ecdsa",
-            };
-        }
-        catch (Exception ex)
-        {
-            return new TestStepResult { Name = Name, Status = TestStepStatus.Failed, Message = ex.Message };
-        }
-    }
-}
-
-/// <summary>
 /// OTA upgrade: 10 02 → SA → 2E 20 10 01 → 31 erase → 34/36/37.
-/// SA unlock uses 27 03/27 02 path; seed signing is delegated to <see cref="Security.SeedSigner"/>.
+/// SA unlock uses 27 03 chunks + 27 02; seed signing via <see cref="Security.SeedSigner"/>.
 /// </summary>
 public sealed class OtaUpgradeStep : ITestStep
 {
