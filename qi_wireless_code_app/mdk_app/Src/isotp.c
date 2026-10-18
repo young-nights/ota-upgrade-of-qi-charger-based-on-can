@@ -73,7 +73,9 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
         if ((can_driver_last_tx_handle(&h_after) == 0) &&
             ((have_prev == 0U) || (h_after != h_before)))
         {
-          (void)can_driver_wait_tx_frame(h_after, ISOTP_N_AS_TIMEOUT_MS);
+          /* 确认窗口 50ms 即可（帧上总线 ~0.5ms）；1000ms 会在
+           * handle 确认偶尔丢失时把主循环卡死，拖垮后续 FC/应答。 */
+          (void)can_driver_wait_tx_frame(h_after, 50U);
         }
         return 0;
       }
@@ -369,9 +371,14 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
       }
 
       /* FC 延迟到 isotp_poll() 发送：ISR 上下文不做阻塞 TX */
-      g_fc_pending_can_id = CAN_ID_UDS_RESPONSE;
-      g_fc_pending_status = ISOTP_FC_STATUS_CTS;
-      g_fc_pending = 1;
+      /* isotp_rx_process 在主循环上下文（can_driver_poll / wait_cts），
+       * 不是 ISR：立即发 FC。原先延迟到 isotp_poll，会被 can_protocol_poll
+       * 前面的 flush/wait_tx_frame 阻塞 1~3s，主机等 FC 超时/CF 落在
+       * N_Cr 外 → 0x34 多帧请求无响应。 */
+      isotp_send_fc(CAN_ID_UDS_RESPONSE, ISOTP_FC_STATUS_CTS,
+                    ISOTP_FC_DEFAULT_BS, ISOTP_FC_DEFAULT_STMIN);
+      rx_ctx.last_cf_ms = timer_get_tick();
+      g_fc_pending = 0;
       break;
     }
 

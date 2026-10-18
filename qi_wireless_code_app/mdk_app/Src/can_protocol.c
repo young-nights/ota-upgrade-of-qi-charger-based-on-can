@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.60";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.61";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -578,6 +578,7 @@ static void can_lp_go_sleep(void)
 #define PROTO_TX_PEND_MAX  256U
 static uint8_t  g_tx_pend[PROTO_TX_PEND_MAX];
 static uint16_t g_tx_pend_len = 0U;
+static uint8_t  g_tx_pend_retries = 0U;
 
 static uint8_t uds_mf_busy(void)
 {
@@ -592,14 +593,22 @@ static void proto_flush_pending_tx(void)
   {
     return;
   }
-  /* Only clear on success: if isotp_tx_send fails (TX mailbox busy after
-   * wake, FC timeout), keep g_tx_pend so the next can_protocol_poll
-   * retries. Clearing unconditionally dropped the response permanently
-   * (22 F1 95 first multi-frame after wake: no response, host timeout). */
+  /* Only clear on success a few times: unlimited retry of a stuck multi-frame
+   * (isotp_wait_cts 1s timeout each) starves can_driver_poll and delays FC
+   * for the next host multi-frame request by 1~3s. Drop after 3 failures. */
   if (isotp_tx_send(CAN_PROTO_UDS_RESPONSE, g_tx_pend, n) == 0)
   {
     g_tx_pend_len = 0U;
     g_uds_mf_pending = 0U;
+    g_tx_pend_retries = 0U;
+    return;
+  }
+  g_tx_pend_retries++;
+  if (g_tx_pend_retries >= 3U)
+  {
+    g_tx_pend_len = 0U;
+    g_uds_mf_pending = 0U;
+    g_tx_pend_retries = 0U;
   }
 }
 
@@ -625,6 +634,7 @@ static void proto_send_response(uint8_t *data, uint16_t len)
   }
   memcpy(g_tx_pend, data, len);
   g_tx_pend_len = len;
+  g_tx_pend_retries = 0U;
   g_uds_mf_pending = 1U;  /* suppress lifecycle/ident until flushed */
 }
 
