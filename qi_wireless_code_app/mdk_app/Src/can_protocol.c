@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.63";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.64";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -811,6 +811,8 @@ static void proto_send_pending(uint8_t service_id)
 static void proto_begin_long_op(uint8_t service_id)
 {
   g_long_op_sid = service_id;
+  /* 长操作（擦除等）期间刷新 S3，避免 session_reset 把 g_erased/解锁清掉 */
+  last_tester_present_tick = timer_get_tick();
   proto_can_busoff_recover();
   (void)sit1145_normal_mode_set();
   proto_send_pending(service_id);
@@ -839,6 +841,7 @@ void can_proto_pump_long_op(void)
   (void)sit1145_normal_mode_set();
   proto_send_pending(g_long_op_sid);
   g_long_op_last_pending_ms = timer_get_tick();
+  last_tester_present_tick = timer_get_tick();
   (void)can_driver_wait_tx_idle(20U);
 }
 

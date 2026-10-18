@@ -264,10 +264,11 @@ class IsoTp:
         bs = fc[1] if len(fc) > 1 else 0
         stmin_raw = fc[2] if len(fc) > 2 else 0
         stmin = 0.001 if stmin_raw == 0 else (stmin_raw / 1000.0 if stmin_raw <= 0x7F else 0.001)
-        # CF
+        # CF：FC 后稍等，给 ECU 留出进入 RX_IN_PROGRESS 的时间；SN=1 重发一次防丢
         offset = 6
         sn = 1
         cf_in_block = 0
+        first_cf = True
         while offset < total:
             if bs != 0 and cf_in_block >= bs:
                 fc = self._wait_fc(timeout=2.0)
@@ -283,6 +284,11 @@ class IsoTp:
             cf = bytes([0x20 | (sn & 0x0F)]) + chunk + b"\xCC" * (8 - 1 - len(chunk))
             self._send_frame(cf)
             _log("[Tx CF] sn=%d %s" % (sn, _hex(cf, 8)))
+            if first_cf:
+                time.sleep(0.01)
+                self._send_frame(cf)
+                _log("[Tx CF-retry] sn=%d（防首帧丢失）" % sn)
+                first_cf = False
             offset += len(chunk)
             sn = (sn + 1) & 0x0F
             cf_in_block += 1
@@ -297,8 +303,13 @@ class IsoTp:
                         return dat
         return None
 
-    def recv_response(self, timeout=3.0, expect_sid=None):
-        """接收 UDS 应答（SF 或 MF），自动回 FC 组多帧。返回 UDS payload bytes。"""
+    def recv_response(self, timeout=3.0, expect_sid=None, expect_sub=None):
+        """接收 UDS 应答（SF 或 MF），自动回 FC 组多帧。返回 UDS payload bytes。
+
+        expect_sub: 子功能过滤（27 02 的正响应是 67 02，须与 27 03 的
+        67 03 <seq> 区分）。NRC 也必须匹配 expect_sid，否则生命周期帧
+        03 01 41 00 / 7F xx 78 会串台。
+        """
         t0 = time.time()
         ff_buf = None
         ff_total = 0
@@ -314,12 +325,18 @@ class IsoTp:
                 _log("[Rx raw] pci=%02X %s" % (pci, _hex(dat, 8)))
                 if pci == 0x00:  # SF
                     n = dat[0] & 0x0F
+                    if n == 0 or n > 7:
+                        continue
                     data = dat[1:1 + n]
                     if expect_sid is not None and len(data) >= 1:
                         if data[0] == SID_NRC:
-                            pass  # NRC 总是返回
+                            # NRC 必须对上 SID，否则是别的服务/生命周期残留
+                            if len(data) < 3 or data[1] != expect_sid:
+                                continue
                         elif data[0] != (expect_sid + SID_PR):
-                            continue  # 跳过不匹配
+                            continue
+                        elif expect_sub is not None and (len(data) < 2 or data[1] != expect_sub):
+                            continue
                     return bytes(data)
                 elif pci == 0x10:  # FF
                     if ff_buf is not None:
@@ -352,7 +369,8 @@ class Uds:
     def __init__(self, tp):
         self.tp = tp
 
-    def request(self, sid, payload, expect_sid=True, timeout=3.0, wait_pending_s=45.0):
+    def request(self, sid, payload, expect_sid=True, timeout=3.0, wait_pending_s=45.0,
+                expect_sub=None):
         """发送 UDS 请求并等应答。自动处理 NRC 0x78。"""
         uds = bytes([sid]) + bytes(payload)
         if len(uds) <= 7:
@@ -361,7 +379,9 @@ class Uds:
             self.tp.send_mf(uds)
         t_end = time.time() + wait_pending_s
         while True:
-            data = self.tp.recv_response(timeout=timeout, expect_sid=sid if expect_sid else None)
+            data = self.tp.recv_response(
+                timeout=timeout, expect_sid=sid if expect_sid else None,
+                expect_sub=expect_sub)
             if len(data) >= 3 and data[0] == SID_NRC:
                 if data[2] == NRC_RCRRP:
                     if time.time() >= t_end:
@@ -465,7 +485,8 @@ def run_ota(dev, fw_path):
         # 27 02 触发验签
         for attempt in range(3):
             try:
-                rx = uds.request(SID_SA, [0x02], timeout=5.0, wait_pending_s=60.0)
+                rx = uds.request(SID_SA, [0x02], timeout=8.0, wait_pending_s=90.0,
+                                 expect_sub=0x02)
                 _log("[Rx] %s" % _hex(rx))
                 break
             except Exception as e:

@@ -396,7 +396,8 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
         uint8_t sn = data[0] & 0x0FU;
         if (sn != rx_ctx.expected_sn)
         {
-          rx_ctx.state = ISOTP_RX_STATE_IDLE;
+          /* 忽略乱序/重复 CF，绝不 abort：主机重发 CF 或总线重复帧
+           * 会把整包组包打死（0x34 无响应）。超时清理交给 N_Cr。 */
           return;
         }
       }
