@@ -378,10 +378,20 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
         {
           fc[fi] = 0xCCU;
         }
-        (void)can_driver_send(CAN_ID_UDS_RESPONSE, fc, 8U);
+        if (can_driver_send(CAN_ID_UDS_RESPONSE, fc, 8U) != 0)
+        {
+          /* 邮箱忙（刚发完 3E/应答）：交给 isotp_poll 重发，绝不能
+           * 既失败又清 g_fc_pending——否则 FC 永远发不出，CF 不会来。 */
+          g_fc_pending_can_id = CAN_ID_UDS_RESPONSE;
+          g_fc_pending_status = ISOTP_FC_STATUS_CTS;
+          g_fc_pending = 1U;
+        }
+        else
+        {
+          g_fc_pending = 0U;
+        }
       }
       rx_ctx.last_cf_ms = timer_get_tick();
-      g_fc_pending = 0;
       break;
     }
 

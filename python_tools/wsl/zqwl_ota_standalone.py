@@ -254,10 +254,14 @@ class IsoTp:
         # FF
         ff = bytes([0x10 | ((total >> 8) & 0x0F), total & 0xFF]) + uds_bytes[:6]
         ff += b"\xCC" * (8 - len(ff))
-        self._send_frame(ff)
-        _log("[Tx FF] %s" % _hex(ff, 8))
-        # 等 FC（擦除后 FC 可能延迟，放宽到 5s）
-        fc = self._wait_fc(timeout=5.0)
+        # FF：1s 内无 FC 则重发（ECU 邮箱忙时 FC 可能丢）
+        fc = None
+        for ff_try in range(4):
+            self._send_frame(ff)
+            _log("[Tx FF] try%d %s" % (ff_try + 1, _hex(ff, 8)))
+            fc = self._wait_fc(timeout=1.5 if ff_try == 0 else 2.0)
+            if fc is not None:
+                break
         if fc is None:
             raise RuntimeError("ISO-TP FC 超时")
         _log("[Rx FC] %s" % _hex(fc, 8))
