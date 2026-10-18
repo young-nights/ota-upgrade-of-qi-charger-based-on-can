@@ -40,6 +40,8 @@ static uint8_t g_fc_pending_status = 0;
  * proto_send_response 可能覆写 g_tx_pend；MF 发送从此副本读取。 */
 static uint8_t g_tx_copy[ISOTP_MAX_PAYLOAD];
 
+static void isotp_delay_ms(uint32_t ms);
+
 /**
  * @brief  发送一帧 CAN（带重试）
  * @param  can_id:   CAN ID
