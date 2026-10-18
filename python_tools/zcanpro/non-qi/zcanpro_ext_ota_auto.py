@@ -1268,7 +1268,8 @@ def _raw_send(bus_id, can_id, data):
     return False
 
 
-def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2=None):
+def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2=None,
+               quiet=False):
     """手动 ISO-TP 多帧发送 + 单帧/多帧接收。
 
     ZCANPRO uds_request 不支持 host→ECU 多帧发送（>7B UDS 请求必超时），
@@ -1276,6 +1277,7 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2
 
     expect_sub: 期望应答 sub-function（data[1]），不匹配则跳过（防延迟应答污染）。
     expect_sub2: 期望应答 data[2]（如 27 03 的 blockSeq），不匹配则跳过。
+    quiet: True 时不打逐帧 CF/raw 日志（TransferData 高频路径），只打一行 TX/RX。
     """
     uds = [sid] + list(payload)
     total = len(uds)
@@ -1290,13 +1292,14 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2
     else:
         # FF：短超时重发（ECU 邮箱忙时首帧 FC 会丢）；收到 FC 后不再发 FF
         fc = None
+        ff_hdr = [0x10 | ((total >> 8) & 0x0F), total & 0xFF]
         for ff_try in range(3):
-            ff = [0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6]
+            ff = ff_hdr + uds[:6]
             ff += [0xCC] * (8 - len(ff))
             _raw_send(bus_id, UDS_REQ_ID, ff)
-            _log("[Tx FF] try%d %s" % (ff_try + 1,
-                 _hex([0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6])))
-            fc = _wait_isotp_fc(bus_id, timeout_s if ff_try == 0 else timeout_s)
+            if not quiet:
+                _log("[Tx FF] try%d %s" % (ff_try + 1, _hex(ff_hdr + uds[:6])))
+            fc = _wait_isotp_fc(bus_id, timeout_s, quiet=quiet)
             if fc is not None:
                 break
         if fc is None:
@@ -1310,9 +1313,10 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2
         sn = 1
         cf_in_block = 0
         cf_count = 0
+        cf_fail = 0
         while offset < total:
             if bs != 0 and cf_in_block >= bs:
-                fc = _wait_isotp_fc(bus_id, timeout_s)
+                fc = _wait_isotp_fc(bus_id, timeout_s, quiet=quiet)
                 if fc is None:
                     raise RuntimeError("ISO-TP FC 超时（BS 等待）")
                 bs = fc[1] if len(fc) > 1 else 0
@@ -1324,22 +1328,32 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2
             chunk = uds[offset:offset + 7]
             cf = [0x20 | (sn & 0x0F)] + chunk + [0xCC] * (8 - 1 - len(chunk))
             cf_ok = _raw_send(bus_id, UDS_REQ_ID, cf)
-            _log("[Tx CF] sn=%d %s" % (sn, "OK" if cf_ok else "FAIL"))
+            if not cf_ok:
+                cf_fail += 1
+            if not quiet:
+                _log("[Tx CF] sn=%d %s" % (sn, "OK" if cf_ok else "FAIL"))
             # 末帧重发一次：首帧丢则 SN=1 重发仍能完成组包
             if offset + len(chunk) >= total:
                 time.sleep(0.01)
                 _raw_send(bus_id, UDS_REQ_ID, cf)
-                _log("[Tx CF-retry] sn=%d" % sn)
+                if not quiet:
+                    _log("[Tx CF-retry] sn=%d" % sn)
             offset += len(chunk)
             sn = (sn + 1) & 0x0F
             cf_in_block += 1
             cf_count += 1
-        _log("[Tx CF] %d 帧" % cf_count)
+        if quiet:
+            _log("[TX] %02X %02X len=%d CF=%d%s"
+                 % (sid, payload[0] if payload else 0, total, cf_count,
+                    (" FAIL=%d" % cf_fail) if cf_fail else ""))
+        else:
+            _log("[Tx CF] %d 帧" % cf_count)
 
     # 接收应答（单帧或多帧）
     t_end = time.time() + 45.0
     while True:
-        data = _recv_uds_response(bus_id, sid, timeout_s, expect_sub=expect_sub, expect_sub2=expect_sub2)
+        data = _recv_uds_response(bus_id, sid, timeout_s, expect_sub=expect_sub,
+                                  expect_sub2=expect_sub2, quiet=quiet)
         if data and len(data) >= 3 and data[0] == SID_NRC:
             if data[2] == NRC_RCRRP:
                 if time.time() >= t_end:
@@ -1348,10 +1362,12 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2
                 time.sleep(1.0)
                 continue
             raise UdsNrcError(data[1], data[2])
+        if quiet:
+            _log("[RX] %s" % _hex((data or [])[:8]))
         return data
 
 
-def _wait_isotp_fc(bus_id, timeout_s=2.0):
+def _wait_isotp_fc(bus_id, timeout_s=2.0, quiet=False):
     """等待 ISO-TP Flow Control 帧（PCI=0x3n）。返回 FC data 或 None。"""
     t0 = time.time()
     while time.time() - t0 < timeout_s:
@@ -1362,19 +1378,22 @@ def _wait_isotp_fc(bus_id, timeout_s=2.0):
             if cid29 != (UDS_RESP_ID & 0x1FFFFFFF):
                 continue
             if len(dat) >= 1:
-                _log("[FC wait] %s" % _hex(list(dat[:8])))
+                if not quiet:
+                    _log("[FC wait] %s" % _hex(list(dat[:8])))
                 if (dat[0] & 0xF0) == 0x30:
                     return list(dat)
         time.sleep(0.002)
     return None
 
 
-def _recv_uds_response(bus_id, sid, timeout_s=3.0, expect_sub=None, expect_sub2=None):
+def _recv_uds_response(bus_id, sid, timeout_s=3.0, expect_sub=None, expect_sub2=None,
+                       quiet=False):
     """接收 UDS 应答（单帧 SF 或多帧 FF+CF）。多帧自动回 FC 并组帧。
 
     SID 校验：data[0] 必须等于 sid+0x40（正响应），否则跳过。
     expect_sub: 若非 None，还须 data[1]==expect_sub（SA 服务防延迟应答污染）。
     expect_sub2: 若非 None，还须 data[2]==expect_sub2（如 27 03 blockSeq）。
+    quiet: True 时不打 [Rx raw] 逐帧日志。
     """
     t0 = time.time()
     ff_buf = None
@@ -1407,7 +1426,8 @@ def _recv_uds_response(bus_id, sid, timeout_s=3.0, expect_sub=None, expect_sub2=
             if len(dat) < 1:
                 continue
             pci = dat[0] & 0xF0
-            _log("[Rx raw] pci=%02X %s" % (pci, _hex(list(dat[:8]))))
+            if not quiet:
+                _log("[Rx raw] pci=%02X %s" % (pci, _hex(list(dat[:8]))))
             if pci == 0x00:
                 n = dat[0] & 0x0F
                 data = list(dat[1:1 + n])
@@ -1744,15 +1764,19 @@ def run_ota(bus_id):
         _log("---- TransferData ----")
         seq = 1
         off = 0
+        nblocks = (size + TRANSFER_BLOCK_DATA - 1) // TRANSFER_BLOCK_DATA
+        blk = 0
         while off < size:
             if stopTask:
                 raise RuntimeError("用户停止")
             chunk = image[off:off + TRANSFER_BLOCK_DATA]
-            uds_req_mf(bus_id, SID_TD, [seq] + _to_list(chunk))
+            uds_req_mf(bus_id, SID_TD, [seq] + _to_list(chunk), quiet=True)
             off += len(chunk)
+            blk += 1
             seq = (seq + 1) & 0xFF
-            if off == size or (off % (TRANSFER_BLOCK_DATA * 16) == 0):
-                _log("  %d/%d" % (off, size))
+            if off == size or (blk % 16 == 0):
+                _log("[进度] %d/%d 块  %d/%d 字节 (%d%%)"
+                     % (blk, nblocks, off, size, (off * 100) // size))
         _log("---- TransferExit ----")
         last_err = None
         for attempt in range(1, 6):
