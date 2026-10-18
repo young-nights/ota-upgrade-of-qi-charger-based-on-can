@@ -365,13 +365,21 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
         rx_ctx.received_len = copy_len;
       }
 
-      /* FC 延迟到 isotp_poll() 发送：ISR 上下文不做阻塞 TX */
-      /* isotp_rx_process 在主循环上下文（can_driver_poll / wait_cts），
-       * 不是 ISR：立即发 FC。原先延迟到 isotp_poll，会被 can_protocol_poll
-       * 前面的 flush/wait_tx_frame 阻塞 1~3s，主机等 FC 超时/CF 落在
-       * N_Cr 外 → 0x34 多帧请求无响应。 */
-      isotp_send_fc(CAN_ID_UDS_RESPONSE, ISOTP_FC_STATUS_CTS,
-                    ISOTP_FC_DEFAULT_BS, ISOTP_FC_DEFAULT_STMIN);
+      /* 立即发 FC（主循环上下文，非 ISR）。不用 isotp_send_fc 的
+       * bus-off 恢复/重试路径：offline→online 会清 RX FIFO，若主机
+       * 已按上一次 FC 发来 CF，会在这里被抹掉。 */
+      {
+        uint8_t fc[8];
+        uint8_t fi;
+        fc[0] = ISOTP_PCI_TYPE_FC | ISOTP_FC_STATUS_CTS;
+        fc[1] = ISOTP_FC_DEFAULT_BS;
+        fc[2] = ISOTP_FC_DEFAULT_STMIN;
+        for (fi = 3U; fi < 8U; fi++)
+        {
+          fc[fi] = 0xCCU;
+        }
+        (void)can_driver_send(CAN_ID_UDS_RESPONSE, fc, 8U);
+      }
       rx_ctx.last_cf_ms = timer_get_tick();
       g_fc_pending = 0;
       break;
