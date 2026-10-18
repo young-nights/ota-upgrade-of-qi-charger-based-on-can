@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Media;
 using QiChargerStationTool.Core.Station;
 
@@ -61,7 +61,7 @@ public partial class MainWindow : Window
                 Dispatcher.Invoke(() =>
                 {
                     TxtState.Text = pass ? "PASS" : "FAIL";
-                    TxtState.Foreground = new SolidColorBrush(pass ? Colors.ForestGreen : Colors.DarkOrangeRed);
+                    TxtState.Foreground = new SolidColorBrush(pass ? Colors.ForestGreen : Colors.Crimson);
                 });
             }
             catch (Exception ex)
@@ -70,7 +70,7 @@ public partial class MainWindow : Window
                 Dispatcher.Invoke(() =>
                 {
                     TxtState.Text = "FAIL";
-                    TxtState.Foreground = new SolidColorBrush(Colors.DarkOrangeRed);
+                    TxtState.Foreground = new SolidColorBrush(Colors.Crimson);
                 });
             }
             finally
