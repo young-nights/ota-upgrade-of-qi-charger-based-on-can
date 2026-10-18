@@ -240,7 +240,9 @@ def uds_req(bus_id, sid, payload, suppress=0):
         raise RuntimeError("无应答 SID=0x%02X %s"
                            % (sid, (resp or {}).get("result_msg", "")))
     if data[0] != (sid + SID_PR):
-        raise RuntimeError("非正响应 SID=0x%02X %s" % (sid, _hex(data)))
+        # 生命周期帧（03 01 41 00 等）落在 UDS 应答 ID，视为串台
+        raise RuntimeError("非正响应 SID=0x%02X %s（可能是生命周期帧串台）"
+                           % (sid, _hex(data)))
     return data
 
 

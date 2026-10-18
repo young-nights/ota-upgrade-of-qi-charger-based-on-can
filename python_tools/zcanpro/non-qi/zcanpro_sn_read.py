@@ -163,6 +163,9 @@ def uds_req(bus_id, sid, payload, suppress=0, wait_pending_s=0):
         if data:
             _log("[Rx] " + _hex(data[:24]))
         if len(data) >= 3 and data[0] == SID_NRC:
+            if len(data) >= 2 and data[1] != sid:
+                _log("[Rx] NRC SID=0x%02X≠0x%02X（串台），跳过" % (data[1], sid))
+                continue
             if data[2] == NRC_RCRRP:
                 if wait_pending_s <= 0 or time.time() >= t_end:
                     raise RuntimeError("SID=0x%02X NRC 0x78 超时" % sid)
@@ -173,7 +176,9 @@ def uds_req(bus_id, sid, payload, suppress=0, wait_pending_s=0):
         if not resp or not resp.get("result"):
             raise RuntimeError("无应答 SID=0x%02X" % sid)
         if len(data) < 1 or data[0] != (sid + SID_PR):
-            raise RuntimeError("非正响应 SID=0x%02X %s" % (sid, _hex(data)))
+            # 生命周期帧（03 01 41 00 等）落在 UDS 应答 ID，跳过勿判失败
+            _log("[Rx] 非本服务应答 %s（期望 SID=0x%02X），跳过" % (_hex(data[:6]), sid))
+            continue
         return data
 
 

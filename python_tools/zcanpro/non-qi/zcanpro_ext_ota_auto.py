@@ -744,6 +744,10 @@ def uds_req(bus_id, sid, payload, suppress=0, wait_pending_s=0):
                 if sm_step is not None:
                     raise SafeModeError(sm_step)
             if len(data) >= 3 and data[0] == SID_NRC:
+                # NRC 也必须对上 SID：7F 27 78 等串台帧不能当本服务应答
+                if len(data) >= 2 and data[1] != sid:
+                    _log("[Rx] NRC SID=0x%02X≠0x%02X（串台），跳过" % (data[1], sid))
+                    continue
                 if data[2] == NRC_RCRRP:
                     if wait_pending_s <= 0 or time.time() >= t_end:
                         raise RuntimeError("SID=0x%02X 只收到 NRC 0x78" % sid)
@@ -753,7 +757,10 @@ def uds_req(bus_id, sid, payload, suppress=0, wait_pending_s=0):
             if not data:
                 raise RuntimeError("无应答 SID=0x%02X" % sid)
             if data[0] != (sid + SID_PR):
-                raise RuntimeError("非正响应 SID=0x%02X %s" % (sid, _hex(data)))
+                # 生命周期帧落在 UDS 应答 ID：03 01 41 00 / 07 01 41 57 4B
+                _log("[Rx] 非本服务应答 %s（期望 SID=0x%02X），跳过"
+                     % (_hex(data[:6]), sid))
+                continue
             return data
     else:
         return uds_req_mf(bus_id, sid, payload)
@@ -787,6 +794,12 @@ def send_security_key(bus_id, sig, seed=None, priv=None):
     off = 0
     while off < 64:
         piece = sig[off:off + SA_SIG_CHUNK]
+        # 每 4 帧发 3E 80 保活（suppress，无应答帧），防分片期间 S3 超时
+        if seq in (5, 9, 13):
+            try:
+                uds_req(bus_id, SID_TP, [0x80], suppress=1)
+            except Exception:
+                pass
         for _try in range(3):
             try:
                 uds_req_mf(bus_id, SID_SA, [0x03, seq] + _to_list(piece),
@@ -1275,14 +1288,17 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2
         _raw_send(bus_id, UDS_REQ_ID, sf)
         _log("[Tx] %02X %s" % (sid, _hex(payload[:16]) + (" ..." if len(payload) > 16 else "")))
     else:
-        # FF：PCI=0x10, 12-bit length
-        ff = [0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6]
-        ff += [0xCC] * (8 - len(ff))
-        _raw_send(bus_id, UDS_REQ_ID, ff)
-        _log("[Tx FF] %s" % _hex([0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6]))
-
-        # 等 FC
-        fc = _wait_isotp_fc(bus_id, timeout_s)
+        # FF：短超时重发（ECU 邮箱忙时首帧 FC 会丢）；收到 FC 后不再发 FF
+        fc = None
+        for ff_try in range(3):
+            ff = [0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6]
+            ff += [0xCC] * (8 - len(ff))
+            _raw_send(bus_id, UDS_REQ_ID, ff)
+            _log("[Tx FF] try%d %s" % (ff_try + 1,
+                 _hex([0x10 | ((total >> 8) & 0x0F), total & 0xFF] + uds[:6])))
+            fc = _wait_isotp_fc(bus_id, timeout_s if ff_try == 0 else timeout_s)
+            if fc is not None:
+                break
         if fc is None:
             raise RuntimeError("ISO-TP FC 超时（ECU 未回 Flow Control）")
         bs = fc[1] if len(fc) > 1 else 0
@@ -1309,6 +1325,11 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2
             cf = [0x20 | (sn & 0x0F)] + chunk + [0xCC] * (8 - 1 - len(chunk))
             cf_ok = _raw_send(bus_id, UDS_REQ_ID, cf)
             _log("[Tx CF] sn=%d %s" % (sn, "OK" if cf_ok else "FAIL"))
+            # 末帧重发一次：首帧丢则 SN=1 重发仍能完成组包
+            if offset + len(chunk) >= total:
+                time.sleep(0.01)
+                _raw_send(bus_id, UDS_REQ_ID, cf)
+                _log("[Tx CF-retry] sn=%d" % sn)
             offset += len(chunk)
             sn = (sn + 1) & 0x0F
             cf_in_block += 1
@@ -1365,9 +1386,9 @@ def _recv_uds_response(bus_id, sid, timeout_s=3.0, expect_sub=None, expect_sub2=
     def _match(data):
         if not data:
             return False
-        # NRC (7F <sid> <nrc>) 始终返回给调用方处理
+        # NRC (7F <sid> <nrc>) 须对上 SID，否则是串台（7F 27 78 等）
         if data[0] == SID_NRC:
-            return True
+            return len(data) >= 2 and data[1] == sid
         if data[0] != expect_pr:
             return False
         if expect_sub is not None and (len(data) < 2 or data[1] != expect_sub):
