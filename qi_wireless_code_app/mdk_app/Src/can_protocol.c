@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.59";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.60";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -3103,8 +3103,11 @@ void can_protocol_poll(void)
     (void)sit1145_normal_mode_set();
   }
 
-  proto_flush_pending_tx();
+  /* 先 isotp_poll 发 FC 再 flush 待发应答：flush 可能走多帧 isotp_tx_send
+   * 并阻塞 wait_cts，若排在 FC 前会拖垮 host→ECU 多帧请求的 FF/FC/CF 时序
+   * （N_Cr 从 FF 起算，FC 迟到 → CF 到达时状态已清，0x34 无响应）。 */
   isotp_poll();
+  proto_flush_pending_tx();
 
   if ((now - sit_last) >= 500U)
   {

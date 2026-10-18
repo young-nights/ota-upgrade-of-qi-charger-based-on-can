@@ -65,8 +65,10 @@ extern "C" {
 /** @brief  N_Bs timeout waiting for Flow Control after First Frame (ms) */
 #define ISOTP_N_BS_TIMEOUT_MS           1000U
 
-/** @brief  N_Cr timeout waiting for next Consecutive Frame (ms) */
-#define ISOTP_N_CR_TIMEOUT_MS           1000U
+/** @brief  N_Cr timeout waiting for next Consecutive Frame (ms)
+ *  @note   从 FC 上总线起算（isotp_send_fc 刷新 last_cf_ms）；2000ms 覆盖
+ *          主机 ZQWL 适配器 + Python 收发环路的最坏延迟。 */
+#define ISOTP_N_CR_TIMEOUT_MS           2000U
 
 /** @brief  N_As timeout for a single CAN frame transmit (ms) */
 #define ISOTP_N_AS_TIMEOUT_MS           1000U

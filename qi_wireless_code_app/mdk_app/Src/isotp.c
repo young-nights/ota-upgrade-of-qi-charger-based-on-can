@@ -230,11 +230,16 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
       int8_t rc = isotp_send_fc_try(can_id, fc_data);
       if (rc == 0)
       {
+        /* N_Cr 从 FC 上总线起算：主机收到 FC 后才会发 CF。
+         * 若仍从 FF 起算，FC 发送被 flush/wait_tx_idle 拖延时
+         * CF 必然落在 N_Cr 外 → 状态被清 → 0x34 无响应。 */
+        rx_ctx.last_cf_ms = timer_get_tick();
         return;
       }
       if (rc > 0)
       {
         /* FC 已入队（确认超时但帧大概率已上总线），不重试不清洗 */
+        rx_ctx.last_cf_ms = timer_get_tick();
         return;
       }
     }

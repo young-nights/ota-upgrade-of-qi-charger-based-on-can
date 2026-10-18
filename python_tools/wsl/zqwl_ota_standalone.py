@@ -256,8 +256,8 @@ class IsoTp:
         ff += b"\xCC" * (8 - len(ff))
         self._send_frame(ff)
         _log("[Tx FF] %s" % _hex(ff, 8))
-        # 等 FC
-        fc = self._wait_fc(timeout=2.0)
+        # 等 FC（擦除后 FC 可能延迟，放宽到 5s）
+        fc = self._wait_fc(timeout=5.0)
         if fc is None:
             raise RuntimeError("ISO-TP FC 超时")
         _log("[Rx FC] %s" % _hex(fc, 8))
