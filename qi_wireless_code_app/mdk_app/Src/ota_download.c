@@ -458,6 +458,10 @@ void ota_dl_handle_request_download(uint8_t *data, uint16_t len)
   uint32_t dl_addr;
   uint8_t i;
 
+  /* DEBUG: 强制回 NRC 0xFE 确认 handler 被调用（测试后移除） */
+  can_proto_send_nrc(UDS_SID_REQUEST_DOWNLOAD, 0xFEU);
+  return;
+
   if (!can_proto_in_programming())
   {
     can_proto_send_nrc(UDS_SID_REQUEST_DOWNLOAD, UDS_NRC_CONDITIONS_NOT_CORRECT);
