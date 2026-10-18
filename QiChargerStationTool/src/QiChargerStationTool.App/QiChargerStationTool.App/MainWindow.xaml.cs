@@ -1,4 +1,5 @@
 using System.IO;
+using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -216,32 +217,68 @@ public partial class MainWindow : Window
             await UiAsync(() => Pass("读软件版本", ver));
         });
 
-    /// <summary>OTA：MCU1 APP，块 128B。</summary>
+    /// <summary>OTA：MCU1 APP，块 128B，使用 AT32 OTA 固件路径。</summary>
     private async void OnOtaUpgrade(object sender, RoutedEventArgs e)
         => await RunUpgradeAsync("OTA 升级", otaTarget: 0x01, transferBlock: 128,
+                                 fwPath: TxtOtaFirmware.Text.Trim(),
                                  timeout: TimeSpan.FromMinutes(20));
 
-    /// <summary>IAP：Qi 芯片 MCU2，块 22B（QI_IAP_MAX_CHUNK）。</summary>
+    /// <summary>IAP：Qi 芯片 MCU2，块 22B（QI_IAP_MAX_CHUNK），使用 QI IAP 固件路径。</summary>
     private async void OnIapUpgrade(object sender, RoutedEventArgs e)
         => await RunUpgradeAsync("IAP 升级", otaTarget: 0x04, transferBlock: 22,
+                                 fwPath: TxtIapFirmware.Text.Trim(),
                                  timeout: TimeSpan.FromMinutes(30));
 
-    private async Task RunUpgradeAsync(string name, byte otaTarget, int transferBlock,
-                                       TimeSpan timeout)
+    private void OnBrowseOtaFirmware(object sender, RoutedEventArgs e)
     {
-        var fw = TxtFirmware.Text.Trim();
-        if (!File.Exists(fw))
+        var dlg = new OpenFileDialog
         {
-            SetState("失败", Colors.Crimson, $"固件不存在: {fw}");
-            AppendResult("FAIL", name, $"固件不存在: {fw}");
+            Title = "选择 AT32 OTA 固件",
+            Filter = "固件 (*.bin)|*.bin|所有文件 (*.*)|*.*",
+            CheckFileExists = true,
+        };
+        if (dlg.ShowDialog() == true)
+            TxtOtaFirmware.Text = dlg.FileName;
+    }
+
+    private void OnBrowseIapFirmware(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "选择 QI IAP 固件",
+            Filter = "固件 (*.bin)|*.bin|所有文件 (*.*)|*.*",
+            CheckFileExists = true,
+        };
+        if (dlg.ShowDialog() == true)
+            TxtIapFirmware.Text = dlg.FileName;
+    }
+
+    private async Task RunUpgradeAsync(string name, byte otaTarget, int transferBlock,
+                                       string fwPath, TimeSpan timeout)
+    {
+        if (string.IsNullOrWhiteSpace(fwPath) || !File.Exists(fwPath))
+        {
+            SetState("失败", Colors.Crimson, $"固件不存在: {fwPath}");
+            AppendResult("FAIL", name, $"请先选择 .bin 固件（当前: {fwPath}）");
             return;
         }
 
         await RunOpAsync(name, timeout, async (uds, ct) =>
         {
-            var image = QiChargerStationTool.Core.Imaging.XatoImage.Load(fw);
-            AppendLog($"镜像 {image.Raw.Length}B ver={image.ExtractSwVersion()} "
-                      + (otaTarget == 0x04 ? "目标=MCU2/Qi" : "目标=MCU1/APP"));
+            byte[] raw = await Task.Run(() => File.ReadAllBytes(fwPath), ct);
+            string verHint = "";
+            if (otaTarget == 0x01)
+            {
+                // AT32 OTA 走 XATO 签名镜像
+                var image = QiChargerStationTool.Core.Imaging.XatoImage.Parse(raw);
+                verHint = image.ExtractSwVersion() ?? "";
+                AppendLog($"[OTA] XATO 镜像 {raw.Length}B ver={verHint} 目标=MCU1/APP");
+            }
+            else
+            {
+                // Qi IAP 原始 bin，无需 XATO 头
+                AppendLog($"[IAP] 原始固件 {raw.Length}B 目标=MCU2/Qi");
+            }
 
             await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
             var signer = RequireSigner();
@@ -256,7 +293,7 @@ public partial class MainWindow : Window
                 new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000), ct);
             AppendLog("31 擦除完成");
 
-            int size = image.Raw.Length;
+            int size = raw.Length;
             await Task.Run(() => uds.Request(ProtoIds.SidRd, new byte[]
             {
                 0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
@@ -266,7 +303,7 @@ public partial class MainWindow : Window
 
             int off = 0, seq = 1, blk = 0;
             int nblocks = (size + transferBlock - 1) / transferBlock;
-            var img = image.Raw;
+            var img = raw;
             while (off < size)
             {
                 ct.ThrowIfCancellationRequested();

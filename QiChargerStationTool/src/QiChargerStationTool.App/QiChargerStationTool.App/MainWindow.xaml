@@ -75,16 +75,47 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- 顶部连接条 -->
+    <!-- 顶部连接 + 固件 -->
     <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="4" Padding="8" Margin="0,0,0,8">
-      <StackPanel Orientation="Horizontal">
-        <TextBlock Text="COM" FontWeight="Bold" VerticalAlignment="Center"/>
-        <TextBox x:Name="TxtPort" Width="90" Text="COM9" VerticalContentAlignment="Center"/>
-        <TextBlock Text="波特率" FontWeight="Bold" VerticalAlignment="Center" Margin="10,0,0,0"/>
-        <TextBox x:Name="TxtBaud" Width="100" Text="2000000" VerticalContentAlignment="Center"/>
-        <TextBlock Text="固件" FontWeight="Bold" VerticalAlignment="Center" Margin="10,0,0,0"/>
-        <TextBox x:Name="TxtFirmware" Width="320" Text="firmware/app_image.bin" VerticalContentAlignment="Center"/>
-      </StackPanel>
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="110"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="110"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="COM 口" FontWeight="Bold" VerticalAlignment="Center" Margin="0,2"/>
+        <TextBox x:Name="TxtPort" Grid.Column="1" Text="COM9" VerticalContentAlignment="Center"/>
+        <TextBlock Grid.Column="2" Text="波特率" FontWeight="Bold" VerticalAlignment="Center" Margin="12,2,0,2"/>
+        <TextBox x:Name="TxtBaud" Grid.Column="3" Text="2000000" VerticalContentAlignment="Center"/>
+
+        <!-- AT32 OTA 固件 -->
+        <TextBlock Grid.Row="1" Text="AT32 OTA 固件" FontWeight="Bold"
+                   VerticalAlignment="Center" Margin="0,8,0,2"/>
+        <TextBox x:Name="TxtOtaFirmware" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3"
+                 Text="" Margin="2,8,2,2" VerticalContentAlignment="Center"
+                 ToolTip="AT32 APP 升级镜像（.bin，XATO 签名包）"/>
+        <Button Grid.Row="1" Grid.Column="4" Content="浏览…" Style="{StaticResource GrayBtn}"
+                Width="72" HorizontalAlignment="Left" Margin="2,8,0,2"
+                Click="OnBrowseOtaFirmware"/>
+
+        <!-- QI IAP 固件 -->
+        <TextBlock Grid.Row="2" Text="QI IAP 固件" FontWeight="Bold"
+                   VerticalAlignment="Center" Margin="0,8,0,2"/>
+        <TextBox x:Name="TxtIapFirmware" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3"
+                 Text="" Margin="2,8,2,2" VerticalContentAlignment="Center"
+                 ToolTip="Qi 芯片 IAP 固件（.bin）"/>
+        <Button Grid.Row="2" Grid.Column="4" Content="浏览…" Style="{StaticResource GrayBtn}"
+                Width="72" HorizontalAlignment="Left" Margin="2,8,0,2"
+                Click="OnBrowseIapFirmware"/>
+      </Grid>
     </Border>
 
     <!-- 左：SN + 状态 -->
