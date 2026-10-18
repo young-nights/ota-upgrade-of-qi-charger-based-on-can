@@ -10,7 +10,6 @@ namespace QiChargerStationTool.App;
 public partial class MainWindow : Window
 {
     private CancellationTokenSource? _cts;
-    private bool _busy;
 
     public MainWindow()
     {
@@ -24,18 +23,40 @@ public partial class MainWindow : Window
         TxtSn.SelectAll();
     }
 
-    private void SetBusy(bool busy)
+    /// <summary>操作中统一置灰，防止重复触发；结束/超时恢复。</summary>
+    private void SetBusy(bool busy, string? label = null)
     {
-        _busy = busy;
-        BtnSnRead.IsEnabled = !busy;
-        BtnSnWrite.IsEnabled = !busy;
-        BtnReadVersion.IsEnabled = !busy;
-        BtnOta.IsEnabled = !busy;
-        BtnIap.IsEnabled = !busy;
-        BtnChargeOn.IsEnabled = !busy;
-        BtnChargeOff.IsEnabled = !busy;
-        BtnStop.IsEnabled = busy;
-        if (!busy) FocusSnBox();
+        void Apply()
+        {
+            var disable = new[]
+            {
+                BtnSnRead, BtnSnWrite, BtnReadVersion,
+                BtnOta, BtnIap, BtnChargeOn, BtnChargeOff,
+            };
+            foreach (var b in disable)
+            {
+                b.IsEnabled = !busy;
+                if (busy)
+                {
+                    b.Tag = b.Background;
+                    b.Background = new SolidColorBrush(Color.FromRgb(0xBD, 0xBD, 0xBD));
+                    b.Foreground = new SolidColorBrush(Color.FromRgb(0x61, 0x61, 0x61));
+                }
+                else if (b.Tag is Brush restore)
+                {
+                    b.Background = restore;
+                    b.Foreground = new SolidColorBrush(Colors.White);
+                    b.Tag = null;
+                }
+            }
+            BtnStop.IsEnabled = busy;
+            Cursor = busy ? Cursors.Wait : Cursors.Arrow;
+            if (label is not null && busy)
+                SetState(label, Colors.DarkOrange);
+            if (!busy) FocusSnBox();
+        }
+        if (Dispatcher.CheckAccess()) Apply();
+        else Dispatcher.Invoke(Apply);
     }
 
     private void SetState(string text, Color color, string detail = "")
@@ -49,7 +70,7 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            LstLog.Items.Add($"[{DateTime.Now:HH:mm:ss}] {msg}");
+            LstLog.Items.Add($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
             LstLog.ScrollIntoView(LstLog.Items[^1]);
         });
     }
@@ -58,6 +79,74 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
             LstResult.Items.Add($"[{DateTime.Now:HH:mm:ss}] {status}  {name}  {msg}"));
+    }
+
+    /// <summary>
+    /// 执行一次设备操作：自动置灰按钮、超时保护、完成后恢复。
+    /// </summary>
+    private async Task RunOpAsync(string name, TimeSpan timeout, Func<UdsClient, CancellationToken, Task> body)
+    {
+        if (IsBusyGuard()) return;
+        SetBusy(true, name + "…");
+        AppendLog($"==== 开始 {name}（超时 {timeout.TotalSeconds:F0}s）====");
+        _cts = new CancellationTokenSource(timeout);
+        var ct = _cts.Token;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            await Task.Run(async () =>
+            {
+                var port = TxtPort.Text.Trim();
+                var baud = int.TryParse(TxtBaud.Text.Trim(), out var b) ? b : 2_000_000;
+                using var transport =
+                    new QiChargerStationTool.Core.Transport.ZqwlSerialTransport(port, baud);
+                transport.Open();
+                AppendLog($"CAN 打开 {port}");
+                var iso = new IsoTpClient(transport);
+                iso.OnLog += m => AppendLog(m);
+                var uds = new UdsClient(iso);
+                uds.OnLog += m => AppendLog(m);
+                await body(uds, ct);
+            }, ct);
+
+            sw.Stop();
+            AppendLog($"==== 完成 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
+        }
+        catch (OperationCanceledException)
+        {
+            sw.Stop();
+            AppendLog($"==== 超时/取消 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
+            AppendResult("TIMEOUT", name, $"超过 {timeout.TotalSeconds:F0}s 或被停止");
+            SetState("超时", Colors.Crimson, $"{name} 超时");
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {ex.Message} ====");
+            AppendResult("FAIL", name, ex.Message);
+            SetState("失败", Colors.Crimson, ex.Message);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private bool IsBusyGuard()
+    {
+        if (_cts is { IsCancellationRequested: false })
+        {
+            // 仍可运行说明上一次未结束——按钮本已置灰，这里兜底
+            return true;
+        }
+        return false;
+    }
+
+    private void Pass(string name, string msg)
+    {
+        AppendResult("PASS", name, msg);
+        SetState("完成", Colors.ForestGreen, msg);
+        AppendLog($"[PASS] {name}: {msg}");
     }
 
     // ---------- SN 扫码 ----------
@@ -84,32 +173,18 @@ public partial class MainWindow : Window
     }
 
     private async void OnSnRead(object sender, RoutedEventArgs e)
-    {
-        SetBusy(true);
-        SetState("读取 SN…", Colors.DarkOrange);
-        try
+        => await RunOpAsync("读 SN", TimeSpan.FromSeconds(15), async (uds, ct) =>
         {
-            await RunOnDeviceAsync(async (uds, ct) =>
+            var rx = await Task.Run(() =>
+                uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
+            var sn = DecodeSn(rx);
+            await UiAsync(() =>
             {
-                var rx = await Task.Run(() =>
-                    uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
-                var sn = DecodeSn(rx);
-                await UiAsync(() =>
-                {
-                    TxtSn.Text = sn;
-                    TxtSnHint.Text = $"设备 SN: {sn}";
-                    AppendLog($"[SN 读取] {sn}");
-                    AppendResult("PASS", "读 SN", sn);
-                    SetState("完成", Colors.ForestGreen, "SN 已读出");
-                });
+                TxtSn.Text = sn;
+                TxtSnHint.Text = $"设备 SN: {sn}";
+                Pass("读 SN", sn);
             });
-        }
-        catch (Exception ex)
-        {
-            Fail(ex, "读 SN");
-        }
-        finally { SetBusy(false); }
-    }
+        });
 
     private async void OnSnWrite(object sender, RoutedEventArgs e)
     {
@@ -117,72 +192,54 @@ public partial class MainWindow : Window
         if (sn.Length == 0) { TxtSnHint.Text = "请先扫码或输入 SN"; return; }
         if (sn.Length > 32) { TxtSnHint.Text = $"SN 过长 {sn.Length}>32"; return; }
 
-        SetBusy(true);
-        SetState("写入 SN…", Colors.DarkOrange);
-        try
+        await RunOpAsync("写 SN", TimeSpan.FromSeconds(60), async (uds, ct) =>
         {
-            await RunOnDeviceAsync(async (uds, ct) =>
+            await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
+            var signer = RequireSigner();
+            if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
+                throw new InvalidOperationException("SA 解锁失败");
+
+            await Task.Run(() =>
+                uds.Request(ProtoIds.SidWdbi, BuildSnPayload(sn), timeoutMs: 5000), ct);
+            var rx = await Task.Run(() =>
+                uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
+            var readBack = DecodeSn(rx);
+            if (!string.Equals(readBack, sn, StringComparison.Ordinal))
+                throw new InvalidOperationException($"写后读回不符 期望={sn} 实际={readBack}");
+
+            await UiAsync(() =>
             {
-                await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
-                var signer = RequireSigner();
-                if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
-                    throw new InvalidOperationException("SA 解锁失败");
-
-                await Task.Run(() =>
-                    uds.Request(ProtoIds.SidWdbi, BuildSnPayload(sn), timeoutMs: 5000), ct);
-                var rx = await Task.Run(() =>
-                    uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
-                var readBack = DecodeSn(rx);
-                if (!string.Equals(readBack, sn, StringComparison.Ordinal))
-                    throw new InvalidOperationException($"写后读回不符 期望={sn} 实际={readBack}");
-
-                await UiAsync(() =>
-                {
-                    TxtSnHint.Text = $"写入成功: {readBack}";
-                    AppendLog($"[SN 写入] {readBack}");
-                    AppendResult("PASS", "写 SN", readBack);
-                    SetState("完成", Colors.ForestGreen, "SN 写入并校验通过");
-                });
+                TxtSnHint.Text = $"写入成功: {readBack}";
+                Pass("写 SN", readBack);
             });
-        }
-        catch (Exception ex) { Fail(ex, "写 SN"); }
-        finally { SetBusy(false); }
+        });
     }
 
     // ---------- 测试操作按钮 ----------
 
     private async void OnReadVersion(object sender, RoutedEventArgs e)
-    {
-        SetBusy(true);
-        SetState("读版本…", Colors.DarkOrange);
-        try
+        => await RunOpAsync("读软件版本", TimeSpan.FromSeconds(15), async (uds, ct) =>
         {
-            await RunOnDeviceAsync(async (uds, ct) =>
+            var ver = await Task.Run(() =>
             {
-                var ver = await Task.Run(() =>
-                {
-                    var rx = uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 5000);
-                    return DecodeSn(rx); // same 32B ASCII padding
-                }, ct);
-                await UiAsync(() =>
-                {
-                    AppendLog($"[版本] {ver}");
-                    AppendResult("PASS", "读软件版本", ver);
-                    SetState("完成", Colors.ForestGreen, ver);
-                });
-            });
-        }
-        catch (Exception ex) { Fail(ex, "读软件版本"); }
-        finally { SetBusy(false); }
-    }
+                var rx = uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 5000);
+                return DecodeSn(rx);
+            }, ct);
+            await UiAsync(() => Pass("读软件版本", ver));
+        });
 
+    /// <summary>OTA：MCU1 APP，块 128B。</summary>
     private async void OnOtaUpgrade(object sender, RoutedEventArgs e)
-        => await RunUpgradeAsync("OTA 升级", otaTarget: 0x01);
+        => await RunUpgradeAsync("OTA 升级", otaTarget: 0x01, transferBlock: 128,
+                                 timeout: TimeSpan.FromMinutes(20));
 
+    /// <summary>IAP：Qi 芯片 MCU2，块 22B（QI_IAP_MAX_CHUNK）。</summary>
     private async void OnIapUpgrade(object sender, RoutedEventArgs e)
-        => await RunUpgradeAsync("IAP 升级", otaTarget: 0x04);
+        => await RunUpgradeAsync("IAP 升级", otaTarget: 0x04, transferBlock: 22,
+                                 timeout: TimeSpan.FromMinutes(30));
 
-    private async Task RunUpgradeAsync(string name, byte otaTarget)
+    private async Task RunUpgradeAsync(string name, byte otaTarget, int transferBlock,
+                                       TimeSpan timeout)
     {
         var fw = TxtFirmware.Text.Trim();
         if (!File.Exists(fw))
@@ -192,79 +249,65 @@ public partial class MainWindow : Window
             return;
         }
 
-        SetBusy(true);
-        SetState($"{name}…", Colors.DarkOrange, fw);
-        try
+        await RunOpAsync(name, timeout, async (uds, ct) =>
         {
-            await RunOnDeviceAsync(async (uds, ct) =>
+            var image = QiChargerStationTool.Core.Imaging.XatoImage.Load(fw);
+            AppendLog($"镜像 {image.Raw.Length}B ver={image.ExtractSwVersion()} "
+                      + (otaTarget == 0x04 ? "目标=MCU2/Qi" : "目标=MCU1/APP"));
+
+            await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
+            var signer = RequireSigner();
+            if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
+                throw new InvalidOperationException("SA 解锁失败");
+
+            await Task.Run(() => uds.Request(ProtoIds.SidWdbi,
+                new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000), ct);
+            AppendLog($"2E 20 10 {otaTarget:X2} 选择目标 OK");
+
+            await Task.Run(() => uds.Request(ProtoIds.SidRc,
+                new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000), ct);
+            AppendLog("31 擦除完成");
+
+            int size = image.Raw.Length;
+            await Task.Run(() => uds.Request(ProtoIds.SidRd, new byte[]
             {
-                var image = QiChargerStationTool.Core.Imaging.XatoImage.Load(fw);
-                AppendLog($"镜像 {image.Raw.Length}B ver={image.ExtractSwVersion()}");
+                0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
+                (byte)(size >> 24), (byte)(size >> 16), (byte)(size >> 8), (byte)size,
+            }, timeoutMs: 8000), ct);
+            AppendLog($"34 RequestDownload {size}B @ 0x08010000 block={transferBlock}");
 
-                await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
-                var signer = RequireSigner();
-                if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
-                    throw new InvalidOperationException("SA 解锁失败");
+            int off = 0, seq = 1, blk = 0;
+            int nblocks = (size + transferBlock - 1) / transferBlock;
+            var img = image.Raw;
+            while (off < size)
+            {
+                ct.ThrowIfCancellationRequested();
+                int n = Math.Min(transferBlock, size - off);
+                var payload = new byte[1 + n];
+                payload[0] = (byte)(seq & 0xFF);
+                Buffer.BlockCopy(img, off, payload, 1, n);
+                await Task.Run(() => uds.Request(ProtoIds.SidTd, payload,
+                    timeoutMs: 8000, waitPendingMs: 30_000), ct);
+                off += n;
+                blk++;
+                seq = (seq + 1) & 0xFF;
+                if (blk % 16 == 0 || off >= size)
+                    AppendLog($"[进度] {blk}/{nblocks}  {off}/{size} ({off * 100 / size}%)");
+            }
 
-                await Task.Run(() => uds.Request(ProtoIds.SidWdbi,
-                    new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000), ct);
-                AppendLog(otaTarget == 0x04 ? "目标 MCU2 (IAP)" : "目标 MCU1 (APP)");
+            try
+            {
+                await Task.Run(() => uds.Request(ProtoIds.SidRte,
+                    Array.Empty<byte>(), timeoutMs: 8000, waitPendingMs: 60_000), ct);
+                AppendLog("37 TransferExit 确认，设备自复位");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"37 异常（设备可能已自复位）: {ex.Message}");
+            }
 
-                // 31 erase
-                await Task.Run(() => uds.Request(ProtoIds.SidRc,
-                    new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000), ct);
-                AppendLog("擦除完成");
-
-                // 34
-                int size = image.Raw.Length;
-                await Task.Run(() => uds.Request(ProtoIds.SidRd, new byte[]
-                {
-                    0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
-                    (byte)(size >> 24), (byte)(size >> 16), (byte)(size >> 8), (byte)size,
-                }, timeoutMs: 8000), ct);
-                AppendLog($"RequestDownload {size}B");
-
-                // 36
-                int block = 128, off = 0, seq = 1, blk = 0;
-                int nblocks = (size + block - 1) / block;
-                var img = image.Raw;
-                while (off < size)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    int n = Math.Min(block, size - off);
-                    var payload = new byte[1 + n];
-                    payload[0] = (byte)(seq & 0xFF);
-                    Buffer.BlockCopy(img, off, payload, 1, n);
-                    await Task.Run(() => uds.Request(ProtoIds.SidTd, payload,
-                        timeoutMs: 8000, waitPendingMs: 30_000), ct);
-                    off += n;
-                    blk++;
-                    seq = (seq + 1) & 0xFF;
-                    if (blk % 16 == 0 || off >= size)
-                        AppendLog($"[进度] {blk}/{nblocks}  {off}/{size} ({off * 100 / size}%)");
-                }
-
-                // 37
-                try
-                {
-                    await Task.Run(() => uds.Request(ProtoIds.SidRte,
-                        Array.Empty<byte>(), timeoutMs: 8000, waitPendingMs: 60_000), ct);
-                    AppendLog("0x37 确认，设备自复位");
-                }
-                catch (Exception ex)
-                {
-                    AppendLog($"0x37 异常（可能已自复位）: {ex.Message}");
-                }
-
-                await UiAsync(() =>
-                {
-                    AppendResult("PASS", name, $"{size}B 传输完成");
-                    SetState("完成", Colors.ForestGreen, $"{name} {size}B");
-                });
-            });
-        }
-        catch (Exception ex) { Fail(ex, name); }
-        finally { SetBusy(false); }
+            await UiAsync(() => Pass(name, $"{size}B 传输完成"));
+        });
     }
 
     private async void OnChargeOn(object sender, RoutedEventArgs e)
@@ -276,33 +319,22 @@ public partial class MainWindow : Window
     private async Task RunChargeAsync(bool enable)
     {
         string name = enable ? "开启充电" : "关闭充电";
-        SetBusy(true);
-        SetState(name + "…", Colors.DarkOrange);
-        try
+        await RunOpAsync(name, TimeSpan.FromSeconds(30), async (uds, ct) =>
         {
-            await RunOnDeviceAsync(async (uds, ct) =>
-            {
-                await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
-                var signer = RequireSigner();
-                if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
-                    throw new InvalidOperationException("SA 解锁失败");
-                await Task.Run(() => uds.Request(ProtoIds.SidWdbi,
-                    new byte[] { 0x21, 0x01, (byte)(enable ? 0x01 : 0x00) }, timeoutMs: 4000), ct);
-                await UiAsync(() =>
-                {
-                    AppendLog($"[充电] {(enable ? "ON" : "OFF")}");
-                    AppendResult("PASS", name, enable ? "已开启" : "已关闭");
-                    SetState("完成", Colors.ForestGreen, name + "成功");
-                });
-            });
-        }
-        catch (Exception ex) { Fail(ex, name); }
-        finally { SetBusy(false); }
+            await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            var signer = RequireSigner();
+            if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
+                throw new InvalidOperationException("SA 解锁失败");
+            await Task.Run(() => uds.Request(ProtoIds.SidWdbi,
+                new byte[] { 0x21, 0x01, (byte)(enable ? 0x01 : 0x00) }, timeoutMs: 4000), ct);
+            await UiAsync(() => Pass(name, enable ? "已开启" : "已关闭"));
+        });
     }
 
     private void OnStop(object sender, RoutedEventArgs e)
     {
         _cts?.Cancel();
+        AppendLog("[停止] 用户中断当前操作");
         SetState("已停止", Colors.DimGray);
     }
 
@@ -333,31 +365,6 @@ public partial class MainWindow : Window
         int len = rx.Length - 3;
         while (len > 0 && (rx[3 + len - 1] is 0x00 or 0x20)) len--;
         return System.Text.Encoding.ASCII.GetString(rx, 3, len);
-    }
-
-    private void Fail(Exception ex, string name)
-    {
-        AppendLog($"[{name}] 失败: {ex.Message}");
-        AppendResult("FAIL", name, ex.Message);
-        SetState("失败", Colors.Crimson, ex.Message);
-    }
-
-    private async Task RunOnDeviceAsync(Func<UdsClient, CancellationToken, Task> action)
-    {
-        _cts = new CancellationTokenSource();
-        var ct = _cts.Token;
-        var port = TxtPort.Text.Trim();
-        var baud = int.TryParse(TxtBaud.Text.Trim(), out var b) ? b : 2_000_000;
-        await Task.Run(async () =>
-        {
-            using var transport = new QiChargerStationTool.Core.Transport.ZqwlSerialTransport(port, baud);
-            transport.Open();
-            var iso = new IsoTpClient(transport);
-            iso.OnLog += m => AppendLog(m);
-            var uds = new UdsClient(iso);
-            uds.OnLog += m => AppendLog(m);
-            await action(uds, ct);
-        }, ct);
     }
 
     private async Task UiAsync(Action action) => await Dispatcher.InvokeAsync(action);
