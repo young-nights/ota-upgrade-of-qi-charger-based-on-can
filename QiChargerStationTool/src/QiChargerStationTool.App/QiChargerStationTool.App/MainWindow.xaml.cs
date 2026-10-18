@@ -27,7 +27,7 @@ public partial class MainWindow : Window
         LstLog.Items.Clear();
         LstResult.Items.Clear();
         TxtState.Text = "测试中…";
-        TxtState.Foreground = new SolidColorBrush(Colors.Orange);
+        TxtState.Foreground = new SolidColorBrush(Colors.DarkOrange);
         BtnStart.IsEnabled = false;
         BtnStop.IsEnabled = true;
 
@@ -61,7 +61,7 @@ public partial class MainWindow : Window
                 Dispatcher.Invoke(() =>
                 {
                     TxtState.Text = pass ? "PASS" : "FAIL";
-                    TxtState.Foreground = new SolidColorBrush(pass ? Colors.LimeGreen : Colors.OrangeRed);
+                    TxtState.Foreground = new SolidColorBrush(pass ? Colors.ForestGreen : Colors.DarkOrangeRed);
                 });
             }
             catch (Exception ex)
@@ -70,7 +70,7 @@ public partial class MainWindow : Window
                 Dispatcher.Invoke(() =>
                 {
                     TxtState.Text = "FAIL";
-                    TxtState.Foreground = new SolidColorBrush(Colors.OrangeRed);
+                    TxtState.Foreground = new SolidColorBrush(Colors.DarkOrangeRed);
                 });
             }
             finally
@@ -88,6 +88,6 @@ public partial class MainWindow : Window
     {
         _cts?.Cancel();
         TxtState.Text = "已停止";
-        TxtState.Foreground = new SolidColorBrush(Colors.Gray);
+        TxtState.Foreground = new SolidColorBrush(Colors.DimGray);
     }
 }
