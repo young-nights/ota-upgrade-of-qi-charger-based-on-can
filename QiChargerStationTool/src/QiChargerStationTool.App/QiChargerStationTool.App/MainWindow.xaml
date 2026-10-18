@@ -70,30 +70,42 @@
       </StackPanel>
     </Border>
 
-    <!-- SN 扫码区（扫码枪输入焦点） -->
+    <!-- SN 读写 / 扫码区 -->
     <Border Grid.Row="1" Grid.Column="0" CornerRadius="6" Padding="12" Margin="0,0,8,8"
             BorderBrush="#90CAF9" BorderThickness="2">
       <StackPanel>
-        <TextBlock Text="SN 扫码" FontSize="16" FontWeight="Bold" Margin="0,0,0,4" Foreground="#0D47A1"/>
-        <TextBlock Text="扫码枪对准下方输入框扫码，回车自动录入"
-                   Foreground="#5A6572" FontSize="11" Margin="0,0,0,6"/>
+        <TextBlock Text="SN 读写 / 扫码" FontSize="16" FontWeight="Bold" Margin="0,0,0,4" Foreground="#0D47A1"/>
+        <TextBlock Text="光标停在输入框时，扫码枪扫码即自动填入；也可手动键盘输入"
+                   Foreground="#5A6572" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap"/>
         <TextBox x:Name="TxtSn" FontSize="22" FontWeight="Bold" Height="44"
                  VerticalContentAlignment="Center" Padding="8,4"
                  BorderBrush="#1976D2" BorderThickness="2"
                  Background="#E3F2FD" Foreground="#0D47A1"
                  AcceptsReturn="False" AcceptsTab="False"
                  KeyDown="OnSnKeyDown" GotFocus="OnSnGotFocus"
-                 ToolTip="扫码枪输入区（支持自动聚焦 + 回车确认）"/>
-        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-          <Button Content="清 空" Width="80" Background="#78909C" Click="OnSnClear" Margin="0,0,8,0"/>
-          <TextBlock x:Name="TxtSnHint" VerticalAlignment="Center" Foreground="#5A6572" FontSize="11"/>
-        </StackPanel>
+                 ToolTip="光标所在处即扫码枪输入位置（支持回车确认）"/>
+        <Grid Margin="0,8,0,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <Button x:Name="BtnSnRead" Content="读 取" Height="36" Background="#1976D2"
+                  Click="OnSnRead" ToolTip="从设备读 SN 填入输入框"/>
+          <Button x:Name="BtnSnWrite" Grid.Column="1" Content="写 入" Height="36"
+                  Background="#2E7D32" Click="OnSnWrite" Margin="8,0"
+                  ToolTip="把输入框内容写入设备 SN"/>
+          <Button Grid.Column="2" Content="清空" Width="56" Height="36"
+                  Background="#78909C" Click="OnSnClear"/>
+        </Grid>
+        <TextBlock x:Name="TxtSnHint" Margin="0,8,0,0" Foreground="#5A6572"
+                   FontSize="11" TextWrapping="Wrap" MinHeight="16"/>
 
         <Separator Margin="0,12,0,8"/>
-        <TextBlock Text="测试项" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" Foreground="#0D47A1"/>
+        <TextBlock Text="测试项（整机流程）" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" Foreground="#0D47A1"/>
         <CheckBox x:Name="ChkVersion" Content="读软件版本 (0xF195)" IsChecked="True"/>
-        <CheckBox x:Name="ChkReadSn" Content="读 SN (0xF18C)" IsChecked="True"/>
-        <CheckBox x:Name="ChkWriteSn" Content="写 SN (扫码值)" IsChecked="True"/>
+        <CheckBox x:Name="ChkReadSn" Content="读 SN (0xF18C)"/>
+        <CheckBox x:Name="ChkWriteSn" Content="写 SN (输入框值)"/>
         <CheckBox x:Name="ChkOta" Content="OTA 升级 (31/34/36/37)"/>
         <CheckBox x:Name="ChkCharge" Content="充电启停 (2E 21 01)"/>
         <Separator Margin="0,12"/>
