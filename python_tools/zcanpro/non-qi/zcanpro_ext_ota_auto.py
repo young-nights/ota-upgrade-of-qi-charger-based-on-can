@@ -787,15 +787,21 @@ def send_security_key(bus_id, sig, seed=None, priv=None):
     off = 0
     while off < 64:
         piece = sig[off:off + SA_SIG_CHUNK]
-        uds_req_mf(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
+        for _try in range(3):
+            try:
+                uds_req_mf(bus_id, SID_SA, [0x03, seq] + _to_list(piece),
+                           expect_sub=0x03, expect_sub2=seq)
+                break
+            except RuntimeError:
+                if _try == 2:
+                    raise
+                _log("27 03 %02X 超时，重试 %d/2" % (seq, _try + 1))
+                time.sleep(0.2)
         off += len(piece)
         seq += 1
     _log("27 03 已送 64 字节 / %d 帧" % (seq - 1))
     time.sleep(0.15)
-    return uds_req_mf(bus_id, SID_SA, [0x02])
-    _log("27 03 已送 64 字节 / %d 帧" % (seq - 1))
-    time.sleep(0.15)
-    return uds_req(bus_id, SID_SA, [0x02], wait_pending_s=45)
+    return uds_req_mf(bus_id, SID_SA, [0x02], expect_sub=0x02)
 
 
 def _lifecycle_check(cid, dat):
@@ -1249,19 +1255,14 @@ def _raw_send(bus_id, can_id, data):
     return False
 
 
-def uds_req_mf(bus_id, sid, payload, timeout_s=3.0):
+def uds_req_mf(bus_id, sid, payload, timeout_s=3.0, expect_sub=None, expect_sub2=None):
     """手动 ISO-TP 多帧发送 + 单帧/多帧接收。
 
     ZCANPRO uds_request 不支持 host→ECU 多帧发送（>7B UDS 请求必超时），
     此函数绕过 ZCANPRO 的 ISO-TP 栈，用 _raw_send 手动组 FF/FC/CF。
 
-    ISO-TP 多帧协议（ISO 15765-2）：
-      FF: 10 <len12> <6B payload>       — 首帧，声明总长
-      FC: 30 <BS> <STmin> ...           — ECU 回 CTS（本函数等这个）
-      CF: 2n <7B payload>               — 后续帧，n=SN(1..15→0)
-
-    适用于 0x34 RequestDownload(11B) / 0x36 TransferData(>7B) 等。
-    应答若为多帧（>7B），自动回 FC 并组帧。
+    expect_sub: 期望应答 sub-function（data[1]），不匹配则跳过（防延迟应答污染）。
+    expect_sub2: 期望应答 data[2]（如 27 03 的 blockSeq），不匹配则跳过。
     """
     uds = [sid] + list(payload)
     total = len(uds)
@@ -1306,7 +1307,8 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0):
                 time.sleep(stmin)
             chunk = uds[offset:offset + 7]
             cf = [0x20 | (sn & 0x0F)] + chunk + [0xCC] * (8 - 1 - len(chunk))
-            _raw_send(bus_id, UDS_REQ_ID, cf)
+            cf_ok = _raw_send(bus_id, UDS_REQ_ID, cf)
+            _log("[Tx CF] sn=%d %s" % (sn, "OK" if cf_ok else "FAIL"))
             offset += len(chunk)
             sn = (sn + 1) & 0x0F
             cf_in_block += 1
@@ -1314,7 +1316,18 @@ def uds_req_mf(bus_id, sid, payload, timeout_s=3.0):
         _log("[Tx CF] %d 帧" % cf_count)
 
     # 接收应答（单帧或多帧）
-    return _recv_uds_response(bus_id, sid, timeout_s)
+    t_end = time.time() + 45.0
+    while True:
+        data = _recv_uds_response(bus_id, sid, timeout_s, expect_sub=expect_sub, expect_sub2=expect_sub2)
+        if data and len(data) >= 3 and data[0] == SID_NRC:
+            if data[2] == NRC_RCRRP:
+                if time.time() >= t_end:
+                    raise RuntimeError("SID=0x%02X 只收到 NRC 0x78（等待 45s）" % sid)
+                _log("[Rx] NRC 0x78 ResponsePending，等待 ECU 验签…")
+                time.sleep(1.0)
+                continue
+            raise UdsNrcError(data[1], data[2])
+        return data
 
 
 def _wait_isotp_fc(bus_id, timeout_s=2.0):
@@ -1324,20 +1337,44 @@ def _wait_isotp_fc(bus_id, timeout_s=2.0):
         if stopTask:
             raise RuntimeError("用户停止脚本")
         for cid, dat in _recv_frames(bus_id):
-            if (cid & 0x1FFFFFFF) == (UDS_RESP_ID & 0x1FFFFFFF) and len(dat) >= 1:
+            cid29 = cid & 0x1FFFFFFF
+            if cid29 != (UDS_RESP_ID & 0x1FFFFFFF):
+                continue
+            if len(dat) >= 1:
+                _log("[FC wait] %s" % _hex(list(dat[:8])))
                 if (dat[0] & 0xF0) == 0x30:
                     return list(dat)
-        time.sleep(0.005)
+        time.sleep(0.002)
     return None
 
 
-def _recv_uds_response(bus_id, sid, timeout_s=3.0):
-    """接收 UDS 应答（单帧 SF 或多帧 FF+CF）。多帧自动回 FC 并组帧。"""
+def _recv_uds_response(bus_id, sid, timeout_s=3.0, expect_sub=None, expect_sub2=None):
+    """接收 UDS 应答（单帧 SF 或多帧 FF+CF）。多帧自动回 FC 并组帧。
+
+    SID 校验：data[0] 必须等于 sid+0x40（正响应），否则跳过。
+    expect_sub: 若非 None，还须 data[1]==expect_sub（SA 服务防延迟应答污染）。
+    expect_sub2: 若非 None，还须 data[2]==expect_sub2（如 27 03 blockSeq）。
+    """
     t0 = time.time()
     ff_buf = None
     ff_total = 0
     cf_buf = b""
     expected_sn = 1
+    expect_pr = sid + SID_PR
+
+    def _match(data):
+        if not data:
+            return False
+        # NRC (7F <sid> <nrc>) 始终返回给调用方处理
+        if data[0] == SID_NRC:
+            return True
+        if data[0] != expect_pr:
+            return False
+        if expect_sub is not None and (len(data) < 2 or data[1] != expect_sub):
+            return False
+        if expect_sub2 is not None and (len(data) < 3 or data[2] != expect_sub2):
+            return False
+        return True
 
     while time.time() - t0 < timeout_s:
         if stopTask:
@@ -1349,14 +1386,28 @@ def _recv_uds_response(bus_id, sid, timeout_s=3.0):
             if len(dat) < 1:
                 continue
             pci = dat[0] & 0xF0
+            _log("[Rx raw] pci=%02X %s" % (pci, _hex(list(dat[:8]))))
             if pci == 0x00:
                 n = dat[0] & 0x0F
-                return list(dat[1:1 + n])
+                data = list(dat[1:1 + n])
+                if not _match(data):
+                    _log("[Rx] 应答不匹配 %s（期望 SID=0x%02X sub=%s），跳过"
+                         % (_hex(data[:6]), expect_pr,
+                            ("%02X" % expect_sub) if expect_sub is not None else "-"))
+                    continue
+                return data
             elif pci == 0x10:
                 if ff_buf is not None:
                     continue
                 ff_total = ((dat[0] & 0x0F) << 8) | dat[1]
                 ff_buf = bytes(dat[2:8])
+                # 先校验 FF 中的 SID/sub，不匹配则丢弃整个多帧
+                ff_data = list(ff_buf) + [0] * max(0, ff_total - len(ff_buf))
+                if not _match(ff_data[:max(2, ff_total)]):
+                    _log("[Rx FF] 多帧 SID/sub 不匹配，丢弃 total=%d" % ff_total)
+                    ff_buf = None
+                    ff_total = 0
+                    continue
                 _log("[Rx FF] total=%d, 发 FC" % ff_total)
                 ok = _raw_send(bus_id, UDS_REQ_ID, [0x30, 0x00, 0x01, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC])
                 _log("[Tx FC] %s" % ("OK" if ok else "FAIL"))
@@ -1651,7 +1702,24 @@ def run_ota(bus_id):
             except Exception:
                 break
             time.sleep(0.05)
-        uds_req_mf(bus_id, SID_RD, [0x00, 0x44] + addr + sz)
+        # TesterPresent 确认 ECU SF 路径活着
+        try:
+            tp = uds_req_mf(bus_id, 0x3E, [0x00], timeout_s=2.0)
+            _log("[TP] 3E 00 → %s" % _hex(tp))
+        except Exception as e:
+            _log("[TP] 3E 00 失败: %s" % e)
+        # 0x34 重试：CF 可能因 CAN 间歇丢帧丢失，ECU ISO-TP RX 超时后不回
+        rd_ok = False
+        for rd_try in range(3):
+            try:
+                uds_req_mf(bus_id, SID_RD, [0x00, 0x44] + addr + sz, timeout_s=5.0)
+                rd_ok = True
+                break
+            except RuntimeError as e:
+                _log("0x34 第 %d/3 次失败: %s" % (rd_try + 1, e))
+                time.sleep(1.0)
+        if not rd_ok:
+            raise RuntimeError("0x34 RequestDownload 三次均失败")
         _log("---- TransferData ----")
         seq = 1
         off = 0

@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.7";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.8";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -588,14 +588,9 @@ static void proto_send_response(uint8_t *data, uint16_t len)
   {
     return;
   }
-  /* SF can send from RX callback. MF must wait for Flow Control — if we
-   * block inside can_driver_poll's callback, FC sits in the same FIFO
-   * and N_Bs times out (27 01 34-byte seed looks like "no response"). */
-  if (len <= 7U)
-  {
-    (void)isotp_tx_send(CAN_PROTO_UDS_RESPONSE, data, len);
-    return;
-  }
+  /* 统一走 g_tx_pend 延迟发送：SF 在 isotp_rx_process CF 回调上下文中
+   * isotp_tx_send 可能因 TX 邮箱被 FC 占用而静默失败（0x34 应答丢失）。
+   * 延迟到 can_protocol_poll 的 proto_flush_pending_tx 泵出，带重试。 */
   memcpy(g_tx_pend, data, len);
   g_tx_pend_len = len;
   g_uds_mf_pending = 1U;  /* 抑制 lifecycle TX，优先保证 UDS 应答入队 */
