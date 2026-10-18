@@ -7,6 +7,7 @@ public sealed class StationConfig
     public string? FirmwarePath { get; set; }
     public string? SnCode { get; set; }
     public bool DoReadVersion { get; set; } = true;
+    public bool DoReadSn { get; set; } = true;
     public bool DoWriteSn { get; set; }
     public bool DoOtaUpgrade { get; set; } = true;
     public bool DoChargeTest { get; set; }

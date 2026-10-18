@@ -1,4 +1,5 @@
-using System.Windows;
+﻿using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using QiChargerStationTool.Core.Station;
 
@@ -11,6 +12,45 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Loaded += (_, _) => FocusSnBox();
+    }
+
+    private void FocusSnBox()
+    {
+        TxtSn.Focus();
+        TxtSn.SelectAll();
+    }
+
+    /// <summary>扫码枪通常以 CR/LF 结尾；回车 = 扫码完成。</summary>
+    private void OnSnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            var sn = TxtSn.Text.Trim();
+            if (sn.Length == 0)
+            {
+                TxtSnHint.Text = "请先扫码";
+                return;
+            }
+            TxtSnHint.Text = $"已扫码: {sn}";
+            AppendLog($"[扫码] SN = {sn}");
+            // 选中内容，方便下一件扫码直接覆盖
+            TxtSn.SelectAll();
+        }
+    }
+
+    /// <summary>获得焦点时全选，扫码枪/键盘可直接覆盖。</summary>
+    private void OnSnGotFocus(object sender, RoutedEventArgs e)
+    {
+        TxtSn.SelectAll();
+    }
+
+    private void OnSnClear(object sender, RoutedEventArgs e)
+    {
+        TxtSn.Clear();
+        TxtSnHint.Text = "";
+        FocusSnBox();
     }
 
     private void AppendLog(string msg)
@@ -38,7 +78,8 @@ public partial class MainWindow : Window
             FirmwarePath = TxtFirmware.Text.Trim(),
             SnCode = TxtSn.Text.Trim(),
             DoReadVersion = ChkVersion.IsChecked == true,
-            DoWriteSn = ChkSn.IsChecked == true,
+            DoReadSn = ChkReadSn.IsChecked == true,
+            DoWriteSn = ChkWriteSn.IsChecked == true,
             DoOtaUpgrade = ChkOta.IsChecked == true,
             DoChargeTest = ChkCharge.IsChecked == true,
         };
@@ -48,8 +89,7 @@ public partial class MainWindow : Window
         runner.OnLog += AppendLog;
         runner.OnStep += r => Dispatcher.Invoke(() =>
         {
-            var item = $"{r.Status}  {r.Name}  {r.Message}";
-            LstResult.Items.Add(item);
+            LstResult.Items.Add($"{r.Status}  {r.Name}  {r.Message}");
         });
 
         _ = Task.Run(async () =>
@@ -79,6 +119,7 @@ public partial class MainWindow : Window
                 {
                     BtnStart.IsEnabled = true;
                     BtnStop.IsEnabled = false;
+                    FocusSnBox(); // 测完回到扫码框，准备下一件
                 });
             }
         });
