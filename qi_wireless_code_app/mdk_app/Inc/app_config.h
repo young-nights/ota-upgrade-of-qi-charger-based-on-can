@@ -46,7 +46,7 @@
 /**
  * @brief  生命周期周期广播间隔（ms），LIFECYCLE_PERIODIC_ENABLE=1 时生效
  */
-#define LIFECYCLE_PERIODIC_INTERVAL_MS  1000U
+#define LIFECYCLE_PERIODIC_INTERVAL_MS  10000U
 
 /* ==========================================================================
  *  低功耗（SIT1145 Sleep；MCU 不进 Stop，主循环等唤醒）
