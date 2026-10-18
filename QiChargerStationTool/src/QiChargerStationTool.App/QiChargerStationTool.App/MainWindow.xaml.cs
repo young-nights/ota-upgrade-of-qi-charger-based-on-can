@@ -1,5 +1,6 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using QiChargerStationTool.Core.Protocol;
@@ -29,27 +30,13 @@ public partial class MainWindow : Window
     {
         void Apply()
         {
-            var disable = new[]
+            Button[] disable =
             {
                 BtnSnRead, BtnSnWrite, BtnReadVersion,
                 BtnOta, BtnIap, BtnChargeOn, BtnChargeOff,
             };
             foreach (var b in disable)
-            {
                 b.IsEnabled = !busy;
-                if (busy)
-                {
-                    b.Tag = b.Background;
-                    b.Background = new SolidColorBrush(Color.FromRgb(0xBD, 0xBD, 0xBD));
-                    b.Foreground = new SolidColorBrush(Color.FromRgb(0x61, 0x61, 0x61));
-                }
-                else if (b.Tag is Brush restore)
-                {
-                    b.Background = restore;
-                    b.Foreground = new SolidColorBrush(Colors.White);
-                    b.Tag = null;
-                }
-            }
             BtnStop.IsEnabled = busy;
             Cursor = busy ? Cursors.Wait : Cursors.Arrow;
             if (label is not null && busy)
