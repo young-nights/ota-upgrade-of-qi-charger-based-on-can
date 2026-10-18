@@ -162,7 +162,7 @@ extern "C" {
 #define SESSION_PROGRAMMING         0x02U     /*!< programming session */
 #define SESSION_EXTENDED            0x03U     /*!< extended session */
 
-#define SESSION_TIMEOUT_MS          30000U    /*!< TesterPresent timeout in ms（主机 Python/ZQWL 环路 ~2s/请求，5s 会在 SA 分片期间误超时） */
+/* SESSION_TIMEOUT_MS 定义已移至 app_config.h（编译期开关集中管理） */
 
 /** @brief  Suppress positive response bit (bit 7 of sub-function byte) */
 #define UDS_SUBFUNC_SUPPRESS_POS_RESP  0x80U

@@ -349,6 +349,8 @@ class IsoTp:
                     ff_total = ((dat[0] & 0x0F) << 8) | dat[1]
                     ff_buf = dat[2:8]
                     self._send_frame(FC_RESPONSE)
+                    self._send_frame(FC_RESPONSE)  # 双发防丢
+                    _log("[Tx FC] x2 for FF len=%d" % ff_total)
                 elif pci == 0x20 and ff_buf is not None:  # CF
                     sn = dat[0] & 0x0F
                     if sn == expect_sn:
@@ -507,10 +509,20 @@ def run_ota(dev, fw_path):
                 time.sleep(1.0)
         _log("SecurityAccess 解锁成功")
 
-    # 2E 20 10 01 选择 MCU1
+    # 2E 20 10 01 选择 MCU1（27 02 验签刚结束，稍等 + 重试）
     _log("---- DID 0x2010 MCU1 ----")
-    rx = uds.request(SID_WDBI, [0x20, 0x10, 0x01])
-    _log("[Rx] %s" % _hex(rx))
+    time.sleep(0.3)
+    tp.drain(0.1)
+    for i in range(3):
+        try:
+            rx = uds.request(SID_WDBI, [0x20, 0x10, 0x01], timeout=5.0)
+            _log("[Rx] %s" % _hex(rx))
+            break
+        except Exception as e:
+            _log("2E 20 10 第 %d/3 次失败: %s" % (i + 1, e))
+            time.sleep(0.5)
+    else:
+        raise RuntimeError("2E 20 10 失败")
 
     # 31 01 FF 00 擦除
     _log("---- 擦除 Backup 区 ----")
@@ -539,25 +551,30 @@ def run_ota(dev, fw_path):
     addr = [(BACKUP_BASE >> 24) & 0xFF, (BACKUP_BASE >> 16) & 0xFF,
             (BACKUP_BASE >> 8) & 0xFF, BACKUP_BASE & 0xFF]
     tp.drain(0.1)
-    try:
-        tp.send_sf(bytes([0x3E, 0x00]))
-        tp.recv_response(timeout=1.5, expect_sid=0x3E)
-        _log("  [TP] 3E 保活 OK")
-    except Exception:
-        _log("  [TP] 3E 保活失败（继续）")
-    for i in range(3):
+    # 擦除后 CAN/ECC 需静置；3E 突发把 UDS 通路拉稳
+    time.sleep(1.0)
+    for _ in range(3):
+        try:
+            tp.send_sf(bytes([0x3E, 0x00]))
+            tp.recv_response(timeout=1.5, expect_sid=0x3E)
+        except Exception:
+            pass
+        time.sleep(0.1)
+    _log("  [TP] 3E burst done")
+    for i in range(6):
         try:
             rx = uds.request(SID_RD, [0x00, 0x44] + addr + sz, timeout=8.0)
             _log("[Rx] %s" % _hex(rx))
             break
         except Exception as e:
-            _log("0x34 第 %d/3 次失败: %s" % (i + 1, e))
+            _log("0x34 第 %d/6 次失败: %s" % (i + 1, e))
             try:
                 tp.send_sf(bytes([0x3E, 0x00]))
                 rx2 = tp.recv_response(timeout=2.0, expect_sid=0x3E)
                 _log("  [TP] 3E 00 → %s（ECU 活着）" % _hex(rx2))
             except Exception as e2:
-                _log("  [TP] 3E 00 也失败: %s（ECU 可能挂了）" % e2)
+                _log("  [TP] 3E 00 也失败: %s（等 2s 重试）" % e2)
+                time.sleep(2.0)
             time.sleep(1.0)
     else:
         raise RuntimeError("0x34 失败")

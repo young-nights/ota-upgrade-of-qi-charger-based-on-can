@@ -33,14 +33,46 @@
 #define OTA_VERIFY_ENFORCE          1
 
 /* ==========================================================================
- *  低功耗模式开关
+ *  生命周期广播
  * ========================================================================== */
 
 /**
- * @brief  空闲低功耗开关（SIT1145 Sleep/Standby）
- * @note   =1 空闲 CAN_LP_IDLE_TIMEOUT_MS 后进低功耗（生产语义）
+ * @brief  生命周期周期广播总开关（CAN ID 0x18FF260D）
+ * @note   =1 每 LIFECYCLE_PERIODIC_INTERVAL_MS 发一次当前状态帧
+ *         =0 关闭周期广播，仅保留事件型（状态切换/boot-off 恢复/休眠唤醒）
+ */
+#define LIFECYCLE_PERIODIC_ENABLE   1
+
+/**
+ * @brief  生命周期周期广播间隔（ms），LIFECYCLE_PERIODIC_ENABLE=1 时生效
+ */
+#define LIFECYCLE_PERIODIC_INTERVAL_MS  1000U
+
+/* ==========================================================================
+ *  低功耗（SIT1145 Sleep；MCU 不进 Stop，主循环等唤醒）
+ * ========================================================================== */
+
+/**
+ * @brief  空闲低功耗开关（SIT1145 Sleep）
+ * @note   =1 空闲 CAN_LP_IDLE_TIMEOUT_MS 后进 Sleep（生产语义）
  *         =0 空闲停机整段不编译，CAN 常在线
  */
 #define CAN_LP_SLEEP_ENABLE         1
+
+/**
+ * @brief  CAN 空闲多久进 Sleep（ms），CAN_LP_SLEEP_ENABLE=1 时生效
+ * @note   充电中会持续刷新空闲计时，不会进 Sleep
+ */
+#define CAN_LP_IDLE_TIMEOUT_MS      (30UL * 1000UL)
+
+/* ==========================================================================
+ *  UDS 会话
+ * ========================================================================== */
+
+/**
+ * @brief  非默认会话 S3 超时（ms）：无诊断请求则回默认会话并清安全状态
+ * @note   主机 Python/ZQWL 环路单请求约 1~2s；多帧组包期间每帧会刷新
+ */
+#define SESSION_TIMEOUT_MS          30000U
 
 #endif /* __APP_CONFIG_H */

@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.67";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.68";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -238,10 +238,10 @@ static uint32_t g_charge_gate_since = 0U;  /* charging gate stale timeout */
 #define CAN_LP_RX_HARVEST_MS      30U
 
 /** 30 s with no UDS RX/TX → SIT1145 Sleep (ISO 11898-2 WUP can wake)
- *  受 CAN_LP_SLEEP_ENABLE 总开关控制（can_protocol.h）：
+ *  空闲超时见 app_config.h CAN_LP_IDLE_TIMEOUT_MS；
+ *  受 CAN_LP_SLEEP_ENABLE 总开关控制（app_config.h）：
  *  =1（含未定义，生产语义）：上电即 Normal，仅空闲超时进 Sleep；
  *  =0：空闲停机整段不编译 */
-#define CAN_LP_IDLE_TIMEOUT_MS  (30UL * 1000UL)
 
 static void can_lp_mark_uds(void)
 {

@@ -25,6 +25,7 @@
 
 /* includes ------------------------------------------------------------------*/
 #include "lifecycle.h"
+#include "app_config.h"
 #include "can_protocol.h"
 #include "can_driver.h"
 #include "timer_drv.h"
@@ -34,8 +35,7 @@
 /*  Private constants                                                        */
 /* ========================================================================== */
 
-/** @brief  periodic broadcast interval in ms (1 Hz default) */
-#define LIFECYCLE_PERIODIC_INTERVAL_MS   1000U
+/* 周期广播开关/间隔见 app_config.h（LIFECYCLE_PERIODIC_*） */
 
 /* ========================================================================== */
 /*  Private variables                                                        */
@@ -80,7 +80,11 @@ static void lifecycle_send(uint8_t state)
 static uint8_t lifecycle_is_periodic(uint8_t state)
 {
   (void)state;
-  return 1U;  /* periodic broadcast enabled (1s interval) */
+#if LIFECYCLE_PERIODIC_ENABLE
+  return 1U;
+#else
+  return 0U;
+#endif
 }
 
 /* ========================================================================== */
