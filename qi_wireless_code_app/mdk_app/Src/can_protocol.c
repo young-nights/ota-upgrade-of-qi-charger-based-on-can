@@ -54,7 +54,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.56";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.57";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -561,16 +561,22 @@ static void proto_send_response(uint8_t *data, uint16_t len)
   {
     return;
   }
-  /* SF can send from RX callback. MF must wait for Flow Control — if we
-   * block inside can_driver_poll's callback, FC sits in the same FIFO
-   * and N_Bs times out (27 01 34-byte seed looks like "no response"). */
+  /* SF: try immediate send first (isotp_tx_send has 500ms internal retry).
+   * If it fails (TX mailbox busy — e.g. FC just sent from isotp_poll for a
+   * multi-frame request, then CF callback runs handler → this SF response),
+   * fall back to g_tx_pend for deferred flush from can_protocol_poll.
+   * MF: always defer (isotp_wait_cts would block can_driver_poll callback). */
   if (len <= 7U)
   {
-    (void)isotp_tx_send(CAN_PROTO_UDS_RESPONSE, data, len);
-    return;
+    if (isotp_tx_send(CAN_PROTO_UDS_RESPONSE, data, (uint16_t)len) == 0)
+    {
+      return;
+    }
+    /* SF immediate send failed — fall through to g_tx_pend */
   }
   memcpy(g_tx_pend, data, len);
   g_tx_pend_len = len;
+  g_uds_mf_pending = 1U;  /* suppress lifecycle TX until flushed */
 }
 
 /**
@@ -3019,6 +3025,8 @@ void can_protocol_poll(void)
 
   if (g_can_awake == 0U)
   {
+    /* flush pending UDS response even when CAN is asleep */
+    proto_flush_pending_tx();
     return;
   }
 
