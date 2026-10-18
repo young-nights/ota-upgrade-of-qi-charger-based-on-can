@@ -254,13 +254,13 @@ class IsoTp:
         # FF
         ff = bytes([0x10 | ((total >> 8) & 0x0F), total & 0xFF]) + uds_bytes[:6]
         ff += b"\xCC" * (8 - len(ff))
-        # FF：先等 FC；仅在无 FC 时重发。有 FC 后绝不再发 FF——
-        # 设备收到新 FF 会 reset 组包，已发出的 CF 全部作废（0x36 失败根因）。
+        # FF 短超时重发（与 0x34 成功路径一致）：ECU 邮箱忙时首帧 FC 会丢，
+        # 重发 FF 后 ECU 重新组包再发 FC。收到 FC 后立即发 CF+末帧重发。
         fc = None
-        for ff_try in range(3):
+        for ff_try in range(4):
             self._send_frame(ff)
             _log("[Tx FF] try%d %s" % (ff_try + 1, _hex(ff, 8)))
-            fc = self._wait_fc(timeout=5.0 if ff_try == 0 else 3.0)
+            fc = self._wait_fc(timeout=1.5 if ff_try == 0 else 2.0)
             if fc is not None:
                 break
         if fc is None:
@@ -288,6 +288,12 @@ class IsoTp:
             cf = bytes([0x20 | (sn & 0x0F)]) + chunk + b"\xCC" * (8 - 1 - len(chunk))
             self._send_frame(cf)
             _log("[Tx CF] sn=%d %s" % (sn, _hex(cf, 8)))
+            # 末帧重发一次：首帧若丢，SN=1 重发仍能完成组包；
+            # 若已完成则 state=IDLE，重复 CF 被忽略（安全）。
+            if offset + len(chunk) >= total:
+                time.sleep(0.01)
+                self._send_frame(cf)
+                _log("[Tx CF-retry] sn=%d" % sn)
             offset += len(chunk)
             sn = (sn + 1) & 0x0F
             cf_in_block += 1

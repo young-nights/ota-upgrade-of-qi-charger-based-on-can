@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.66";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.67";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2561,6 +2561,10 @@ static void can_protocol_rx_handler(uint32_t id, uint8_t *data, uint8_t len)
   }
 
   can_lp_mark_uds();
+  /* 多帧请求（FF+CF…）发送期间也要刷 S3：0x36 128B 块约 18 CF，
+   * 主机环路 ~2s/请求，5s S3 会在组包中途 session_reset 清 g_active，
+   * complete 后 handler 回 NRC 0x22。 */
+  last_tester_present_tick = timer_get_tick();
   isotp_rx_process(data, len);
   /* FF 路径若 can_driver_send(FC) 失败会置 g_fc_pending；立刻补发，
    * 不必等下一圈 can_protocol_poll（那时可能已被 flush 阻塞）。 */
