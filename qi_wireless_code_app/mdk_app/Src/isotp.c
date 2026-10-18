@@ -286,6 +286,11 @@ void isotp_poll(void)
   }
 }
 
+uint8_t isotp_rx_busy(void)
+{
+  return (rx_ctx.state == ISOTP_RX_STATE_RX_IN_PROGRESS) ? 1U : 0U;
+}
+
 void isotp_rx_process(uint8_t *data, uint8_t len)
 {
   uint8_t pci_type;

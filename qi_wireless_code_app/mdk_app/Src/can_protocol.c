@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.58";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.59";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -175,7 +175,8 @@ static uint16_t g_qi_power_limit_mw   = 1500U;  /*!< DID 0x210D, 1500 mW = 15W d
 /** @brief  SIT1145 Normal + CAN online. Power-on is Normal (idle 30 s → Sleep). */
 static uint8_t  g_can_awake = 0;
 static uint8_t  g_need_lifecycle_announce = 0;
-/** @brief  UDS 多帧应答待发标志：置位时抑制 lifecycle TX，保证 UDS 入队 */
+/** @brief  UDS 多帧应答待发标志：置位时抑制 lifecycle/ident TX。
+ *  与 isotp_rx_busy() 合成 uds_mf_busy()，覆盖 RX 组装 + 应答待发两段窗口。 */
 static uint8_t  g_uds_mf_pending = 0;
 static uint32_t g_uds_last_ms = 0;
 static uint32_t g_sleep_since_ms = 0;
@@ -249,6 +250,9 @@ static void can_lp_mark_uds(void)
 
 static uint8_t g_lp_ident_sent;
 
+/* 定义在 g_tx_pend 附近；lifecycle/ident 门禁在前，需前置声明 */
+static uint8_t uds_mf_busy(void);
+
 /**
  * @brief  send one lifecycle marker frame on 0x18FF260D
  * @note   Completion is confirmed by handle (can_driver_wait_tx_frame),
@@ -266,6 +270,12 @@ static uint8_t can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
 {
   uint8_t d[8];
   uint8_t handle;
+
+  /* 多帧 UDS 期间不发 marker：抢 TX 邮箱会让 CF/FC/应答乱序或丢失 */
+  if (uds_mf_busy() != 0U)
+  {
+    return 0U;
+  }
 
   memset(d, 0, sizeof(d));
   d[0] = b0;
@@ -313,6 +323,13 @@ static void can_lp_send_ident(void)
 {
   uint8_t uds[8];
   uint8_t i;
+
+  /* 多帧 UDS 期间整帧跳过：UDS 应答 ID 上的 03 01 41 00 / 07 01 41 …
+   * 会被主机当成诊断应答串台（实测 10 02 收到 01 41 57 4B）。 */
+  if (uds_mf_busy() != 0U)
+  {
+    return;
+  }
 
   can_lp_send_ident_bus();
 
@@ -562,6 +579,11 @@ static void can_lp_go_sleep(void)
 static uint8_t  g_tx_pend[PROTO_TX_PEND_MAX];
 static uint16_t g_tx_pend_len = 0U;
 
+static uint8_t uds_mf_busy(void)
+{
+  return ((g_uds_mf_pending != 0U) || (isotp_rx_busy() != 0U)) ? 1U : 0U;
+}
+
 static void proto_flush_pending_tx(void)
 {
   uint16_t n = g_tx_pend_len;
@@ -603,6 +625,7 @@ static void proto_send_response(uint8_t *data, uint16_t len)
   }
   memcpy(g_tx_pend, data, len);
   g_tx_pend_len = len;
+  g_uds_mf_pending = 1U;  /* suppress lifecycle/ident until flushed */
 }
 
 /**
@@ -3149,6 +3172,11 @@ uint8_t can_protocol_is_bus_awake(void)
 uint8_t can_protocol_lifecycle_tx_ready(void)
 {
   if (g_can_awake == 0U)
+  {
+    return 0U;
+  }
+  /* 多帧 UDS（RX 组装 / 延迟应答）期间抑制 lifecycle 广播 */
+  if (uds_mf_busy() != 0U)
   {
     return 0U;
   }

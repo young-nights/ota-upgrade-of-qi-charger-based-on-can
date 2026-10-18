@@ -136,6 +136,15 @@ void isotp_rx_process(uint8_t *data, uint8_t len);
 void isotp_poll(void);
 
 /**
+ * @brief  query whether multi-frame ISO-TP RX reassembly is in progress
+ * @note   1 between First Frame and message complete / N_Cr abort.
+ *         can_protocol uses this to suppress lifecycle/ident TX that would
+ *         steal the TX mailbox or pollute the UDS response ID mid-transfer.
+ * @retval 1 = RX multi-frame in progress, 0 = idle
+ */
+uint8_t isotp_rx_busy(void);
+
+/**
  * @brief  send a UDS payload via ISO-TP segmentation
  * @note   segments the payload into SF or FF+CF frames as needed and
  *         transmits them using the provided CAN send function.
