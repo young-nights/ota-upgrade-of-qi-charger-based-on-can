@@ -144,10 +144,13 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
     return -1;
   }
 
+  /* can_driver_send 成功 = 帧已入队。handle 未推进不能当作未入队
+   * 否则 5 次“失败”后 isotp_send_fc 会清 rx_ctx.state，主机收到 FC
+   * 发来的 CF 被丢弃（0x34 多帧无响应的根因之一）。 */
   if ((can_driver_last_tx_handle(&h_after) != 0) ||
       ((have_prev != 0U) && (h_after == h_before)))
   {
-    return -1;
+    return 1;
   }
 
   wait_rc = can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS);
@@ -155,14 +158,7 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
   {
     return 0;
   }
-  /* can_driver_wait_tx_frame 返回 -1 有两种情况：
-   * (a) 确认超时——帧已入队可能仍在发送，返回 1 不重试
-   * (b) ABORTED/REJECTED——硬件终态失败帧不会再上总线，返回 -1 重试
-   * 两者都返回 -1 无法区分。保守策略：超时窗口 50ms 内帧大概率已
-   * 完成（250kbps 单帧 ~0.5ms），返回 -1 触发重试。重试产生重复 FC
-   * 对 ISO-TP 安全（接收方幂等处理）。
-   * 但返回 1（已入队未确认）必须区别于 -1（未入队）：前者 FC 实际
-   * 已发到总线，rx_ctx.state 不能被清。 */
+  /* 确认超时/终态失败都算已入队（帧可能已在总线上），返回 1 不重试。 */
   return 1;
 }
 
@@ -177,8 +173,9 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
  *            失败按 ISOTP_FC_ATTEMPT_GAP_MS tick 间隔重发，总尝试 ≤
  *            ISOTP_FC_ATTEMPTS_MAX 次。重试产生重复 FC 对 ISO-TP 安全
  *            （接收方幂等处理）。
- *         3) 全部失败兜底：rx_ctx.state 置回 ISOTP_RX_STATE_IDLE，
- *            不留 RX_IN_PROGRESS 脏状态，等主机 N_Bs 超时重发 FF。
+ *         3) 全部 can_driver_send 失败也不清 rx_ctx.state：FF 分支
+ *            在调用本函数前已置 RX_IN_PROGRESS，这里清状态会把随后
+ *            到达的 CF 丢掉。超时清理交给 isotp_poll 的 N_Cr。
  *         FC 无 suppress 语义，CTS/OVERFLOW 任何状态走同一送达确认。
  * @param  can_id: FC frame CAN ID
  * @param  status: FC status (CTS/WAIT/OVERFLOW, ISOTP_FC_STATUS_*)
@@ -232,9 +229,7 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
       int8_t rc = isotp_send_fc_try(can_id, fc_data);
       if (rc == 0)
       {
-        /* N_Cr 从 FC 上总线起算：主机收到 FC 后才会发 CF。
-         * 若仍从 FF 起算，FC 发送被 flush/wait_tx_idle 拖延时
-         * CF 必然落在 N_Cr 外 → 状态被清 → 0x34 无响应。 */
+        /* N_Cr 从 FC 上总线起算：主机收到 FC 后才会发 CF。 */
         rx_ctx.last_cf_ms = timer_get_tick();
         return;
       }
@@ -247,8 +242,8 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     }
   }
 
-  /* 全部尝试连 can_driver_send 都失败：清 RX 状态，不留 RX_IN_PROGRESS 脏状态 */
-  rx_ctx.state = ISOTP_RX_STATE_IDLE;
+  /* 全部尝试 can_driver_send 都失败：绝不 rx_ctx.state=IDLE。
+   * FF 分支已置 RX_IN_PROGRESS，清状态会丢掉随后到达的 CF。 */
 }
 
 static uint8_t isotp_stmin_to_ms(uint8_t stmin)
