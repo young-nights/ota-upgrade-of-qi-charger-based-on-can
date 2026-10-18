@@ -77,8 +77,8 @@ public sealed class IsoTpClient
             if (bs != 0 && inBlock >= bs)
             {
                 var f2 = WaitFc(1500) ?? throw new TimeoutException("ISO-TP FC timeout (BS)");
-                bs = f2.Value.Data.Length > 1 ? f2.Value.Data[1] : (byte)0;
-                stminMs = StminToMs(f2.Value.Data.Length > 2 ? f2.Value.Data[2] : (byte)0);
+                bs = f2.Data.Length > 1 ? f2.Data[1] : (byte)0;
+                stminMs = StminToMs(f2.Data.Length > 2 ? f2.Data[2] : (byte)0);
                 inBlock = 0;
             }
             if (stminMs > 0) Thread.Sleep(stminMs);

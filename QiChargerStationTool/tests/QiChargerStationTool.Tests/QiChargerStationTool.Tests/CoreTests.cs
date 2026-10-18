@@ -50,13 +50,6 @@ public class XatoImageTests
 public class IsoTpCodecTests
 {
     [Fact]
-    public void StminMapping()
-    {
-        // 0x00 → 0ms handled by client; 0x01 → 1ms; 0xFA.. reserved → 125ms
-        Assert.Equal(0, QiChargerStationTool.Core.Protocol.ProtoIds.UdsReqId & 0x1FFFFFFF);
-    }
-
-    [Fact]
     public void ProtoIds_Uds()
     {
         Assert.Equal(0x18DA0D03u, ProtoIds.UdsReqId);

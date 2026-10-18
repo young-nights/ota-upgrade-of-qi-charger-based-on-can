@@ -72,7 +72,7 @@ public sealed class XatoImage
             if (!hit) continue;
             int end = i;
             while (end < span.Length && span[end] >= 0x20 && span[end] < 0x7F) end++;
-            return System.Text.Encoding.ASCII.GetString(span.Slice(i, end - i).ToArray());
+            return System.Text.Encoding.ASCII.GetString(span.Slice(i, end - i).ToArray()).TrimEnd();
         }
         return null;
     }

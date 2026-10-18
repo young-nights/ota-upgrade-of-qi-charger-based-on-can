@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\QiChargerStationTool.Core\QiChargerStationTool.Core\QiChargerStationTool.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\QiChargerStationTool.Core\QiChargerStationTool.Core\QiChargerStationTool.Core.csproj" />
   </ItemGroup>
 
 </Project>
