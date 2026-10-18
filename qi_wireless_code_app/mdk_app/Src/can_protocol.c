@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.6";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.7";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -175,6 +175,8 @@ static uint16_t g_qi_power_limit_mw   = 1500U;  /*!< DID 0x210D, 1500 mW = 15W d
 /** @brief  SIT1145 Normal + CAN online. Power-on is Normal (idle 30 s → Sleep). */
 static uint8_t  g_can_awake = 0;
 static uint8_t  g_need_lifecycle_announce = 0;
+/** @brief  UDS 多帧应答待发标志：置位时抑制 lifecycle TX，保证 UDS 入队 */
+static uint8_t  g_uds_mf_pending = 0;
 static uint32_t g_uds_last_ms = 0;
 static uint32_t g_sleep_since_ms = 0;
 static uint32_t g_announce_due_ms = 0;
@@ -575,6 +577,7 @@ static void proto_flush_pending_tx(void)
   if (isotp_tx_send(CAN_PROTO_UDS_RESPONSE, g_tx_pend, n) == 0)
   {
     g_tx_pend_len = 0U;
+    g_uds_mf_pending = 0U;
   }
 }
 
@@ -595,6 +598,7 @@ static void proto_send_response(uint8_t *data, uint16_t len)
   }
   memcpy(g_tx_pend, data, len);
   g_tx_pend_len = len;
+  g_uds_mf_pending = 1U;  /* 抑制 lifecycle TX，优先保证 UDS 应答入队 */
 }
 
 /**
@@ -1031,6 +1035,7 @@ static void session_reset_to_default(void)
   g_seed_generated  = 0;
   g_seed_sub        = 0;
   g_tx_pend_len     = 0U;
+  g_uds_mf_pending  = 0U;
   ota_dl_abort();
 }
 
@@ -3038,7 +3043,8 @@ void can_protocol_poll(void)
   }
 
   if ((g_can_awake != 0U) && (g_need_lifecycle_announce != 0U) &&
-      ((int32_t)(now - g_announce_due_ms) >= 0))
+      ((int32_t)(now - g_announce_due_ms) >= 0) &&
+      (g_uds_mf_pending == 0U))  /* UDS 多帧应答待发时抑制 lifecycle，保证入队 */
   {
     g_need_lifecycle_announce = 0U;
     if (g_lp_woke_from_sleep != 0U)

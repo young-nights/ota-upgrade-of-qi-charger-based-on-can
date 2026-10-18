@@ -787,12 +787,12 @@ def send_security_key(bus_id, sig, seed=None, priv=None):
     off = 0
     while off < 64:
         piece = sig[off:off + SA_SIG_CHUNK]
-        uds_req(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
+        uds_req_mf(bus_id, SID_SA, [0x03, seq] + _to_list(piece))
         off += len(piece)
         seq += 1
     _log("27 03 已送 64 字节 / %d 帧" % (seq - 1))
     time.sleep(0.15)
-    return uds_req(bus_id, SID_SA, [0x02], wait_pending_s=45)
+    return uds_req_mf(bus_id, SID_SA, [0x02])
     _log("27 03 已送 64 字节 / %d 帧" % (seq - 1))
     time.sleep(0.15)
     return uds_req(bus_id, SID_SA, [0x02], wait_pending_s=45)
@@ -1599,6 +1599,14 @@ def run_ota(bus_id):
                 time.sleep(0.4)
         if last_sa is not None:
             raise last_sa
+        # 清空残留应答（27 01 重试产生的延迟应答会污染 27 03 序列）
+        for _ in range(5):
+            try:
+                if not _recv_frames(bus_id):
+                    break
+            except Exception:
+                break
+            time.sleep(0.05)
         if len(rx) < 6:
             raise RuntimeError("seed 响应过短")
         if len(rx) >= 34:
