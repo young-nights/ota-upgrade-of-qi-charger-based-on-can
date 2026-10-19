@@ -243,53 +243,58 @@ public partial class MainWindow : Window
         }
         try
         {
+            // body 内所有异常都在此消化为失败结果，绝不抛到 WPF 引发崩溃框
+            string failMsg = "";
             await Task.Run(async () =>
             {
-                AppendLog($"CAN 复用已连接端口");
-                var iso = new IsoTpClient(transport);
-                iso.OnLog += m => AppendLog(m);
-                var uds = new UdsClient(iso);
-                uds.OnLog += m => AppendLog(m);
-                await body(uds, ct);
+                try
+                {
+                    AppendLog($"CAN 复用已连接端口");
+                    var iso = new IsoTpClient(transport);
+                    iso.OnLog += m => AppendLog(m);
+                    var uds = new UdsClient(iso);
+                    uds.OnLog += m => AppendLog(m);
+                    await body(uds, ct);
+                }
+                catch (Exception ex)
+                {
+                    failMsg = FormatOpError(ex);
+                }
             }, ct);
 
             sw.Stop();
-            AppendLog($"==== 完成 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
-        }
-        catch (UdsException uex)
-        {
-            sw.Stop();
-            string detail = uex.Explain();
-            AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {detail} ====");
-            AppendResult("FAIL", name, detail);
-            SetState("失败", Colors.Crimson, detail);
-        }
-        catch (TimeoutException tex)
-        {
-            sw.Stop();
-            AppendLog($"==== 超时 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {tex.Message} ====");
-            AppendResult("TIMEOUT", name, tex.Message);
-            SetState("超时", Colors.Crimson, $"{name} 无应答，已自动结束");
-        }
-        catch (OperationCanceledException)
-        {
-            sw.Stop();
-            AppendLog($"==== 超时/取消 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
-            AppendResult("TIMEOUT", name, $"超过 {timeout.TotalSeconds:F0}s 或被停止");
-            SetState("超时", Colors.Crimson, $"{name} 已停止");
+            if (failMsg.Length == 0)
+            {
+                AppendLog($"==== 完成 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
+            }
+            else
+            {
+                AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {failMsg} ====");
+                AppendResult("FAIL", name, failMsg);
+                SetState("失败", Colors.Crimson, failMsg);
+            }
         }
         catch (Exception ex)
         {
             sw.Stop();
-            AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {ex.Message} ====");
-            AppendResult("FAIL", name, ex.Message);
-            SetState("失败", Colors.Crimson, ex.Message);
+            var msg = FormatOpError(ex);
+            AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {msg} ====");
+            AppendResult("FAIL", name, msg);
+            SetState("失败", Colors.Crimson, msg);
         }
         finally
         {
             SetBusy(false);
         }
     }
+
+    /// <summary>把异常整理成用户可读的失败原因（含 NRC 解释）。</summary>
+    private static string FormatOpError(Exception ex) => ex switch
+    {
+        UdsException u => u.Explain(),
+        OperationCanceledException => "操作已取消/超时",
+        _ => ex.Message,
+    };
 
     /// <summary>全局异常兜底：只记日志，不崩溃、不停监听。</summary>
     public void ReportCrash(Exception ex)
@@ -347,9 +352,19 @@ public partial class MainWindow : Window
     private async void OnSnRead(object sender, RoutedEventArgs e)
         => await RunOpAsync("读 SN", TimeSpan.FromSeconds(15), async (uds, ct) =>
         {
-            var rx = await Task.Run(() =>
-                uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
-            var sn = DecodeSn(rx);
+            var r = await Task.Run(() =>
+                uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
+            if (!r.Ok)
+            {
+                await UiAsync(() =>
+                {
+                    AppendResult("FAIL", "读 SN", r.Error);
+                    SetState("失败", Colors.Crimson, r.Error);
+                    AppendLog($"[FAIL] 读 SN: {r.Error}");
+                });
+                return;
+            }
+            var sn = DecodeSn(r.Data);
             await UiAsync(() =>
             {
                 TxtSn.Text = sn;
@@ -392,7 +407,17 @@ public partial class MainWindow : Window
     private async void OnReadVersion(object sender, RoutedEventArgs e)
         => await RunOpAsync("读软件版本", TimeSpan.FromSeconds(8), async (uds, ct) =>
         {
-            var ver = await Task.Run(() => uds.ReadSwVersion(ct), ct);
+            var (ok, ver, err) = await Task.Run(() => uds.TryReadSwVersion(ct), ct);
+            if (!ok)
+            {
+                await UiAsync(() =>
+                {
+                    AppendResult("FAIL", "读软件版本", err);
+                    SetState("失败", Colors.Crimson, err);
+                    AppendLog($"[FAIL] 读软件版本: {err}");
+                });
+                return;
+            }
             await UiAsync(() => Pass("读软件版本", ver));
         });
 

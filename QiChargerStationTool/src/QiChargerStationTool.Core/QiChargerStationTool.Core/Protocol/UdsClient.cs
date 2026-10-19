@@ -1,5 +1,12 @@
 namespace QiChargerStationTool.Core.Protocol;
 
+/// <summary>UDS 请求结果：失败时填 Error，不靠异常上抛。</summary>
+public readonly record struct UdsResult(bool Ok, byte[] Data, byte Nrc, string Error)
+{
+    public static UdsResult Fail(string error, byte nrc = 0) => new(false, Array.Empty<byte>(), nrc, error);
+    public static UdsResult OkData(byte[] data) => new(true, data, 0, "");
+}
+
 /// <summary>UDS client on top of ISO-TP. Lifecycle noise on resp ID is skipped.</summary>
 public sealed class UdsClient
 {
@@ -15,54 +22,75 @@ public sealed class UdsClient
 
     private void Log(string m) => OnLog?.Invoke(m);
 
+    /// <summary>
+    /// 发送并等待正响应。失败返回 <see cref="UdsResult"/>（Ok=false），不抛异常。
+    /// </summary>
+    public UdsResult TryRequest(byte sid, byte[] payload, int timeoutMs = 3000,
+                                int waitPendingMs = 45_000, byte? expectSub = null,
+                                CancellationToken ct = default)
+    {
+        try
+        {
+            var uds = new byte[1 + payload.Length];
+            uds[0] = sid;
+            payload.CopyTo(uds, 1);
+            _tp.Send(uds);
+
+            long pendingDeadline = Environment.TickCount64 + waitPendingMs;
+            while (true)
+            {
+                if (ct.IsCancellationRequested)
+                    return UdsResult.Fail("已取消");
+                var data = _tp.TryReceive(
+                    d =>
+                    {
+                        if (d.Length == 0) return false;
+                        if (d[0] == ProtoIds.SidNrc)
+                            return d.Length >= 2 && d[1] == sid;
+                        if (d[0] != sid + ProtoIds.SidPr) return false;
+                        if (expectSub is { } sub && (d.Length < 2 || d[1] != sub)) return false;
+                        return true;
+                    },
+                    timeoutMs, ct);
+
+                if (data is null)
+                    return UdsResult.Fail($"UDS 无应答: {_tp.LastTimeoutDetail}");
+
+                if (data[0] == ProtoIds.SidNrc)
+                {
+                    byte nrc = data.Length >= 3 ? data[2] : (byte)0;
+                    if (nrc == ProtoIds.NrcRcrrp)
+                    {
+                        if (Environment.TickCount64 >= pendingDeadline)
+                            return UdsResult.Fail("NRC 0x78 响应挂起超时", nrc);
+                        Log("[RX] NRC 0x78 responsePending");
+                        Thread.Sleep(200);
+                        continue;
+                    }
+                    var tmp = new UdsException(sid, nrc, $"NRC 0x{nrc:X2}");
+                    return UdsResult.Fail(tmp.Explain(payload), nrc);
+                }
+                return UdsResult.OkData(data);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return UdsResult.Fail("已取消");
+        }
+        catch (Exception ex)
+        {
+            return UdsResult.Fail(ex.Message);
+        }
+    }
+
+    /// <summary>需要正响应的封装：失败抛 <see cref="UdsException"/>（供 Station 步骤用）。</summary>
     public byte[] Request(byte sid, byte[] payload, int timeoutMs = 3000,
                           int waitPendingMs = 45_000, byte? expectSub = null,
                           CancellationToken ct = default)
     {
-        var uds = new byte[1 + payload.Length];
-        uds[0] = sid;
-        payload.CopyTo(uds, 1);
-        _tp.Send(uds);
-
-        long pendingDeadline = Environment.TickCount64 + waitPendingMs;
-        while (true)
-        {
-            if (ct.IsCancellationRequested)
-                throw new OperationCanceledException(ct);
-            var data = _tp.TryReceive(
-                d =>
-                {
-                    if (d.Length == 0) return false;
-                    if (d[0] == ProtoIds.SidNrc)
-                        return d.Length >= 2 && d[1] == sid;
-                    if (d[0] != sid + ProtoIds.SidPr) return false;
-                    if (expectSub is { } sub && (d.Length < 2 || d[1] != sub)) return false;
-                    return true;
-                },
-                timeoutMs, ct);
-
-            if (data is null)
-            {
-                // 不抛 TimeoutException（会弹崩溃框），用 UdsException 上抛
-                string detail = _tp.LastTimeoutDetail;
-                throw new UdsException(sid, 0, $"UDS 无应答: {detail}");
-            }
-
-            if (data[0] == ProtoIds.SidNrc)
-            {
-                byte nrc = data.Length >= 3 ? data[2] : (byte)0;
-                if (nrc == ProtoIds.NrcRcrrp)
-                {
-                    if (Environment.TickCount64 >= pendingDeadline)
-                        throw new UdsException(sid, nrc, "only NRC 0x78 (responsePending)");
-                    Log("[RX] NRC 0x78 responsePending");
-                    Thread.Sleep(200);
-                    continue;
-                }
-                throw new UdsException(sid, nrc, $"NRC 0x{nrc:X2}");
-            }
-            return data;
-        }
+        var r = TryRequest(sid, payload, timeoutMs, waitPendingMs, expectSub, ct);
+        if (r.Ok) return r.Data;
+        throw new UdsException(sid, r.Nrc, r.Error);
     }
 
     public byte[] RequestSuppress(byte sid, byte[] payload)
@@ -77,15 +105,23 @@ public sealed class UdsClient
 
     public void KeepAlive() => RequestSuppress(ProtoIds.SidTp, new byte[] { 0x80 });
 
+    /// <summary>读软件版本；失败返回 (false, 错误信息)。</summary>
+    public (bool Ok, string Version, string Error) TryReadSwVersion(CancellationToken ct = default)
+    {
+        var r = TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 3000, ct: ct);
+        if (!r.Ok) return (false, "", r.Error);
+        if (r.Data.Length < 4) return (false, "", "F195 响应过短");
+        int start = 3;
+        int len = r.Data.Length - start;
+        while (len > 0 && (r.Data[start + len - 1] is 0x00 or 0x20)) len--;
+        return (true, System.Text.Encoding.ASCII.GetString(r.Data, start, len), "");
+    }
+
     public string ReadSwVersion(CancellationToken ct = default)
     {
-        var rx = Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 3000, ct: ct);
-        if (rx.Length < 4) throw new InvalidOperationException("F195 response too short");
-        int start = 3;
-        int len = rx.Length - start;
-        // strip trailing 0x00 / spaces
-        while (len > 0 && (rx[start + len - 1] is 0x00 or 0x20)) len--;
-        return System.Text.Encoding.ASCII.GetString(rx, start, len);
+        var (ok, ver, err) = TryReadSwVersion(ct);
+        if (!ok) throw new UdsException(ProtoIds.SidRdbi, 0, err);
+        return ver;
     }
 
     public byte ReadSlot()
