@@ -14,6 +14,8 @@ namespace QiChargerStationTool.App;
 public partial class MainWindow : Window
 {
     private CancellationTokenSource? _cts;
+    /// <summary>是否有操作在跑。IsBusyGuard 只看这个，不看 _cts（否则结束后永远 true）。</summary>
+    private bool _busy;
     /// <summary>长连接传输层；连接后各操作复用，直到「断开」。</summary>
     private ZqwlSerialTransport? _transport;
     private readonly object _transportLock = new();
@@ -167,6 +169,7 @@ public partial class MainWindow : Window
     {
         void Apply()
         {
+            _busy = busy;
             Button[] disable =
             {
                 BtnSnRead, BtnSnWrite, BtnReadVersion,
@@ -287,6 +290,8 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _cts?.Dispose();
+            _cts = null;
             SetBusy(false);
         }
     }
@@ -314,12 +319,8 @@ public partial class MainWindow : Window
 
     private bool IsBusyGuard()
     {
-        if (_cts is { IsCancellationRequested: false })
-        {
-            // 仍可运行说明上一次未结束——按钮本已置灰，这里兜底
-            return true;
-        }
-        return false;
+        // 只认 _busy 标志；_cts 用完即弃，避免「结束后仍占用」导致按钮点了没反应
+        return _busy;
     }
 
     private void Pass(string name, string msg)
@@ -855,7 +856,8 @@ public partial class MainWindow : Window
 
     private static SeedSigner RequireSigner()
         => SeedSigner.FromDefaultKey()
-           ?? throw new InvalidOperationException("缺少 keys/private.pem，无法 SA 解锁");
+           ?? throw new InvalidOperationException(
+               "缺少私钥 docs/keys/private.pem（仓库 docs/keys），无法 SA 解锁");
 
     private static byte[] BuildSnPayload(string sn)
     {

@@ -4,7 +4,8 @@ using QiChargerStationTool.Core.Protocol;
 namespace QiChargerStationTool.Core.Security;
 
 /// <summary>
-/// ECDSA P-256 seed signer. Loads PEM private key from docs/keys/private.pem
+/// ECDSA P-256 seed signer. Loads PEM private key from
+/// 仓库 docs/keys/private.pem 或输出目录 keys/private.pem
 /// (same key as python_tools packaging/sign_seed.py).
 /// Signature = r||s (64B raw) over SHA256(seed) — matches firmware uECC_verify.
 /// </summary>
@@ -16,13 +17,7 @@ public sealed class SeedSigner
 
     public static SeedSigner? FromDefaultKey()
     {
-        string[] candidates =
-        {
-            Path.Combine(AppContext.BaseDirectory, "keys", "private.pem"),
-            Path.Combine(AppContext.BaseDirectory, "docs", "keys", "private.pem"),
-            "docs/keys/private.pem",
-        };
-        foreach (var p in candidates)
+        foreach (var p in EnumerateKeyCandidates())
         {
             if (!File.Exists(p)) continue;
             try
@@ -32,6 +27,27 @@ public sealed class SeedSigner
             catch { /* try next */ }
         }
         return null;
+    }
+
+    /// <summary>
+    /// 密钥搜索顺序：
+    /// 1. 输出目录 keys/private.pem（产线拷贝）
+    /// 2. 从工作目录/输出目录向上找仓库 docs/keys/private.pem
+    ///    （开发时直接指向 ota-upgrade-of-qi-charger-based-on-can/docs/keys）
+    /// </summary>
+    private static IEnumerable<string> EnumerateKeyCandidates()
+    {
+        yield return Path.Combine(AppContext.BaseDirectory, "keys", "private.pem");
+
+        foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+        {
+            var dir = new DirectoryInfo(start);
+            for (int i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
+            {
+                yield return Path.Combine(dir.FullName, "docs", "keys", "private.pem");
+                yield return Path.Combine(dir.FullName, "keys", "private.pem");
+            }
+        }
     }
 
     public static SeedSigner FromPem(string pem)
