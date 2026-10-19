@@ -1,0 +1,36 @@
+# MD5 校验清单（完整 32 字符 MD5）
+# 发布包: QC_JYF_MCU1_FW_1.2.1_MCU2_FW_1.2.1_Release
+# 发布日期: 2026-10-19
+# 生成时间: 2026-10-19
+# 规则: <MD5> 为最终发布文件的 MD5；.img 与 .bin 各自独立计算
+
+## 固件文件
+
+529b857f006167d3a98ee6ef668605c8  Firmware/MCU1/QC_JYF_MCU1_FW_1.2.1_529b857f006167d3a98ee6ef668605c8.img
+    用途      : 应用 OTA 升级固件
+    大小      : 49440 bytes
+    源文件    : app_image_v1_2_1.bin
+
+b1fe4429f2e4f2b78db198c122c093d6  Firmware/MCU1/QC_JYF_MCU1_FW_1.2.1_b1fe4429f2e4f2b78db198c122c093d6.bin
+    用途      : 完整 MCU 烧录固件（含 bootloader + 应用）
+    大小      : 61728 bytes
+    源文件    : prod_image_v1_2_1.bin
+
+26008d5764676d856a3ffb80ca797317  Firmware/MCU2/QC_JYF_MCU2_FW_1.2.1_26008d5764676d856a3ffb80ca797317.img
+    用途      : 应用 OTA 升级固件
+    大小      : 12956 bytes
+    源文件    : QI_IAP_Ver_1_2_1.BIN
+
+c2ebde0deb69f7bf417e110dfef4729f  Firmware/MCU2/QC_JYF_MCU2_FW_1.2.1_c2ebde0deb69f7bf417e110dfef4729f.bin
+    用途      : 完整 MCU 烧录固件（含 bootloader + 应用）
+    大小      : 15004 bytes
+    源文件    : Z0001_015_boot轮询_APP_1016_010201.hex（Intel HEX，0x0000~0x3A9B，空洞填 0xFF → raw bin）
+
+## 说明
+
+- MCU1 .img = pack_image.py 产物（XATO 头 + APP），OTA 升级用
+- MCU1 .bin = merge_prod_bin.py 产物（Bootloader + App），产线/直接烧录用
+- MCU2 .img = QI_IAP_Ver_x_y_z.BIN（Qi 芯片 IAP 升级载荷）
+- MCU2 .bin = Z0001_015_boot轮询_APP_1016_010201.hex 转 raw bin（0x0000 起，空洞 0xFF）
+- 硬件版本（固件内嵌 QC_JYF_HW_1.1.5 / QC_JYF_BL_1.0.0）
+
