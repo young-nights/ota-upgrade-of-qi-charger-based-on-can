@@ -27,8 +27,9 @@ public sealed class UdsClient
         long pendingDeadline = Environment.TickCount64 + waitPendingMs;
         while (true)
         {
-            ct.ThrowIfCancellationRequested();
-            var data = _tp.Receive(
+            if (ct.IsCancellationRequested)
+                throw new OperationCanceledException(ct);
+            var data = _tp.TryReceive(
                 d =>
                 {
                     if (d.Length == 0) return false;
@@ -39,6 +40,13 @@ public sealed class UdsClient
                     return true;
                 },
                 timeoutMs, ct);
+
+            if (data is null)
+            {
+                // 不抛 TimeoutException（会弹崩溃框），用 UdsException 上抛
+                string detail = _tp.LastTimeoutDetail;
+                throw new UdsException(sid, 0, $"UDS 无应答: {detail}");
+            }
 
             if (data[0] == ProtoIds.SidNrc)
             {

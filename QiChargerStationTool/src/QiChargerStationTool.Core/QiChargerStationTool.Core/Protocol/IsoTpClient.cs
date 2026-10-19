@@ -66,7 +66,8 @@ public sealed class IsoTpClient
             if (!quiet) Log($"[TX] FF try{tryN + 1} len={total} {Hex(uds.AsSpan(0, Math.Min(6, total)).ToArray())}");
             fc = WaitFc(1500);
         }
-        if (fc is null) throw new TimeoutException("ISO-TP FC timeout (ECU did not send FlowControl)");
+        if (fc is null)
+            throw new InvalidOperationException("ISO-TP FC timeout (ECU did not send FlowControl)");
 
         byte bs = fc.Value.Data.Length > 1 ? fc.Value.Data[1] : (byte)0;
         int stminMs = StminToMs(fc.Value.Data.Length > 2 ? fc.Value.Data[2] : (byte)0);
@@ -76,7 +77,8 @@ public sealed class IsoTpClient
         {
             if (bs != 0 && inBlock >= bs)
             {
-                var f2 = WaitFc(1500) ?? throw new TimeoutException("ISO-TP FC timeout (BS)");
+                var f2 = WaitFc(1500)
+                    ?? throw new InvalidOperationException("ISO-TP FC timeout (BS)");
                 bs = f2.Data.Length > 1 ? f2.Data[1] : (byte)0;
                 stminMs = StminToMs(f2.Data.Length > 2 ? f2.Data[2] : (byte)0);
                 inBlock = 0;
@@ -102,18 +104,22 @@ public sealed class IsoTpClient
         if (!quiet) Log($"[TX] MF CF={cfCount} total={total}");
     }
 
-    /// <summary>Receive one complete UDS payload. Skips lifecycle/non-matching noise.</summary>
-    public byte[] Receive(Func<byte[], bool> match, int timeoutMs, CancellationToken ct = default)
+    /// <summary>
+    /// Receive one complete UDS payload. Returns null on timeout (不抛异常，避免弹崩溃框)。
+    /// Skips lifecycle/non-matching noise.
+    /// </summary>
+    public byte[]? TryReceive(Func<byte[], bool> match, int timeoutMs, CancellationToken ct = default)
     {
         long deadline = Environment.TickCount64 + timeoutMs;
         byte[]? ffBuf = null;
         int ffTotal = 0, expectSn = 1;
         var cfBuf = new List<byte>();
         int seen = 0, dropped = 0;
+        var noiseIds = new Dictionary<uint, int>();
 
         while (Environment.TickCount64 < deadline)
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) return null;
             Pump();
             while (_rxq.TryDequeue(out var f))
             {
@@ -121,8 +127,10 @@ public sealed class IsoTpClient
                 if ((f.Id & 0x1FFFFFFF) != (_rxId & 0x1FFFFFFF) || f.Data.Length == 0)
                 {
                     dropped++;
-                    // 噪声帧 ID 打出来，方便确认设备在发什么
-                    Log($"[RX?] id={f.Id:X8x} {Hex(f.Data)}");
+                    uint nid = f.Id & 0x1FFFFFFF;
+                    noiseIds[nid] = noiseIds.TryGetValue(nid, out var c) ? c + 1 : 1;
+                    if (noiseIds[nid] <= 3)
+                        Log($"[RX?] id={nid:X8x} {Hex(f.Data)}");
                     continue;
                 }
                 int pci = f.Data[0] & 0xF0;
@@ -170,10 +178,19 @@ public sealed class IsoTpClient
             }
             Thread.Sleep(2);
         }
-        Log($"[RX] timeout: 收到 {seen} 帧（噪声 {dropped}），无匹配 UDS 应答");
-        throw new TimeoutException(
-            $"UDS response timeout (收到 {seen} 帧/噪声 {dropped}，目标 ID 0x{_rxId:X8})");
+
+        string noise = string.Join(", ",
+            noiseIds.Select(kv => $"0x{kv.Key:X8}×{kv.Value}"));
+        Log($"[RX] 超时: 收 {seen} 帧/噪声 {dropped}，目标 0x{_rxId:X8}" +
+            (noise.Length > 0 ? $"，噪声ID: {noise}" : "，无任何帧"));
+        LastTimeoutDetail =
+            $"收到 {seen} 帧/噪声 {dropped}，目标 ID 0x{_rxId:X8}" +
+            (noise.Length > 0 ? $"；噪声: {noise}" : "；总线无回包");
+        return null;
     }
+
+    /// <summary>最近一次 <see cref="TryReceive"/> 超时的诊断摘要。</summary>
+    public string LastTimeoutDetail { get; private set; } = "";
 
     private CanFrame? WaitFc(int timeoutMs)
     {
