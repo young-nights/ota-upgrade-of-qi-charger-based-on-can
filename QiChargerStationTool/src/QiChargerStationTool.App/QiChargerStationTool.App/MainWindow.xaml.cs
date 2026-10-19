@@ -171,6 +171,7 @@ public partial class MainWindow : Window
             {
                 BtnSnRead, BtnSnWrite, BtnReadVersion,
                 BtnOta, BtnIap, BtnQiStatus, BtnQiSetPower, BtnChargeOn, BtnChargeOff,
+                BtnLinkProbe,
             };
             foreach (var b in disable)
                 b.IsEnabled = !busy;
@@ -495,6 +496,41 @@ public partial class MainWindow : Window
     private async void OnChargeOff(object sender, RoutedEventArgs e)
         => await RunChargeAsync(enable: false);
 
+    /// <summary>链路自检：3E 00 + 22 F195，把收发都打进日志，区分「无回包 / 协议不匹配」。</summary>
+    private async void OnLinkProbe(object sender, RoutedEventArgs e)
+        => await RunOpAsync("链路自检", TimeSpan.FromSeconds(12), async (uds, ct) =>
+        {
+            await Task.Run(() =>
+            {
+                try
+                {
+                    uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
+                    AppendLog("[自检] 已发 3E 00");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"[自检] 3E 00 异常: {ex.Message}");
+                }
+            }, ct);
+
+            await Task.Run(() =>
+            {
+                try
+                {
+                    AppendLog("[自检] 发 22 F195 …");
+                    var ver = uds.ReadSwVersion();
+                    AppendLog($"[自检] 应答版本: {ver}");
+                    Pass("链路自检", $"F195 = {ver}");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"[自检] 22 F195 失败: {ex.Message}");
+                    AppendLog("[自检] 请查看上方 [CAN-TX]/[CAN-RX]：有 CAN-RX=协议/ID 问题；无 CAN-RX=硬件/盒子/设备未上电");
+                    throw;
+                }
+            }, ct);
+        });
+
     /// <summary>Qi 芯片状态全量查询：IAP + 充电 + 传感器 + 功率档位，任意会话可读。</summary>
     private async void OnQiStatusQuery(object sender, RoutedEventArgs e)
         => await RunOpAsync("Qi 状态查询", TimeSpan.FromSeconds(20), async (uds, ct) =>
@@ -574,6 +610,94 @@ public partial class MainWindow : Window
     }
 
     private void OnClearResult(object sender, RoutedEventArgs e) => LstResult.Items.Clear();
+
+    // ---------- 日志复制 / 导出 ----------
+
+    private string CollectLogText()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var item in LstLog.Items)
+            sb.AppendLine(item?.ToString());
+        return sb.ToString();
+    }
+
+    private void OnCopyLog(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // 有选中则复制选中，否则复制全部
+            string text;
+            if (LstLog.SelectedItems.Count > 1)
+            {
+                var sb = new System.Text.StringBuilder();
+                foreach (var item in LstLog.SelectedItems)
+                    sb.AppendLine(item?.ToString());
+                text = sb.ToString();
+            }
+            else
+            {
+                text = CollectLogText();
+            }
+            if (text.Length == 0)
+            {
+                AppendLog("[日志] 无内容可复制");
+                return;
+            }
+            Clipboard.SetText(text);
+            AppendLog($"[日志] 已复制 {LstLog.Items.Count} 行到剪贴板，可直接 Ctrl+V 粘贴");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[日志] 复制失败: {ex.Message}");
+        }
+    }
+
+    private void OnExportLog(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dlg = new SaveFileDialog
+            {
+                Title = "导出运行日志",
+                Filter = "文本文件 (*.txt)|*.txt|所有文件 (*.*)|*.*",
+                FileName = $"station_log_{DateTime.Now:yyyyMMdd_HHmmss}.txt",
+            };
+            if (dlg.ShowDialog() != true) return;
+            File.WriteAllText(dlg.FileName, CollectLogText());
+            AppendLog($"[日志] 已导出 {dlg.FileName}");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[日志] 导出失败: {ex.Message}");
+        }
+    }
+
+    private void OnClearLog(object sender, RoutedEventArgs e)
+    {
+        LstLog.Items.Clear();
+        AppendLog("[日志] 已清空");
+    }
+
+    /// <summary>Ctrl+A 全选，Ctrl+C 复制选中。</summary>
+    private void OnLogKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.A && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            LstLog.SelectAll();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            if (LstLog.SelectedItems.Count > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                foreach (var item in LstLog.SelectedItems)
+                    sb.AppendLine(item?.ToString());
+                try { Clipboard.SetText(sb.ToString()); } catch { /* ignore */ }
+                e.Handled = true;
+            }
+        }
+    }
 
     // ---------- helpers ----------
 

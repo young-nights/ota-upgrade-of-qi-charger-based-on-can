@@ -171,7 +171,8 @@ public sealed class IsoTpClient
             Thread.Sleep(2);
         }
         Log($"[RX] timeout: 收到 {seen} 帧（噪声 {dropped}），无匹配 UDS 应答");
-        throw new TimeoutException("UDS response timeout");
+        throw new TimeoutException(
+            $"UDS response timeout (收到 {seen} 帧/噪声 {dropped}，目标 ID 0x{_rxId:X8})");
     }
 
     private CanFrame? WaitFc(int timeoutMs)
