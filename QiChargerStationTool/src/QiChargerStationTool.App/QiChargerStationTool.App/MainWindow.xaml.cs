@@ -7,12 +7,16 @@ using System.Windows.Media;
 using QiChargerStationTool.Core.Protocol;
 using QiChargerStationTool.Core.Security;
 using QiChargerStationTool.Core.Station;
+using QiChargerStationTool.Core.Transport;
 
 namespace QiChargerStationTool.App;
 
 public partial class MainWindow : Window
 {
     private CancellationTokenSource? _cts;
+    /// <summary>长连接传输层；连接后各操作复用，直到「断开」。</summary>
+    private ZqwlSerialTransport? _transport;
+    private readonly object _transportLock = new();
 
     public MainWindow()
     {
@@ -23,6 +27,7 @@ public partial class MainWindow : Window
             ScanPorts(keepSelection: null);
             FocusSnBox();
         };
+        Closed += (_, _) => DisconnectTransport();
     }
 
     /// <summary>从 appsettings.json 读 ExtraComMatch（额外 VID:PID/子串），追加到扫描匹配表。</summary>
@@ -78,6 +83,72 @@ public partial class MainWindow : Window
     // ZQWL USB 私有协议固定 2M，与 UI 只读展示一致
     private const int FixedBaud = 2_000_000;
 
+    private bool IsConnected
+    {
+        get { lock (_transportLock) return _transport is { IsOpen: true }; }
+    }
+
+    private void OnConnect(object sender, RoutedEventArgs e)
+    {
+        var port = SelectedPortName();
+        if (string.IsNullOrWhiteSpace(port))
+        {
+            SetState("失败", Colors.Crimson, "请先扫描并选择 COM 口");
+            return;
+        }
+        lock (_transportLock)
+        {
+            if (_transport is { IsOpen: true })
+            {
+                AppendLog($"[连接] 已连接 {port}，勿重复连接");
+                return;
+            }
+            try
+            {
+                _transport?.Dispose();
+                _transport = new ZqwlSerialTransport(port, FixedBaud);
+                _transport.Open();
+            }
+            catch (Exception ex)
+            {
+                _transport?.Dispose();
+                _transport = null;
+                SetState("失败", Colors.Crimson, $"连接失败: {ex.Message}");
+                AppendLog($"[连接] {port} 失败: {ex.Message}");
+                UpdateConnectUi();
+                return;
+            }
+        }
+        AppendLog($"[连接] CAN 打开 {port} @ {FixedBaud}");
+        SetState("已连接", Colors.ForestGreen, port);
+        UpdateConnectUi();
+    }
+
+    private void OnDisconnect(object sender, RoutedEventArgs e)
+    {
+        DisconnectTransport();
+        AppendLog("[断开] 已关闭 COM 口");
+        SetState("已断开", Colors.DimGray);
+        UpdateConnectUi();
+    }
+
+    private void DisconnectTransport()
+    {
+        lock (_transportLock)
+        {
+            try { _transport?.Dispose(); } catch { /* ignore */ }
+            _transport = null;
+        }
+    }
+
+    private void UpdateConnectUi()
+    {
+        bool on = IsConnected;
+        BtnConnect.IsEnabled = !on;
+        BtnDisconnect.IsEnabled = on;
+        CmbPort.IsEnabled = !on;
+    }
+
     private string SelectedPortName()
         => (CmbPort.SelectedItem as ComPortInfo)?.PortName
            ?? CmbPort.Text?.Trim()
@@ -101,6 +172,16 @@ public partial class MainWindow : Window
             };
             foreach (var b in disable)
                 b.IsEnabled = !busy;
+            // 连接/断开：空闲时按实际连接态恢复，忙碌时强制置灰
+            if (busy)
+            {
+                BtnConnect.IsEnabled = false;
+                BtnDisconnect.IsEnabled = false;
+            }
+            else
+            {
+                UpdateConnectUi();
+            }
             BtnStop.IsEnabled = busy;
             Cursor = busy ? Cursors.Wait : Cursors.Arrow;
             if (label is not null && busy)
@@ -144,19 +225,24 @@ public partial class MainWindow : Window
         _cts = new CancellationTokenSource(timeout);
         var ct = _cts.Token;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        // 在 UI 线程取好端口/波特率，避免后台线程访问控件
-        var port = SelectedPortName();
-        var baud = FixedBaud;
+        // 在 UI 线程取好连接，避免后台线程访问控件
+        ZqwlSerialTransport transport;
+        lock (_transportLock)
+        {
+            if (_transport is not { IsOpen: true })
+            {
+                SetBusy(false);
+                SetState("未连接", Colors.Crimson, "请先点「连接」打开 COM 口");
+                AppendLog($"==== 跳过 {name}：未连接 ====");
+                return;
+            }
+            transport = _transport;
+        }
         try
         {
             await Task.Run(async () =>
             {
-                if (string.IsNullOrWhiteSpace(port))
-                    throw new InvalidOperationException("请先扫描并选择 COM 口");
-                using var transport =
-                    new QiChargerStationTool.Core.Transport.ZqwlSerialTransport(port, baud);
-                transport.Open();
-                AppendLog($"CAN 打开 {port}");
+                AppendLog($"CAN 复用已连接端口");
                 var iso = new IsoTpClient(transport);
                 iso.OnLog += m => AppendLog(m);
                 var uds = new UdsClient(iso);

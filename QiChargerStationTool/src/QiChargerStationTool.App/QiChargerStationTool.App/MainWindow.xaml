@@ -93,6 +93,7 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -107,12 +108,20 @@
                   DisplayMemberPath="DisplayName"
                   ToolTip="自动扫描串口，★ 为 ZQWL CAN 盒子（默认认 VID_3562，可配置 ExtraComMatch）"/>
         <Button Grid.Column="2" Content="扫描" Style="{StaticResource GrayBtn}"
-                Width="56" Height="30" MinHeight="30" Margin="2,2,8,2"
+                Width="56" Height="30" MinHeight="30" Margin="2,2,4,2"
                 Click="OnScanPorts"
                 ToolTip="重新扫描系统串口并自动选中 ZQWL CAN 盒子"/>
-        <TextBlock Grid.Column="3" Text="波特率" FontWeight="Bold" VerticalAlignment="Center" Margin="0,2"/>
+        <Button x:Name="BtnConnect" Grid.Column="3" Content="连接" Style="{StaticResource GrayBtn}"
+                Width="56" Height="30" MinHeight="30" Margin="2,2,4,2"
+                Click="OnConnect"
+                ToolTip="打开所选 COM 口并初始化 CAN（250k 扩展帧）"/>
+        <Button x:Name="BtnDisconnect" Grid.Column="4" Content="断开" Style="{StaticResource GrayBtn}"
+                Width="56" Height="30" MinHeight="30" Margin="2,2,8,2"
+                Click="OnDisconnect" IsEnabled="False"
+                ToolTip="关闭 COM 口连接"/>
+        <TextBlock Grid.Column="5" Text="波特率" FontWeight="Bold" VerticalAlignment="Center" Margin="0,2"/>
         <!-- ZQWL 私有协议固定 2M，只读展示不可改 -->
-        <Border Grid.Column="4" Width="110" VerticalAlignment="Center" Margin="6,2,0,2"
+        <Border Grid.Column="6" Width="110" VerticalAlignment="Center" Margin="6,2,0,2"
                 Background="#F0F0F0" BorderBrush="#DDD" BorderThickness="1" CornerRadius="3"
                 ToolTip="ZQWL-CANFD USB 私有协议固定 2000000，不可修改">
           <TextBlock Text="2000000 (固定)" Foreground="#666" Padding="6,4"
@@ -122,20 +131,20 @@
         <!-- AT32 OTA 固件 -->
         <TextBlock Grid.Row="1" Text="AT32 OTA 固件" FontWeight="Bold"
                    VerticalAlignment="Center" Margin="0,8,0,2" Grid.ColumnSpan="1"/>
-        <TextBox x:Name="TxtOtaFirmware" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="5"
+        <TextBox x:Name="TxtOtaFirmware" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="6"
                  Text="" Margin="2,8,2,2" VerticalContentAlignment="Center"
                  ToolTip="AT32 APP 升级镜像（.bin，XATO 签名包）"/>
-        <Button Grid.Row="1" Grid.Column="6" Content="浏览…" Style="{StaticResource GrayBtn}"
+        <Button Grid.Row="1" Grid.Column="7" Content="浏览…" Style="{StaticResource GrayBtn}"
                 Width="72" HorizontalAlignment="Left" Margin="2,8,0,2"
                 Click="OnBrowseOtaFirmware"/>
 
         <!-- QI IAP 固件 -->
         <TextBlock Grid.Row="2" Text="QI IAP 固件" FontWeight="Bold"
                    VerticalAlignment="Center" Margin="0,8,0,2"/>
-        <TextBox x:Name="TxtIapFirmware" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="5"
+        <TextBox x:Name="TxtIapFirmware" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="6"
                  Text="" Margin="2,8,2,2" VerticalContentAlignment="Center"
                  ToolTip="Qi 芯片 IAP 固件（.bin）"/>
-        <Button Grid.Row="2" Grid.Column="6" Content="浏览…" Style="{StaticResource GrayBtn}"
+        <Button Grid.Row="2" Grid.Column="7" Content="浏览…" Style="{StaticResource GrayBtn}"
                 Width="72" HorizontalAlignment="Left" Margin="2,8,0,2"
                 Click="OnBrowseIapFirmware"/>
       </Grid>

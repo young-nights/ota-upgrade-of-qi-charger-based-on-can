@@ -130,22 +130,40 @@ public sealed class ZqwlSerialTransport : ICanTransport
             if (n <= 0) return;
             var tmp = new byte[n];
             int got = _port.Read(tmp, 0, n);
+            if (got <= 0) return;
             lock (_rxLock)
             {
-                if (_bufLen + got > _buf.Length) _bufLen = 0;
-                Buffer.BlockCopy(tmp, 0, _buf, _bufLen, got);
-                _bufLen += got;
+                // 满了先丢弃旧数据，避免 _bufLen 越界
+                if (_bufLen + got > _buf.Length)
+                    _bufLen = 0;
+                if (got > _buf.Length)
+                {
+                    // 单次超大块：只保留尾部可容纳部分
+                    tmp.AsSpan(got - _buf.Length).CopyTo(_buf);
+                    _bufLen = _buf.Length;
+                }
+                else
+                {
+                    Buffer.BlockCopy(tmp, 0, _buf, _bufLen, got);
+                    _bufLen += got;
+                }
                 ParseBuffer();
             }
         }
         catch (TimeoutException) { }
         catch (IOException) { }
+        catch (ObjectDisposedException) { }
+        catch (InvalidOperationException) { }
     }
 
     private void ParseBuffer()
     {
+        // 防御：_bufLen 不得超过缓冲区
+        if (_bufLen > _buf.Length) _bufLen = _buf.Length;
+        if (_bufLen < 0) _bufLen = 0;
+
         int i = 0;
-        while (true)
+        while (i < _bufLen)
         {
             // heartbeat / cfg replies start with 49 3B
             if (i + 1 < _bufLen && _buf[i] == 0x49 && _buf[i + 1] == 0x3B)
@@ -154,7 +172,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
                 i += 22;
                 continue;
             }
-            if (i >= _bufLen || _buf[i] != CanHdr)
+            if (_buf[i] != CanHdr)
             {
                 i++;
                 continue;
