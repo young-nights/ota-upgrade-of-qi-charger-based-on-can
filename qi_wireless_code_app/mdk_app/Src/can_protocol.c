@@ -246,13 +246,6 @@ static uint32_t g_charge_gate_since = 0U;  /* charging gate stale timeout */
 static void can_lp_mark_uds(void)
 {
   g_uds_last_ms = timer_get_tick();
-  /* UDS 交互发生 → 充电门禁 stale 计时器重置。
-   * 只有真正无 UDS 通信 60s（写入丢失场景）才放行 Sleep，
-   * 正常充电时有 TesterPresent/UDS 交互会持续重置，不会误进。 */
-  if (g_charge_gate_since != 0U)
-  {
-    g_charge_gate_since = 0U;
-  }
 }
 
 static uint8_t g_lp_ident_sent;
@@ -3191,23 +3184,10 @@ void can_protocol_poll(void)
    * the normal 30s timeout applies unchanged. */
   if ((g_qi_charger_enable != 0U) && (board_hall_open() == 0U))
   {
-    /* Charging gate: refresh idle timer while charging + device present.
-     * Stale timeout: g_charge_gate_since tracks when the gate last had
-     * no UDS traffic. can_lp_mark_uds() resets it to 0 on every UDS
-     * interaction (TesterPresent, response, etc.), so the 60s window
-     * only expires when there is truly zero UDS traffic — meaning the
-     * disable write was lost (session timeout / NRC). Normal charging
-     * with periodic UDS keepalive will keep resetting the timer and
-     * never fall through to Sleep. */
-    if (g_charge_gate_since == 0U)
-    {
-      g_charge_gate_since = now;
-    }
-    else if ((int32_t)(now - g_charge_gate_since) < (int32_t)60000U)
-    {
-      g_uds_last_ms = now;
-    }
-    /* else: gate stale > 60s, fall through to idle timeout */
+    /* Charging gate: ALWAYS refresh idle timer while charging + device
+     * present. No stale timeout — charging must never enter Sleep. */
+    g_uds_last_ms = now;
+    g_charge_gate_since = 0U;
   }
   else
   {
