@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.2.2";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.2.3";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -1141,20 +1141,20 @@ static void qi_nvm_load_config(void)
     if (nvm_drv_read(NVM_OFFSET_POWER_LIMIT, buf, 2U) == NVM_STATUS_OK)
     {
       uint16_t val = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
-      /* 新值：档位码 QI_POWER_*；兼容旧 NVM 的 500/1000/1500 并映射 */
+      /* 新值：档位码 QI_POWER_*；兼容旧 NVM 的 mW 值 5000/10000/15000 并映射 */
       if ((val == QI_POWER_5W) || (val == QI_POWER_10W) || (val == QI_POWER_15W))
       {
         g_qi_power_level = val;
       }
-      else if (val == 500U)
+      else if (val == 5000U)
       {
         g_qi_power_level = QI_POWER_5W;
       }
-      else if (val == 1000U)
+      else if (val == 10000U)
       {
         g_qi_power_level = QI_POWER_10W;
       }
-      else if (val == 1500U)
+      else if (val == 15000U)
       {
         g_qi_power_level = QI_POWER_15W;
       }
@@ -1843,7 +1843,7 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
       {
         /* 线上格式：DID 后 1 字节档位码 0x01/0x02/0x03（= QI_POWER_5W/10W/15W），
            与 Qi 芯片协议一致；UI 侧 5W/10W/15W 映射到该码。兼容旧 2 字节
-           500/1000/1500 载荷（LE），映射到对应档位码后转发。 */
+           mW 载荷（LE, 5000/10000/15000），映射到对应档位码后转发。 */
         uint8_t qi_power;
         uint8_t nvm_buf[2];
         if (len < 4U)
@@ -1856,10 +1856,10 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         {
           /* 兼容旧 2 字节 uint16 LE mW 编码 */
           uint16_t val16 = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
-          if (val16 == 500U)       qi_power = QI_POWER_5W;
-          else if (val16 == 1000U) qi_power = QI_POWER_10W;
-          else if (val16 == 1500U) qi_power = QI_POWER_15W;
-          else                     qi_power = (uint8_t)val16;
+          if (val16 == 5000U)       qi_power = QI_POWER_5W;
+          else if (val16 == 10000U) qi_power = QI_POWER_10W;
+          else if (val16 == 15000U) qi_power = QI_POWER_15W;
+          else                      qi_power = (uint8_t)val16;
         }
         /* only accept 0x01=5W / 0x02=10W / 0x03=15W */
         if ((qi_power != QI_POWER_5W) && (qi_power != QI_POWER_10W) &&
