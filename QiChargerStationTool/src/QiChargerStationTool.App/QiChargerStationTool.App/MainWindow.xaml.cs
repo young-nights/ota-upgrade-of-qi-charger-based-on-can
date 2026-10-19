@@ -17,8 +17,46 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Loaded += (_, _) => FocusSnBox();
+        Loaded += (_, _) =>
+        {
+            ScanPorts(keepSelection: null);
+            FocusSnBox();
+        };
     }
+
+    /// <summary>扫描串口并填充下拉框；自动选中 ZQWL-CANFD。</summary>
+    private void ScanPorts(string? keepSelection)
+    {
+        try
+        {
+            var ports = ComPortScanner.Scan();
+            var pick = ComPortScanner.PickDefault(ports, keepSelection);
+            CmbPort.ItemsSource = ports;
+            CmbPort.SelectedItem = pick;
+            if (pick is null)
+                AppendLog("[COM] 未发现串口——请检查 ZQWL-CANFD 是否已从 WSL detach 到 Windows");
+            else if (pick.IsZqwlCan)
+                AppendLog($"[COM] 自动选中 ZQWL-CANFD: {pick.PortName}");
+            else
+                AppendLog($"[COM] 未识别到 ZQWL-CANFD（3562:0101），当前选中 {pick.PortName}（{pick.Description}）");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[COM] 扫描失败: {ex.Message}");
+        }
+    }
+
+    private void OnScanPorts(object sender, RoutedEventArgs e)
+    {
+        var prev = (CmbPort.SelectedItem as ComPortInfo)?.PortName
+                   ?? CmbPort.Text?.Trim();
+        ScanPorts(prev);
+    }
+
+    private string SelectedPortName()
+        => (CmbPort.SelectedItem as ComPortInfo)?.PortName
+           ?? CmbPort.Text?.Trim()
+           ?? "";
 
     private void FocusSnBox()
     {
@@ -81,12 +119,15 @@ public partial class MainWindow : Window
         _cts = new CancellationTokenSource(timeout);
         var ct = _cts.Token;
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        // 在 UI 线程取好端口/波特率，避免后台线程访问控件
+        var port = SelectedPortName();
+        var baud = int.TryParse(TxtBaud.Text.Trim(), out var b) ? b : 2_000_000;
         try
         {
             await Task.Run(async () =>
             {
-                var port = TxtPort.Text.Trim();
-                var baud = int.TryParse(TxtBaud.Text.Trim(), out var b) ? b : 2_000_000;
+                if (string.IsNullOrWhiteSpace(port))
+                    throw new InvalidOperationException("请先扫描并选择 COM 口");
                 using var transport =
                     new QiChargerStationTool.Core.Transport.ZqwlSerialTransport(port, baud);
                 transport.Open();

@@ -80,3 +80,9 @@ UI 档位 **5W / 10W / 15W** → 映射 Qi 芯片档位码 **0x01 / 0x02 / 0x03*
 - ZQWL-CANFD USB-CAN（VID:PID `3562:0101`）→ Windows COM 口
 - CAN 250 kbps、29-bit 扩展帧
 - UDS：请求 `0x18DA0D03`，应答 `0x18DA030D`
+
+### COM 口自动扫描
+
+顶部「COM 口」下拉框启动时自动扫描系统串口，按 **VID:PID `3562:0101`** 识别 ZQWL-CANFD 并标 ★ 自动选中。点「扫描」可重扫（例如盒子刚从 WSL `usbipd detach` 回来）。
+
+实现：`ComPortScanner`（WMI `Win32_PnPEntity` 取 PnP 描述 + `SerialPort.GetPortNames()` 兜底）。

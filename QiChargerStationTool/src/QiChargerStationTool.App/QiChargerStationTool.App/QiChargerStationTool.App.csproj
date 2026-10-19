@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -9,6 +9,10 @@
     <RootNamespace>QiChargerStationTool.App</RootNamespace>
     <AssemblyName>QiChargerStationTool</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\QiChargerStationTool.Core\QiChargerStationTool.Core\QiChargerStationTool.Core.csproj" />
