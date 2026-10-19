@@ -489,6 +489,39 @@ public partial class MainWindow : Window
             TxtIapFirmware.Text = dlg.FileName;
     }
 
+    /// <summary>
+    /// 等 UDS 就绪：设备可能刚 BOOTUP，UDS 栈要几百 ms～几秒才起来。
+    /// 轮询 3E 00 / 22 F195，有正响应即就绪。最多 waitSec 秒。
+    /// </summary>
+    private static async Task<(bool Ok, string Error)> WaitUdsReadyAsync(
+        UdsClient uds, CancellationToken ct, int waitSec = 8, Action<string>? log = null)
+    {
+        long deadline = Environment.TickCount64 + waitSec * 1000;
+        int n = 0;
+        while (Environment.TickCount64 < deadline)
+        {
+            if (ct.IsCancellationRequested) return (false, "已取消");
+            n++;
+            var r = await Task.Run(() =>
+                uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 },
+                    timeoutMs: 1500, ct: ct), ct);
+            if (r.Ok)
+            {
+                log?.Invoke($"[就绪] 第 {n} 次探测 UDS 应答，设备就绪");
+                return (true, "");
+            }
+            // 有 NRC 也算栈活着（Boot 可能回 0x31）
+            if (r.Nrc != 0)
+            {
+                log?.Invoke($"[就绪] 第 {n} 次探测有 NRC 0x{r.Nrc:X2}，UDS 栈已活");
+                return (true, "");
+            }
+            log?.Invoke($"[就绪] 第 {n} 次探测无应答，0.5s 后重试…");
+            await Task.Delay(500, ct);
+        }
+        return (false, $"等待 UDS 就绪超时 {waitSec}s（设备可能仍在 Boot 或未上电）");
+    }
+
     private async Task RunUpgradeAsync(string name, byte otaTarget, int transferBlock,
                                        string fwPath, TimeSpan timeout)
     {
@@ -514,6 +547,14 @@ public partial class MainWindow : Window
             {
                 // Qi IAP 原始 bin，无需 XATO 头
                 AppendLog($"[IAP] 原始固件 {raw.Length}B 目标=MCU2/Qi");
+            }
+
+            // 刷写前先等 APP/UDS 就绪，避免踩到 Boot 窗口
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            if (!ready)
+            {
+                await FailAsync(name, readyErr);
+                return false;
             }
 
             async Task<bool> MustStep(UdsResult r, string step)
@@ -724,6 +765,12 @@ public partial class MainWindow : Window
         string name = enable ? "开启充电" : "关闭充电";
         await RunOpAsync(name, TimeSpan.FromSeconds(30), async (uds, ct) =>
         {
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 6, log: AppendLog);
+            if (!ready)
+            {
+                await FailAsync(name, readyErr);
+                return false;
+            }
             var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
             if (!Must(r))
             {
