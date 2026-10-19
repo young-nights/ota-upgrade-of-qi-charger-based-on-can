@@ -25,6 +25,7 @@ public static class ProtoIds
 
     public const ushort DidSwVersion = 0xF195;
     public const ushort DidHwVersion = 0xF193;
+    public const ushort DidBootVersion = 0xF180;
     public const ushort DidSn = 0xF18C;
     public const ushort DidSlot = 0x2113;
     public const ushort DidFwType = 0x2010;

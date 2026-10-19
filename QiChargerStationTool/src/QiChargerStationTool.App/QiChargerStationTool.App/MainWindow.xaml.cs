@@ -440,16 +440,16 @@ public partial class MainWindow : Window
     // ---------- 测试操作按钮 ----------
 
     private async void OnReadVersion(object sender, RoutedEventArgs e)
-        => await RunOpAsync("读软件版本", TimeSpan.FromSeconds(8), async (uds, ct) =>
+        => await RunOpAsync("读版本", TimeSpan.FromSeconds(15), async (uds, ct) =>
         {
-            // 若设备刚 BOOTUP，自动多等 1s 再读，避免上电窗口必失败
-            var (ok, ver, err) = await Task.Run(() =>
+            // 若设备刚 BOOTUP，自动多等 1s 再读
+            var ver = await Task.Run(() =>
             {
                 for (int i = 0; i < 3; i++)
                 {
-                    var r = uds.TryReadSwVersion(ct);
-                    if (r.Ok) return r;
-                    if (i < 2 && r.Error.Contains("BOOTUP", StringComparison.OrdinalIgnoreCase))
+                    var r = uds.TryReadAllVersions(ct);
+                    if (r.AllOk || r.Mcu1App is not null) return r;
+                    if (i < 2 && r.Errors.Any(e => e.Contains("BOOTUP", StringComparison.OrdinalIgnoreCase)))
                     {
                         AppendLog("[读版本] 检测到 APP 刚 BOOTUP，1s 后自动重试…");
                         Thread.Sleep(1000);
@@ -457,20 +457,31 @@ public partial class MainWindow : Window
                     }
                     return r;
                 }
-                return uds.TryReadSwVersion(ct);
+                return uds.TryReadAllVersions(ct);
             }, ct);
-            if (!ok)
+
+            bool fail = ver.Mcu1App is null && !ver.AllOk;
+            await UiAsync(() =>
             {
-                await UiAsync(() =>
+                foreach (var line in ver.ToDisplayString().Split('\n'))
+                    AppendLog("[版本] " + line);
+                if (fail)
                 {
-                    AppendResult("FAIL", "读软件版本", err);
-                    SetState("失败", Colors.Crimson, err);
-                    AppendLog($"[FAIL] 读软件版本: {err}");
-                });
-                return false;
-            }
-            await UiAsync(() => Pass("读软件版本", ver));
-            return true;
+                    AppendResult("FAIL", "读版本", string.Join("; ", ver.Errors));
+                    SetState("失败", Colors.Crimson, "版本读取失败，请确认设备在 APP");
+                    return;
+                }
+                // 全部读到 PASS；部分失败标 PARTIAL
+                if (ver.AllOk)
+                    Pass("读版本", ver.Summary);
+                else
+                {
+                    AppendResult("PARTIAL", "读版本", ver.Summary);
+                    SetState("部分完成", Colors.DarkOrange, ver.Summary);
+                    AppendLog($"[PARTIAL] 读版本: {ver.Summary}");
+                }
+            });
+            return !fail;
         });
 
     /// <summary>OTA：MCU1 APP，块 128B，使用 AT32 OTA 固件路径。</summary>

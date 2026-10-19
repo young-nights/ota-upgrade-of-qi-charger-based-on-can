@@ -7,6 +7,35 @@ public readonly record struct UdsResult(bool Ok, byte[] Data, byte Nrc, string E
     public static UdsResult OkData(byte[] data) => new(true, data, 0, "");
 }
 
+/// <summary>MCU1 / MCU2 / Boot / HW 四路版本。</summary>
+public sealed class VersionSet
+{
+    public string? Mcu1App { get; set; }
+    public string? Mcu2Qi { get; set; }
+    public string? Bootloader { get; set; }
+    public string? Hardware { get; set; }
+    public List<string> Errors { get; } = new();
+
+    public bool AllOk => Errors.Count == 0;
+
+    public string Summary =>
+        $"MCU1={Mcu1App ?? "?"} · MCU2={Mcu2Qi ?? "?"} · BL={Bootloader ?? "?"} · HW={Hardware ?? "?"}";
+
+    public string ToDisplayString()
+    {
+        var lines = new List<string>
+        {
+            $"MCU1 APP: {Mcu1App ?? "读取失败"}",
+            $"MCU2 Qi:  {Mcu2Qi ?? "读取失败"}",
+            $"Boot:     {Bootloader ?? "读取失败"}",
+            $"HW:       {Hardware ?? "读取失败"}",
+        };
+        foreach (var e in Errors)
+            lines.Add($"  ⚠ {e}");
+        return string.Join("\n", lines);
+    }
+}
+
 /// <summary>UDS client on top of ISO-TP. Lifecycle noise on resp ID is skipped.</summary>
 public sealed class UdsClient
 {
@@ -111,10 +140,59 @@ public sealed class UdsClient
         var r = TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 3000, ct: ct);
         if (!r.Ok) return (false, "", r.Error);
         if (r.Data.Length < 4) return (false, "", "F195 响应过短");
+        return (true, DecodeAscii32(r.Data), "");
+    }
+
+    /// <summary>一次读全：MCU1 APP / MCU2 Qi / Boot / HW。</summary>
+    public VersionSet TryReadAllVersions(CancellationToken ct = default)
+    {
+        var v = new VersionSet();
+        var (ok1, mcu1, e1) = TryReadAsciiDid(ProtoIds.DidSwVersion, ct);
+        v.Mcu1App = ok1 ? mcu1 : null;
+        if (!ok1) v.Errors.Add($"MCU1(F195): {e1}");
+
+        var (ok2, mcu2, e2) = TryReadQiFwVersion(ct);
+        v.Mcu2Qi = ok2 ? mcu2 : null;
+        if (!ok2) v.Errors.Add($"MCU2(2133): {e2}");
+
+        var (okb, boot, eb) = TryReadAsciiDid(ProtoIds.DidBootVersion, ct);
+        v.Bootloader = okb ? boot : null;
+        if (!okb) v.Errors.Add($"Boot(F180): {eb}");
+
+        var (okh, hw, eh) = TryReadAsciiDid(ProtoIds.DidHwVersion, ct);
+        v.Hardware = okh ? hw : null;
+        if (!okh) v.Errors.Add($"HW(F193): {eh}");
+
+        return v;
+    }
+
+    /// <summary>读 32B ASCII 版本串 DID（F195/F180/F193）。</summary>
+    public (bool Ok, string Text, string Error) TryReadAsciiDid(ushort did, CancellationToken ct = default)
+    {
+        var r = TryRequest(ProtoIds.SidRdbi,
+            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs: 3000, ct: ct);
+        if (!r.Ok) return (false, "", r.Error);
+        if (r.Data.Length < 4) return (false, "", $"0x{did:X4} 响应过短");
+        return (true, DecodeAscii32(r.Data), "");
+    }
+
+    /// <summary>读 Qi 芯片固件版本 0x2133：3B major.minor.patch。</summary>
+    public (bool Ok, string Text, string Error) TryReadQiFwVersion(CancellationToken ct = default)
+    {
+        var r = TryRequest(ProtoIds.SidRdbi,
+            new byte[] { (byte)(ProtoIds.DidQiFwVersion >> 8), (byte)(ProtoIds.DidQiFwVersion & 0xFF) },
+            timeoutMs: 4000, ct: ct);
+        if (!r.Ok) return (false, "", r.Error);
+        if (r.Data.Length < 6) return (false, "", "2133 响应过短");
+        return (true, $"QC_JYF_MCU2_FW_{r.Data[3]}.{r.Data[4]}.{r.Data[5]}", "");
+    }
+
+    private static string DecodeAscii32(byte[] rx)
+    {
         int start = 3;
-        int len = r.Data.Length - start;
-        while (len > 0 && (r.Data[start + len - 1] is 0x00 or 0x20)) len--;
-        return (true, System.Text.Encoding.ASCII.GetString(r.Data, start, len), "");
+        int len = rx.Length - start;
+        while (len > 0 && (rx[start + len - 1] is 0x00 or 0x20)) len--;
+        return System.Text.Encoding.ASCII.GetString(rx, start, len);
     }
 
     public string ReadSwVersion(CancellationToken ct = default)

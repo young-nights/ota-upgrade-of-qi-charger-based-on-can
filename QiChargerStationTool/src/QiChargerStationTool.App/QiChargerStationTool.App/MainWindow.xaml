@@ -188,8 +188,9 @@
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel>
         <TextBlock Text="测试操作" FontWeight="Bold" Foreground="#333" Margin="0,0,0,8"/>
-        <Button x:Name="BtnReadVersion" Content="读软件版本" Style="{StaticResource GrayBtn}"
-                Click="OnReadVersion"/>
+        <Button x:Name="BtnReadVersion" Content="读版本" Style="{StaticResource GrayBtn}"
+                Click="OnReadVersion"
+                ToolTip="一次读取 MCU1 APP / MCU2 Qi / Boot / HW 四路版本"/>
         <Button x:Name="BtnOta" Content="OTA 升级" Style="{StaticResource GrayBtn}"
                 Click="OnOtaUpgrade"/>
         <Button x:Name="BtnIap" Content="IAP 升级" Style="{StaticResource GrayBtn}"

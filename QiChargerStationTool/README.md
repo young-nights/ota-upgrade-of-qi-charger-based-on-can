@@ -40,7 +40,7 @@ dotnet publish src/QiChargerStationTool.App -c Release -r win-x64 --self-contain
 ## 测试流程
 
 1. **连接探测** — 3E 00 + 22 2113
-2. **读软件版本** — 22 F195
+2. **读版本** — 22 F195 / 2133 / F180 / F193（MCU1 APP + MCU2 Qi + Boot + HW 一次读全）
 3. **写 SN** — 10 02 + SA + 2E F18C（需私钥）
 4. **OTA 升级** — 10 02 → SA → 2E 20 10 01 → 31 擦除 → 34/36/37
 5. **Qi 状态查询** — 22 2132/2102/2104/2105/2108/2109/210B/210C/210D（任意会话）
