@@ -47,17 +47,33 @@ public sealed class IsoTpClient
                 _ => $"Boot Diag {Convert.ToHexString(d)}",
             };
         }
-        if (id == ProtoIds.LifecycleId && d.Length >= 3)
+        if (id == ProtoIds.LifecycleId && d.Length >= 2)
         {
-            if (d.Length >= 4 && d[0] == 0x01 && d[1] == 0x41 && d[2] == 0x42 && d[3] == 0x54)
-                return $"Safe-mode 心跳 ABT cause={d[4]:X2} fail_step={(d.Length > 5 ? d[5] : (byte)0):X2}（卡在 Boot，APP 未运行）";
-            if (d[0] == 0x01 && d[1] == 0x41 && d[2] == 0x00)
-                return "APP BOOTUP（APP 启动中）";
-            if (d.Length >= 4 && d[0] == 0x01 && d[1] == 0x41 && d[2] == 0x57 && d[3] == 0x4B)
-                return "APP AWK 唤醒确认";
-            if (d[0] == 0x06 && d[1] == 0x41)
-                return "APP shutdown";
-            return $"生命周期 {Convert.ToHexString(d.AsSpan(0, Math.Min(4, d.Length)).ToArray())}";
+            // 帧格式 lifecycle.c：[0]=状态码 [1]=0x41 'A' [2..7]=参数
+            // 状态码见 docs/3：0x01=BOOTUP 0x02=OPERATIONAL 0x04=SHUTDOWN
+            byte state = d[0];
+            string tag = state switch
+            {
+                0x01 => "BOOTUP",
+                0x02 => "OPERATIONAL",
+                0x03 => "OPERATIONAL",
+                0x04 => "SHUTDOWN",
+                0x06 => "SHUTDOWN",
+                _ => $"STATE=0x{state:X2}",
+            };
+            // 参数区 0x41 后的 ASCII 标记：00=上电 / 57 4B='WK' 唤醒 / 42 54='ABT' / 53 42='SB'
+            if (d.Length >= 4 && d[1] == 0x41)
+            {
+                if (d[2] == 0x57 && d[3] == 0x4B)
+                    return $"生命周期 [{tag}-WK 唤醒] {Convert.ToHexString(d.AsSpan(0, Math.Min(8, d.Length)).ToArray())}";
+                if (d[2] == 0x42 && d[3] == 0x54)
+                    return $"生命周期 [ABT Boot安全模式心跳] cause={(d.Length > 4 ? d[4] : (byte)0):X2} fail_step={(d.Length > 5 ? d[5] : (byte)0):X2}（卡在 Boot，APP 未运行）";
+                if (d[2] == 0x53 && d[3] == 0x42)
+                    return $"生命周期 [{tag}-SB 待机]";
+                if (d[2] == 0x00)
+                    return $"生命周期 [{tag} 上电/复位标识]";
+            }
+            return $"生命周期 [{tag}] {Convert.ToHexString(d.AsSpan(0, Math.Min(4, d.Length)).ToArray())}";
         }
         return "";
     }
@@ -224,7 +240,7 @@ public sealed class IsoTpClient
         string hint = "";
         bool sawBootup = noiseIds.ContainsKey(ProtoIds.LifecycleId) && _sawBootup;
         if (sawBootup)
-            hint = "；已见 APP BOOTUP，APP 刚启动可能尚未就绪，请点「读软件版本」重试";
+            hint = "；已见生命周期 BOOTUP（上电标识），APP 刚启动可能尚未就绪，请点「读软件版本」重试";
         else if (noiseIds.ContainsKey(ProtoIds.BootDiagId))
             hint = "；设备在 Boot（收到 0x18FF480D 诊断帧），APP 未运行/UDS 栈不在，请等 APP 起来或先烧录/恢复 APP";
         else if (noiseIds.ContainsKey(ProtoIds.LifecycleId))
