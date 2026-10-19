@@ -75,6 +75,9 @@ public partial class MainWindow : Window
         ScanPorts(prev);
     }
 
+    // ZQWL USB 私有协议固定 2M，与 UI 只读展示一致
+    private const int FixedBaud = 2_000_000;
+
     private string SelectedPortName()
         => (CmbPort.SelectedItem as ComPortInfo)?.PortName
            ?? CmbPort.Text?.Trim()
@@ -143,7 +146,7 @@ public partial class MainWindow : Window
         var sw = System.Diagnostics.Stopwatch.StartNew();
         // 在 UI 线程取好端口/波特率，避免后台线程访问控件
         var port = SelectedPortName();
-        var baud = int.TryParse(TxtBaud.Text.Trim(), out var b) ? b : 2_000_000;
+        var baud = FixedBaud;
         try
         {
             await Task.Run(async () =>

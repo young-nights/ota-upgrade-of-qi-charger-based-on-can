@@ -92,7 +92,7 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
-          <ColumnDefinition Width="90"/>
+          <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
@@ -109,9 +109,15 @@
         <Button Grid.Column="2" Content="扫描" Style="{StaticResource GrayBtn}"
                 Width="56" Height="30" MinHeight="30" Margin="2,2,8,2"
                 Click="OnScanPorts"
-                ToolTip="重新扫描系统串口并自动选中 ZQWL-CANFD"/>
+                ToolTip="重新扫描系统串口并自动选中 ZQWL CAN 盒子"/>
         <TextBlock Grid.Column="3" Text="波特率" FontWeight="Bold" VerticalAlignment="Center" Margin="0,2"/>
-        <TextBox x:Name="TxtBaud" Grid.Column="4" Text="2000000" Width="90" VerticalContentAlignment="Center"/>
+        <!-- ZQWL 私有协议固定 2M，只读展示不可改 -->
+        <Border Grid.Column="4" Width="110" VerticalAlignment="Center" Margin="6,2,0,2"
+                Background="#F0F0F0" BorderBrush="#DDD" BorderThickness="1" CornerRadius="3"
+                ToolTip="ZQWL-CANFD USB 私有协议固定 2000000，不可修改">
+          <TextBlock Text="2000000 (固定)" Foreground="#666" Padding="6,4"
+                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
 
         <!-- AT32 OTA 固件 -->
         <TextBlock Grid.Row="1" Text="AT32 OTA 固件" FontWeight="Bold"
