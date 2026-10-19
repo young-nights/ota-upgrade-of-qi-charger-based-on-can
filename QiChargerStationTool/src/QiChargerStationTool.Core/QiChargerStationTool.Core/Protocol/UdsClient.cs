@@ -250,10 +250,15 @@ public sealed class UdsException : Exception
         if (Nrc == 0x31 && requestPayload is { Length: >= 2 })
         {
             ushort did = (ushort)((requestPayload[0] << 8) | requestPayload[1]);
-            if (did is 0xF18C or 0xF195 or 0xF193)
-                s += " —— 该 DID 在 Boot Safe Mode 不提供，设备可能未进 APP（查 0x18FF480D/ABT 心跳）";
-            else
-                s += $" —— DID 0x{did:X4} 不支持或当前模式不可读";
+            s += did switch
+            {
+                // F18C：Device Info 读失败 → 0x31。产线场景=SN 尚未写入（Flash 为空），
+                // 不是 Safe Mode 不提供该 DID。应先「写 SN」。
+                0xF18C => " —— SN 未写入（Flash 中为空），请先「写入」SN；不是 DID 不支持",
+                0xF195 => " —— 软件版本不可读（DID 不支持或当前模式不可读）",
+                0xF193 => " —— 硬件版本不可读（DID 不支持或当前模式不可读）",
+                _ => $" —— DID 0x{did:X4} 不支持或当前模式不可读",
+            };
         }
         else if (Nrc == 0x22)
             s += " —— 先切换会话（10 03 扩展 / 10 02 编程）再试";

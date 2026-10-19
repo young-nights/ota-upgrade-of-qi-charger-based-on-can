@@ -360,11 +360,23 @@ public partial class MainWindow : Window
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
             if (!r.Ok)
             {
+                // NRC 0x31 = SN 未写入（Flash 空），不是设备故障
+                bool snEmpty = r.Nrc == 0x31;
                 await UiAsync(() =>
                 {
-                    AppendResult("FAIL", "读 SN", r.Error);
-                    SetState("失败", Colors.Crimson, r.Error);
-                    AppendLog($"[FAIL] 读 SN: {r.Error}");
+                    if (snEmpty)
+                    {
+                        TxtSnHint.Text = "SN 未写入（Flash 为空），请扫码后点「写入」";
+                        AppendResult("EMPTY", "读 SN", "SN 未写入，请先写入");
+                        SetState("SN 未写", Colors.DarkOrange, "设备无 SN，请写入");
+                        AppendLog("[读 SN] NRC 0x31：SN 未写入（Flash 中为空）");
+                    }
+                    else
+                    {
+                        AppendResult("FAIL", "读 SN", r.Error);
+                        SetState("失败", Colors.Crimson, r.Error);
+                        AppendLog($"[FAIL] 读 SN: {r.Error}");
+                    }
                 });
                 return false;
             }
