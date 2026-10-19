@@ -214,10 +214,44 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>
+    /// 写操作记录。msg 可含换行（如版本四行），块内自动换行显示。
+    /// 格式：
+    ///   [时间] STATUS  名称
+    ///     详情行1
+    ///     详情行2
+    /// </summary>
     private void AppendResult(string status, string name, string msg)
     {
         Dispatcher.Invoke(() =>
-            LstResult.Items.Add($"[{DateTime.Now:HH:mm:ss}] {status}  {name}  {msg}"));
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[{DateTime.Now:HH:mm:ss}] {status}  {name}");
+            if (!string.IsNullOrEmpty(msg))
+            {
+                foreach (var line in msg.Split('\n'))
+                    sb.AppendLine("  " + line.TrimEnd('\r'));
+            }
+            LstResult.Items.Add(sb.ToString().TrimEnd());
+            LstResult.ScrollIntoView(LstResult.Items[^1]);
+        });
+    }
+
+    /// <summary>多行详情的操作记录（PASS 绿块内容同样换行）。</summary>
+    private void Pass(string name, string msg)
+    {
+        AppendResult("PASS", name, msg);
+        SetState("完成", Colors.ForestGreen, FirstLine(msg));
+        AppendLog($"[PASS] {name}: {FirstLine(msg)}");
+        if (msg.Contains('\n'))
+            foreach (var line in msg.Split('\n').Skip(1))
+                AppendLog("       " + line.TrimEnd('\r'));
+    }
+
+    private static string FirstLine(string s)
+    {
+        int i = s.IndexOf('\n');
+        return i < 0 ? s : s[..i].TrimEnd('\r');
     }
 
     /// <summary>
@@ -321,13 +355,6 @@ public partial class MainWindow : Window
     {
         // 只认 _busy 标志；_cts 用完即弃，避免「结束后仍占用」导致按钮点了没反应
         return _busy;
-    }
-
-    private void Pass(string name, string msg)
-    {
-        AppendResult("PASS", name, msg);
-        SetState("完成", Colors.ForestGreen, msg);
-        AppendLog($"[PASS] {name}: {msg}");
     }
 
     // ---------- SN 扫码 ----------
@@ -473,10 +500,10 @@ public partial class MainWindow : Window
                 }
                 // 全部读到 PASS；部分失败标 PARTIAL
                 if (ver.AllOk)
-                    Pass("读版本", ver.Summary);
+                    Pass("读版本", ver.ToDisplayString());
                 else
                 {
-                    AppendResult("PARTIAL", "读版本", ver.Summary);
+                    AppendResult("PARTIAL", "读版本", ver.ToDisplayString());
                     SetState("部分完成", Colors.DarkOrange, ver.Summary);
                     AppendLog($"[PARTIAL] 读版本: {ver.Summary}");
                 }

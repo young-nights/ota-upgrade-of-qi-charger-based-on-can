@@ -261,14 +261,32 @@
         </DockPanel>
       </Border>
 
-      <!-- 操作记录 -->
+      <!-- 操作记录（多行块，自动换行） -->
       <Border Grid.Row="2" CornerRadius="4" BorderBrush="#B0BEC5" BorderThickness="1">
         <DockPanel>
           <Border DockPanel.Dock="Top" Background="#E8EAF6" Padding="8,6">
             <TextBlock Text="操作记录" FontWeight="Bold" Foreground="#283593"/>
           </Border>
           <ListBox x:Name="LstResult" BorderThickness="0" Padding="4"
-                   FontSize="12"/>
+                   FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                   ScrollViewer.VerticalScrollBarVisibility="Auto">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem">
+                <Setter Property="Padding" Value="6,5"/>
+                <Setter Property="Margin" Value="0,0,0,4"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Background" Value="#FAFAFA"/>
+              </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding}"
+                           TextWrapping="Wrap"
+                           FontFamily="Consolas"
+                           Foreground="#222"/>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
         </DockPanel>
       </Border>
     </Grid>
