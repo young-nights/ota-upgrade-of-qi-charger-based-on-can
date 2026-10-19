@@ -398,6 +398,14 @@ public partial class MainWindow : Window
 
         await RunOpAsync("写 SN", TimeSpan.FromSeconds(60), async (uds, ct) =>
         {
+            // 设备可能刚 BOOTUP，先等 UDS 栈就绪
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            if (!ready)
+            {
+                await FailAsync("写 SN", readyErr);
+                return false;
+            }
+
             UdsResult r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
             if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
             var signer = RequireSigner();
@@ -738,6 +746,13 @@ public partial class MainWindow : Window
 
         await RunOpAsync($"设置 Qi 功率 {label}", TimeSpan.FromSeconds(60), async (uds, ct) =>
         {
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            if (!ready)
+            {
+                await FailAsync($"设置 Qi 功率 {label}", readyErr);
+                return false;
+            }
+
             var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
             if (!Must(r)) { await FailAsync($"设置 Qi 功率 {label}", r.Error); return false; }
             AppendLog("进入扩展会话 10 03");
