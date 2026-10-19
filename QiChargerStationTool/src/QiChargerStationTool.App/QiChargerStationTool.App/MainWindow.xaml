@@ -2,6 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Qi 充电模块 · 产线测试上位机" Height="720" Width="1120"
+        MinHeight="420" MinWidth="640"
+        UseLayoutRounding="True"
         Background="#F7F7F7" Foreground="#222"
         FontFamily="Microsoft YaHei UI" FontSize="13">
   <Window.Resources>
@@ -20,9 +22,11 @@
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Padding" Value="6,4"/>
       <Setter Property="Margin" Value="3"/>
-      <Setter Property="Height" Value="32"/>
+      <Setter Property="MinHeight" Value="32"/>
       <Setter Property="FontWeight" Value="Normal"/>
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
@@ -49,6 +53,7 @@
     </Style>
     <Style TargetType="TextBlock">
       <Setter Property="Foreground" Value="#222"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
     </Style>
     <Style TargetType="ListBox">
       <Setter Property="Background" Value="White"/>
@@ -63,7 +68,10 @@
     </Style>
   </Window.Resources>
 
-  <Grid Margin="10">
+  <!-- Viewbox: 整窗同比例缩放，缩小不截断（Uniform 留边不裁切） -->
+  <Viewbox Stretch="Uniform" StretchDirection="Both">
+    <!-- 固定设计画布 1120×720，随窗口等比映射 -->
+    <Grid Width="1120" Height="720" Margin="10">
     <Grid.ColumnDefinitions>
       <ColumnDefinition Width="320"/>
       <ColumnDefinition Width="200"/>
@@ -120,6 +128,7 @@
 
     <!-- 左：SN + 状态 -->
     <Border Grid.Row="1" Grid.Column="0" CornerRadius="4" Padding="12" Margin="0,0,6,6">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel>
         <TextBlock Text="SN 读写 / 扫码" FontWeight="Bold" Foreground="#333"/>
         <TextBlock Text="光标在输入框时，扫码枪扫码即自动填入"
@@ -147,10 +156,12 @@
         <TextBlock x:Name="TxtStateDetail" Foreground="#888" FontSize="11"
                    TextWrapping="Wrap" Margin="0,4,0,0"/>
       </StackPanel>
+      </ScrollViewer>
     </Border>
 
     <!-- 中：操作按钮列 -->
     <Border Grid.Row="1" Grid.Column="1" CornerRadius="4" Padding="10" Margin="0,0,6,6">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel>
         <TextBlock Text="测试操作" FontWeight="Bold" Foreground="#333" Margin="0,0,0,8"/>
         <Button x:Name="BtnReadVersion" Content="读软件版本" Style="{StaticResource GrayBtn}"
@@ -184,6 +195,7 @@
         <Button x:Name="BtnClearResult" Content="清空记录" Style="{StaticResource GrayBtn}"
                 Click="OnClearResult"/>
       </StackPanel>
+      </ScrollViewer>
     </Border>
 
     <!-- 右：运行日志 + 操作记录（上下两栏，边框分隔） -->
@@ -221,5 +233,6 @@
     <TextBlock Grid.Row="2" Grid.ColumnSpan="3"
                Text="ZQWL-CANFD 250k ext · UDS 0x18DA0D03 / 0x18DA030D"
                Foreground="#999" FontSize="11" Margin="2,6,0,0"/>
-  </Grid>
+    </Grid>
+  </Viewbox>
 </Window>
