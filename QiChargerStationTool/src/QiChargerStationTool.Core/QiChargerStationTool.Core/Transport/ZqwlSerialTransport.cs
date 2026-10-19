@@ -223,6 +223,8 @@ public sealed class ZqwlSerialTransport : ICanTransport
             if (i + 1 < _bufLen && _buf[i] == 0x49 && _buf[i + 1] == 0x3B)
             {
                 if (_bufLen - i < 22) break;
+                if (i == 0)
+                    OnRawLog?.Invoke("  (cfg/心跳应答 49 3B 22B)");
                 i += 22;
                 continue;
             }
@@ -235,8 +237,11 @@ public sealed class ZqwlSerialTransport : ICanTransport
             byte b1 = _buf[i + 1];
             if (b1 is 0xFF or 0xFE)
             {
+                // 盒子状态心跳：0xFF=1/2 路 17B，0xFE=4 路 32B。非 CAN 帧，定时上报，丢弃。
                 int hb = b1 == 0xFF ? 17 : 32;
                 if (_bufLen - i < hb) break;
+                if (i == 0) // 仅在帧边界标注，避免刷屏
+                    OnRawLog?.Invoke($"  (heartbeat {(b1 == 0xFF ? "1ch/2ch 17B" : "4ch 32B")}，已忽略)");
                 i += hb;
                 continue;
             }
