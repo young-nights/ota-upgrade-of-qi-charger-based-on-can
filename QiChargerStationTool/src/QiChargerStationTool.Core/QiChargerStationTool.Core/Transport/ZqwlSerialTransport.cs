@@ -2,20 +2,13 @@ namespace QiChargerStationTool.Core.Transport;
 
 /// <summary>
 /// ZQWL-CANFD USB CDC serial protocol (49 3B config / 5A…A5 data).
-/// VID:PID 3562:0101 → COM port. See AGENTS.md「WSL2 串口 CAN 监听」.
+/// VID:PID 3562:0101 → COM port. See AGENTS.md「WSL2 串口 CAN 监听」
+/// and python_tools/wsl/zqwl_can_listen.py (open_can0_250k 同构).
 /// </summary>
 public sealed class ZqwlSerialTransport : ICanTransport
 {
     private const byte CanHdr = 0x5A;
     private const byte CanFtr = 0xA5;
-
-    private static readonly byte[] OpenCan0250k =
-    {
-        // read device info
-        0x49, 0x3B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x45, 0x2E,
-    };
 
     private readonly string _portName;
     private readonly System.IO.Ports.SerialPort? _port;
@@ -24,6 +17,9 @@ public sealed class ZqwlSerialTransport : ICanTransport
     private readonly byte[] _buf = new byte[4096];
     private int _bufLen;
     private bool _disposed;
+
+    /// <summary>原始串口收发（HEX），供调试窗口观察。null = 不记录。</summary>
+    public event Action<string>? OnRawLog;
 
     public ZqwlSerialTransport(string portName, int baud = 2_000_000)
     {
@@ -40,15 +36,70 @@ public sealed class ZqwlSerialTransport : ICanTransport
 
     public bool IsOpen => _port?.IsOpen == true;
 
+    private void RawLog(string dir, byte[] data, int len)
+        => OnRawLog?.Invoke($"[{dir}] {Convert.ToHexString(data, 0, len)}");
+
+    private void WriteRaw(byte[] pkt, string tag)
+    {
+        if (_port is not { IsOpen: true })
+            throw new InvalidOperationException($"ZQWL port {_portName} not open");
+        _port.Write(pkt, 0, pkt.Length);
+        RawLog("TX", pkt, pkt.Length);
+        if (tag.Length > 0) OnRawLog?.Invoke($"  ({tag})");
+    }
+
+    /// <summary>49 3B 配置帧：func + rw + 16B payload + 45 2E。</summary>
+    private static byte[] Cfg(byte func, byte rw, byte[]? payload = null)
+    {
+        var d = new byte[22];
+        d[0] = 0x49;
+        d[1] = 0x3B;
+        d[2] = func;
+        d[3] = rw;
+        if (payload is { Length: > 0 })
+            Array.Copy(payload, 0, d, 4, Math.Min(16, payload.Length));
+        d[20] = 0x45;
+        d[21] = 0x2E;
+        return d;
+    }
+
     public void Open()
     {
         if (_port is null) throw new ObjectDisposedException(nameof(ZqwlSerialTransport));
         if (!_port.IsOpen) _port.Open();
+        OnRawLog?.Invoke($"[OPEN] {_portName} @ {_port.BaudRate}");
 
-        // configure CAN0 250k extended; never issue 0x44 with system-reset bit
-        _port.Write(OpenCan0250k, 0, OpenCan0250k.Length);
+        // 与 zqwl_can_listen.py open_can0_250k() 同构，缺一步 CAN 就不会开
+        // 1) 读设备信息
+        WriteRaw(Cfg(0x40, 0x52), "read device info");
+        Thread.Sleep(200);
+        Drain(80);
+
+        // 2) 仲裁 250k / 数据 500k → 0x45，ch=0
+        WriteRaw(Cfg(0x42, 0x57, new byte[] { 0x00, 0x00, 0x45 }), "baud 250k/500k");
+        Thread.Sleep(50);
+
+        // 3) 滤波组0 扩展帧全收；组1 标准帧全收
+        WriteRaw(Cfg(0x43, 0x57, new byte[]
+        {
+            0x00, 0x00, 0x01, 0x01,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        }), "filter ext all");
+        Thread.Sleep(50);
+        WriteRaw(Cfg(0x43, 0x57, new byte[]
+        {
+            0x00, 0x01, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        }), "filter std all");
+        Thread.Sleep(50);
+
+        // 4) 打开 CAN0：不写 flash、不复位（0x44 的复位位会把 USB 打掉）
+        WriteRaw(Cfg(0x44, 0x57, new byte[] { 0x00, 0x00, 0x01, 0x00 }), "open CAN0");
         Thread.Sleep(150);
         Drain(80);
+        OnRawLog?.Invoke("[OPEN] CAN0 250k ext ready");
     }
 
     public void Close()
@@ -75,6 +126,8 @@ public sealed class ZqwlSerialTransport : ICanTransport
         data.CopyTo(pkt, 7);
         pkt[^1] = CanFtr;
         _port.Write(pkt, 0, pkt.Length);
+        RawLog("TX", pkt, pkt.Length);
+        OnRawLog?.Invoke($"  (CAN {id:X8x} dlc={dlc})");
     }
 
     public bool TryReceive(out CanFrame frame, int timeoutMs = 0)
@@ -131,6 +184,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
             var tmp = new byte[n];
             int got = _port.Read(tmp, 0, n);
             if (got <= 0) return;
+            RawLog("RX", tmp, got);
             lock (_rxLock)
             {
                 // 满了先丢弃旧数据，避免 _bufLen 越界
@@ -199,6 +253,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
             var data = new byte[dlc];
             Buffer.BlockCopy(_buf, i + 7, data, 0, dlc);
             _rxQueue.Enqueue(new CanFrame(id, data));
+            OnRawLog?.Invoke($"  (CAN-RX {id:X8x} dlc={dlc} {Convert.ToHexString(data)})");
             i += total;
         }
         if (i > 0)

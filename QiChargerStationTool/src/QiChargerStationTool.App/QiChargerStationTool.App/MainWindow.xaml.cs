@@ -107,6 +107,8 @@ public partial class MainWindow : Window
             {
                 _transport?.Dispose();
                 _transport = new ZqwlSerialTransport(port, FixedBaud);
+                // 原始串口收发全部进运行日志，便于调试超时/无应答
+                _transport.OnRawLog += m => AppendLog("[SER] " + m);
                 _transport.Open();
             }
             catch (Exception ex)

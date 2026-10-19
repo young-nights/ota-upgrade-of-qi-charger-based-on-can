@@ -109,14 +109,22 @@ public sealed class IsoTpClient
         byte[]? ffBuf = null;
         int ffTotal = 0, expectSn = 1;
         var cfBuf = new List<byte>();
+        int seen = 0, dropped = 0;
 
         while (Environment.TickCount64 < deadline)
         {
             Pump();
             while (_rxq.TryDequeue(out var f))
             {
+                seen++;
                 if ((f.Id & 0x1FFFFFFF) != (_rxId & 0x1FFFFFFF) || f.Data.Length == 0)
+                {
+                    dropped++;
+                    // 噪声帧也打出来，方便确认总线有无回包
+                    if (seen <= 8)
+                        Log($"[RX?] id={f.Id:X8x} {Hex(f.Data)}（非目标 ID，丢弃）");
                     continue;
+                }
                 int pci = f.Data[0] & 0xF0;
                 if (pci == 0x00)
                 {
@@ -124,6 +132,7 @@ public sealed class IsoTpClient
                     if (n == 0 || n > 7 || n > f.Data.Length - 1) continue;
                     var data = f.Data.AsSpan(1, n).ToArray();
                     if (match(data)) return data;
+                    Log($"[RX] SF 不匹配 {Hex(data)}");
                 }
                 else if (pci == 0x10)
                 {
@@ -134,6 +143,7 @@ public sealed class IsoTpClient
                     _tp.Send(new CanFrame(_txId, FcCts)); // double FC, anti-loss
                     cfBuf.Clear();
                     expectSn = 1;
+                    Log($"[RX] FF total={ffTotal}");
                 }
                 else if (pci == 0x20 && ffBuf is not null)
                 {
@@ -149,12 +159,18 @@ public sealed class IsoTpClient
                         foreach (var b in ffBuf) data[n++] = b;
                         foreach (var b in cfBuf) data[n++] = b;
                         if (match(data)) return data;
+                        Log($"[RX] MF 不匹配 {Hex(data)}");
                         ffBuf = null;
                     }
+                }
+                else if (pci == 0x30)
+                {
+                    Log($"[RX] FC {Hex(f.Data)}");
                 }
             }
             Thread.Sleep(2);
         }
+        Log($"[RX] timeout: 收到 {seen} 帧（噪声 {dropped}），无匹配 UDS 应答");
         throw new TimeoutException("UDS response timeout");
     }
 
