@@ -385,18 +385,27 @@ public partial class MainWindow : Window
 
         await RunOpAsync("写 SN", TimeSpan.FromSeconds(60), async (uds, ct) =>
         {
-            await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
+            UdsResult r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
+            if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
             var signer = RequireSigner();
             if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
-                throw new InvalidOperationException("SA 解锁失败");
+            {
+                await FailAsync("写 SN", "SA 解锁失败");
+                return false;
+            }
 
-            await Task.Run(() =>
-                uds.Request(ProtoIds.SidWdbi, BuildSnPayload(sn), timeoutMs: 5000), ct);
-            var rx = await Task.Run(() =>
-                uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
-            var readBack = DecodeSn(rx);
+            r = await Task.Run(() =>
+                uds.TryRequest(ProtoIds.SidWdbi, BuildSnPayload(sn), timeoutMs: 5000), ct);
+            if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
+            r = await Task.Run(() =>
+                uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
+            if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
+            var readBack = DecodeSn(r.Data);
             if (!string.Equals(readBack, sn, StringComparison.Ordinal))
-                throw new InvalidOperationException($"写后读回不符 期望={sn} 实际={readBack}");
+            {
+                await FailAsync("写 SN", $"写后读回不符 期望={sn} 实际={readBack}");
+                return false;
+            }
 
             await UiAsync(() =>
             {
@@ -506,25 +515,40 @@ public partial class MainWindow : Window
                 AppendLog($"[IAP] 原始固件 {raw.Length}B 目标=MCU2/Qi");
             }
 
-            await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
+            async Task<bool> MustStep(UdsResult r, string step)
+            {
+                if (r.Ok) return true;
+                await FailAsync(name, $"{step}: {r.Error}");
+                return false;
+            }
+
+            if (!await MustStep(await Task.Run(() =>
+                    uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x02 }), ct), "10 02"))
+                return false;
             var signer = RequireSigner();
             if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
-                throw new InvalidOperationException("SA 解锁失败");
+            {
+                await FailAsync(name, "SA 解锁失败");
+                return false;
+            }
 
-            await Task.Run(() => uds.Request(ProtoIds.SidWdbi,
-                new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000), ct);
+            if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidWdbi,
+                    new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000), ct), "2E 20 10"))
+                return false;
             AppendLog($"2E 20 10 {otaTarget:X2} 选择目标 OK");
 
-            await Task.Run(() => uds.Request(ProtoIds.SidRc,
-                new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000), ct);
+            if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidRc,
+                    new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000), ct), "31 擦除"))
+                return false;
             AppendLog("31 擦除完成");
 
             int size = raw.Length;
-            await Task.Run(() => uds.Request(ProtoIds.SidRd, new byte[]
+            if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidRd, new byte[]
             {
                 0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
                 (byte)(size >> 24), (byte)(size >> 16), (byte)(size >> 8), (byte)size,
-            }, timeoutMs: 8000), ct);
+            }, timeoutMs: 8000), ct), "34 RequestDownload"))
+                return false;
             AppendLog($"34 RequestDownload {size}B @ 0x08010000 block={transferBlock}");
 
             int off = 0, seq = 1, blk = 0;
@@ -537,8 +561,9 @@ public partial class MainWindow : Window
                 var payload = new byte[1 + n];
                 payload[0] = (byte)(seq & 0xFF);
                 Buffer.BlockCopy(img, off, payload, 1, n);
-                await Task.Run(() => uds.Request(ProtoIds.SidTd, payload,
-                    timeoutMs: 8000, waitPendingMs: 30_000), ct);
+                if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidTd, payload,
+                        timeoutMs: 8000, waitPendingMs: 30_000), ct), $"36 块 {blk + 1}"))
+                    return false;
                 off += n;
                 blk++;
                 seq = (seq + 1) & 0xFF;
@@ -659,41 +684,75 @@ public partial class MainWindow : Window
 
         await RunOpAsync($"设置 Qi 功率 {label}", TimeSpan.FromSeconds(60), async (uds, ct) =>
         {
-            await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            if (!Must(r)) { await FailAsync($"设置 Qi 功率 {label}", r.Error); return false; }
             AppendLog("进入扩展会话 10 03");
             var signer = RequireSigner();
             if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
-                throw new InvalidOperationException("SA 解锁失败");
+            {
+                await FailAsync($"设置 Qi 功率 {label}", "SA 解锁失败");
+                return false;
+            }
 
-            await Task.Run(() => uds.WriteQiPowerLimit(powerCode), ct);
+            var wr = await Task.Run(() => uds.TryWriteQiPowerLimit(powerCode), ct);
             AppendLog($"2E 210D 写入 0x{powerCode:X2} ({label})");
-
-            var readBack = await Task.Run(() =>
-                QiChargerStationTool.Core.Protocol.QiChipStatusCodec.ReadU8(
-                    uds.ReadDid(ProtoIds.DidPowerLimit)), ct);
+            if (!Must(wr)) { await FailAsync($"设置 Qi 功率 {label}", wr.Error); return false; }
+            var rd = await Task.Run(() => uds.TryReadDid(ProtoIds.DidPowerLimit), ct);
+            if (rd.Data is null)
+            {
+                await FailAsync($"设置 Qi 功率 {label}", rd.Error);
+                return false;
+            }
+            var readBack = QiChargerStationTool.Core.Protocol.QiChipStatusCodec.ReadU8(rd.Data);
             if (readBack != powerCode)
-                throw new InvalidOperationException($"写后读回不符 期望=0x{powerCode:X2} 实际=0x{readBack:X2}");
+            {
+                await FailAsync($"设置 Qi 功率 {label}", $"写后读回不符 期望=0x{powerCode:X2} 实际=0x{readBack:X2}");
+                return false;
+            }
 
             await UiAsync(() => Pass($"设置 Qi 功率 {label}", $"已设置 {label}（0x{powerCode:X2}），读回一致"));
             return true;
         });
     }
 
+    /// <summary>执行 UDS 请求；失败返回 false 并由调用方提示（不抛异常）。</summary>
+    private static bool Must(UdsResult r) => r.Ok;
+
     private async Task RunChargeAsync(bool enable)
     {
         string name = enable ? "开启充电" : "关闭充电";
         await RunOpAsync(name, TimeSpan.FromSeconds(30), async (uds, ct) =>
         {
-            await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            if (!Must(r))
+            {
+                await FailAsync(name, r.Error);
+                return false;
+            }
             var signer = RequireSigner();
             if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
-                throw new InvalidOperationException("SA 解锁失败");
-            await Task.Run(() => uds.Request(ProtoIds.SidWdbi,
+            {
+                await FailAsync(name, "SA 解锁失败");
+                return false;
+            }
+            r = await Task.Run(() => uds.TryRequest(ProtoIds.SidWdbi,
                 new byte[] { 0x21, 0x01, (byte)(enable ? 0x01 : 0x00) }, timeoutMs: 4000), ct);
+            if (!Must(r))
+            {
+                await FailAsync(name, r.Error);
+                return false;
+            }
             await UiAsync(() => Pass(name, enable ? "已开启" : "已关闭"));
             return true;
         });
     }
+
+    private Task FailAsync(string name, string err) => UiAsync(() =>
+    {
+        AppendResult("FAIL", name, err);
+        SetState("失败", Colors.Crimson, err);
+        AppendLog($"[FAIL] {name}: {err}");
+    });
 
     private void OnStop(object sender, RoutedEventArgs e)
     {

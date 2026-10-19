@@ -130,19 +130,27 @@ public sealed class UdsClient
         return rx.Length >= 4 ? rx[3] : (byte)0xFF;
     }
 
+    /// <summary>WriteDataByIdentifier：payload = DID(2B) + data。失败返回 UdsResult，不抛。</summary>
+    public UdsResult TryWriteDid(ushort did, byte[] data, int timeoutMs = 4000)
+        => TryRequest(ProtoIds.SidWdbi,
+            new byte[] { (byte)(did >> 8), (byte)did }.Concat(data).ToArray(), timeoutMs);
+
+    /// <summary>ReadDataByIdentifier → 数据区；失败返回 (null, error)。</summary>
+    public (byte[]? Data, string Error) TryReadDid(ushort did, int timeoutMs = 3000)
+    {
+        var r = TryRequest(ProtoIds.SidRdbi,
+            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs);
+        if (!r.Ok) return (null, r.Error);
+        if (r.Data.Length < 3) return (null, $"DID 0x{did:X4} 响应过短");
+        return (r.Data[3..], "");
+    }
+
     /// <summary>ReadDataByIdentifier → 数据区（去掉 62 xx xx）。</summary>
     public byte[] ReadDid(ushort did, int timeoutMs = 3000)
     {
-        var rx = Request(ProtoIds.SidRdbi,
-            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs);
-        if (rx.Length < 3) throw new InvalidOperationException($"DID 0x{did:X4} 响应过短");
-        return rx[3..];
+        var (data, err) = TryReadDid(did, timeoutMs);
+        return data ?? throw new UdsException(ProtoIds.SidRdbi, 0, err);
     }
-
-    /// <summary>WriteDataByIdentifier：payload = DID(2B) + data。</summary>
-    public byte[] WriteDid(ushort did, byte[] data, int timeoutMs = 4000)
-        => Request(ProtoIds.SidWdbi,
-            new byte[] { (byte)(did >> 8), (byte)did }.Concat(data).ToArray(), timeoutMs);
 
     /// <summary>Qi 芯片状态全量查询（任意会话可读，无需 SA）。</summary>
     public QiChipStatus ReadQiChipStatus(CancellationToken ct = default)
@@ -192,15 +200,19 @@ public sealed class UdsClient
     }
 
     /// <summary>
-    /// 设置 Qi 功率档位码。固件门禁：扩展会话(10 03)+SA 解锁后写 DID 0x210D
-    /// （1 字节，0x01=5W / 0x02=10W / 0x03=15W，与 Qi 芯片 QI_POWER_* 一致）。
+    /// 设置 Qi 功率档位码。失败返回 UdsResult，不抛。
     /// </summary>
-    public void WriteQiPowerLimit(byte powerCode)
+    public UdsResult TryWriteQiPowerLimit(byte powerCode)
     {
         if (powerCode is not (ProtoIds.Power5W or ProtoIds.Power10W or ProtoIds.Power15W))
-            throw new ArgumentOutOfRangeException(nameof(powerCode), powerCode,
-                "功率档位码仅支持 0x01(5W) / 0x02(10W) / 0x03(15W)");
-        WriteDid(ProtoIds.DidPowerLimit, new byte[] { powerCode });
+            return UdsResult.Fail("功率档位码仅支持 0x01(5W) / 0x02(10W) / 0x03(15W)");
+        return TryWriteDid(ProtoIds.DidPowerLimit, new byte[] { powerCode });
+    }
+
+    public void WriteQiPowerLimit(byte powerCode)
+    {
+        var r = TryWriteQiPowerLimit(powerCode);
+        if (!r.Ok) throw new UdsException(ProtoIds.SidWdbi, r.Nrc, r.Error);
     }
 }
 
