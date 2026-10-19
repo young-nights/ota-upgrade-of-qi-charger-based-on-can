@@ -56,4 +56,107 @@ public class IsoTpCodecTests
         Assert.Equal(0x18DA030Du, ProtoIds.UdsRespId);
         Assert.Equal(0xF195, ProtoIds.DidSwVersion);
     }
+
+    [Fact]
+    public void ProtoIds_QiDids()
+    {
+        Assert.Equal(0x2132, ProtoIds.DidQiIapStatus);
+        Assert.Equal(0x2133, ProtoIds.DidQiFwVersion);
+        Assert.Equal(0x210D, ProtoIds.DidPowerLimit);
+        Assert.Equal(500, ProtoIds.PowerLimit5W);
+        Assert.Equal(1000, ProtoIds.PowerLimit10W);
+        Assert.Equal(1500, ProtoIds.PowerLimit15W);
+    }
+}
+
+public class QiChipStatusTests
+{
+    [Fact]
+    public void ParseIapStatus_FullPayload()
+    {
+        // state=0x01 progress=42 ver=1.2.3 sent=0x1234 total=0x0ABC
+        byte[] d = { 0x01, 42, 1, 2, 3, 0x34, 0x12, 0xBC, 0x0A };
+        QiChipStatusCodec.ParseIapStatus(d,
+            out var state, out var progress,
+            out var maj, out var min, out var pat,
+            out var sent, out var total);
+        Assert.Equal(0x01, state);
+        Assert.Equal(42, progress);
+        Assert.Equal(1, maj);
+        Assert.Equal(2, min);
+        Assert.Equal(3, pat);
+        Assert.Equal(0x1234, sent);
+        Assert.Equal(0x0ABC, total);
+    }
+
+    [Fact]
+    public void ParseIapStatus_TooShort_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            QiChipStatusCodec.ParseIapStatus(new byte[] { 1, 2, 3 },
+                out _, out _, out _, out _, out _, out _, out _));
+    }
+
+    [Fact]
+    public void ReadU8_ReadU16Le_FromDidData()
+    {
+        // ReadDid 已去掉 62 xx xx，这里只给数据区
+        Assert.Equal(0x04, QiChipStatusCodec.ReadU8(new byte[] { 0x04 }));
+        Assert.Equal(300, QiChipStatusCodec.ReadU16Le(new byte[] { 0x2C, 0x01 }));
+    }
+
+    [Fact]
+    public void DidData_StripsRdbiHeader()
+    {
+        var data = QiChipStatusCodec.DidData(new byte[] { 0x62, 0x21, 0x02, 0x04 });
+        Assert.Equal(1, data.Length);
+        Assert.Equal(0x04, data[0]);
+    }
+
+    [Fact]
+    public void PowerLimitFromWatts_MapsToWireValues()
+    {
+        Assert.Equal(500, QiChipStatusCodec.PowerLimitFromWatts(5));
+        Assert.Equal(1000, QiChipStatusCodec.PowerLimitFromWatts(10));
+        Assert.Equal(1500, QiChipStatusCodec.PowerLimitFromWatts(15));
+        Assert.Throws<ArgumentOutOfRangeException>(() => QiChipStatusCodec.PowerLimitFromWatts(7));
+    }
+
+    [Fact]
+    public void PowerLimitName_KnownAndUnknown()
+    {
+        Assert.Equal("5W (500)", QiChipStatusCodec.PowerLimitName(500));
+        Assert.Equal("10W (1000)", QiChipStatusCodec.PowerLimitName(1000));
+        Assert.Equal("15W (1500)", QiChipStatusCodec.PowerLimitName(1500));
+        Assert.StartsWith("未知", QiChipStatusCodec.PowerLimitName(777));
+    }
+
+    [Fact]
+    public void ChargeStateName_Known()
+    {
+        Assert.Equal("充电中 (CHARGING)", QiChipStatusCodec.ChargeStateName(0x04));
+        Assert.StartsWith("未知", QiChipStatusCodec.ChargeStateName(0xEE));
+    }
+
+    [Fact]
+    public void ToDisplayString_IncludesKeyFields()
+    {
+        var st = new QiChipStatus
+        {
+            IapState = 0x02,
+            IapProgress = 100,
+            QiVerMajor = 1, QiVerMinor = 2, QiVerPatch = 3,
+            IapSent = 10, IapTotal = 10,
+            ChargeState = 0x04,
+            OutputPowerMw = 1500,
+            FaultCode = 0x00,
+            PowerLimit = 1500,
+        };
+        var text = st.ToDisplayString();
+        Assert.Contains("成功 (SUCCESS)", text);
+        Assert.Contains("1.2.3", text);
+        Assert.Contains("充电中 (CHARGING)", text);
+        Assert.Contains("1500 mW", text);
+        Assert.Contains("15W (1500)", text);
+    }
 }

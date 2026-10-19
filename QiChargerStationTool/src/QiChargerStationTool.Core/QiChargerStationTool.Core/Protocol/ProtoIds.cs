@@ -29,4 +29,24 @@ public static class ProtoIds
     public const ushort DidSlot = 0x2113;
     public const ushort DidFwType = 0x2010;
     public const ushort DidLpStatus = 0x2119;
+
+    // ---- Qi chip (see qi_wireless_code_app can_protocol.h / zcanpro_qi_*.py) ----
+    public const ushort DidQiIapStatus = 0x2132;   // 9B: state/progress/ver3/sentLE/totalLE
+    public const ushort DidQiFwVersion = 0x2133;   // 3B major.minor.patch
+    public const ushort DidChargeState = 0x2102;   // u8
+    public const ushort DidOutputPower = 0x2104;   // u16 LE mW
+    public const ushort DidInputVi = 0x2105;       // 2×u8 raw V / I
+    public const ushort DidPcbTemp = 0x2108;       // u8 ℃
+    public const ushort DidFodStatus = 0x2109;     // u8
+    public const ushort DidFaultCode = 0x210B;     // u8
+    public const ushort DidThermalDerate = 0x210C; // u8, 100=无降额
+    public const ushort DidPowerLimit = 0x210D;    // u16 LE, 仅 500/1000/1500
+
+    /// <summary>
+    /// DID 0x210D 功率档位（固件 can_protocol.c 仅接受这三个值，对应 Qi 5W/10W/15W）。
+    /// 注意：线上的数值不是字面 mW（5W≠5000），而是固件约定的 500/1000/1500。
+    /// </summary>
+    public const ushort PowerLimit5W = 500;
+    public const ushort PowerLimit10W = 1000;
+    public const ushort PowerLimit15W = 1500;
 }

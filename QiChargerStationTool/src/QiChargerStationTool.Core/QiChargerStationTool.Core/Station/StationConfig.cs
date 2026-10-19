@@ -11,6 +11,10 @@ public sealed class StationConfig
     public bool DoWriteSn { get; set; }
     public bool DoOtaUpgrade { get; set; } = true;
     public bool DoChargeTest { get; set; }
+    public bool DoQiStatusQuery { get; set; } = true;
+    public bool DoSetQiPower { get; set; }
+    /// <summary>DID 0x210D 档位：500=5W / 1000=10W / 1500=15W（固件仅认这三个值）。</summary>
+    public ushort QiPowerLimit { get; set; } = 1500;
     public ushort ChargePowerLevel { get; set; } = 0x03; // 15W
     public int TransferBlock { get; set; } = 128;
     public string LogDirectory { get; set; } = "logs";
@@ -45,6 +49,7 @@ public sealed class StationContext
     public string? SwVersion { get; set; }
     public string? Sn { get; set; }
     public byte Slot { get; set; }
+    public QiChargerStationTool.Core.Protocol.QiChipStatus? QiStatus { get; set; }
     public event Action<string>? OnLog;
 
     public void Log(string m) => OnLog?.Invoke(m);

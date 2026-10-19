@@ -34,7 +34,7 @@ public partial class MainWindow : Window
             Button[] disable =
             {
                 BtnSnRead, BtnSnWrite, BtnReadVersion,
-                BtnOta, BtnIap, BtnChargeOn, BtnChargeOff,
+                BtnOta, BtnIap, BtnQiStatus, BtnQiSetPower, BtnChargeOn, BtnChargeOff,
             };
             foreach (var b in disable)
                 b.IsEnabled = !busy;
@@ -340,6 +340,62 @@ public partial class MainWindow : Window
 
     private async void OnChargeOff(object sender, RoutedEventArgs e)
         => await RunChargeAsync(enable: false);
+
+    /// <summary>Qi 芯片状态全量查询：IAP + 充电 + 传感器 + 功率档位，任意会话可读。</summary>
+    private async void OnQiStatusQuery(object sender, RoutedEventArgs e)
+        => await RunOpAsync("Qi 状态查询", TimeSpan.FromSeconds(20), async (uds, ct) =>
+        {
+            var st = await Task.Run(() => uds.ReadQiChipStatus(ct), ct);
+            await UiAsync(() =>
+            {
+                foreach (var line in st.ToDisplayString().Split('\n'))
+                    AppendLog("[Qi] " + line);
+                if (st.IapState == 0x03)
+                {
+                    AppendResult("FAIL", "Qi 状态查询", "IAP 失败态");
+                    SetState("失败", Colors.Crimson, "IAP 状态=失败，请检查 Qi 芯片固件");
+                    return;
+                }
+                var summary =
+                    $"Qi {st.QiVerMajor}.{st.QiVerMinor}.{st.QiVerPatch} · {st.ChargeStateName} · " +
+                    $"{st.OutputPowerMw}mW · {st.FaultName} · 档位 {st.PowerLimitName}";
+                Pass("Qi 状态查询", summary);
+            });
+        });
+
+    /// <summary>
+    /// 设置 Qi 功率：10 03 + SA → 2E 210D。档位 5W/10W/15W 映射固件值 500/1000/1500。
+    /// </summary>
+    private async void OnQiSetPower(object sender, RoutedEventArgs e)
+    {
+        if (CmbQiPower.SelectedItem is not ComboBoxItem item ||
+            !ushort.TryParse(item.Tag?.ToString(), out var powerLimit))
+        {
+            SetState("失败", Colors.Crimson, "请选择功率档位");
+            return;
+        }
+        string label = item.Content?.ToString() ?? powerLimit.ToString();
+
+        await RunOpAsync($"设置 Qi 功率 {label}", TimeSpan.FromSeconds(60), async (uds, ct) =>
+        {
+            await Task.Run(() => uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            AppendLog("进入扩展会话 10 03");
+            var signer = RequireSigner();
+            if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
+                throw new InvalidOperationException("SA 解锁失败");
+
+            await Task.Run(() => uds.WriteQiPowerLimit(powerLimit), ct);
+            AppendLog($"2E 210D 写入 {powerLimit} ({label})");
+
+            var readBack = await Task.Run(() =>
+                QiChargerStationTool.Core.Protocol.QiChipStatusCodec.ReadU16Le(
+                    uds.ReadDid(ProtoIds.DidPowerLimit)), ct);
+            if (readBack != powerLimit)
+                throw new InvalidOperationException($"写后读回不符 期望={powerLimit} 实际={readBack}");
+
+            await UiAsync(() => Pass($"设置 Qi 功率 {label}", $"已设置 {label}（{powerLimit}），读回一致"));
+        });
+    }
 
     private async Task RunChargeAsync(bool enable)
     {

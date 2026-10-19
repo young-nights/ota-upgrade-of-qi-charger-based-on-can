@@ -75,6 +75,8 @@ public sealed class StationRunner
         if (c.DoReadSn) yield return new ReadSnStep();
         if (c.DoWriteSn) yield return new WriteSnStep();
         if (c.DoOtaUpgrade) yield return new OtaUpgradeStep();
+        if (c.DoQiStatusQuery) yield return new QiStatusQueryStep();
+        if (c.DoSetQiPower) yield return new SetQiPowerStep { PowerLimit = c.QiPowerLimit };
         if (c.DoChargeTest) yield return new ChargeTestStep();
     }
 }

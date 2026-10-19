@@ -40,6 +40,30 @@ def wake_and_probe():
     """唤醒 + 22 2113 探测 APP 在线。"""
     log("---- 唤醒 + 探测 ----")
     ext.uds_init()
+    # 用 shim 的 raw 设备发唤醒 burst
+    dev = getattr(shim, '_dev', None)
+    if dev:
+        for i in range(8):
+            dev.send_can(0x18DA0D03,
+                         bytes([0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]),
+                         ext=True)
+            log("[Tx] raw 3E 00 (%d/8)" % (i + 1))
+            time.sleep(0.25)
+        t0 = time.time()
+        while time.time() - t0 < 0.5:
+            for item in dev.pump():
+                pass
+            time.sleep(0.02)
+    else:
+        log("shim._dev 为 None，用 UDS 库唤醒")
+        for i in range(8):
+            try:
+                ext.uds_try(BUS, 0x3E, [0x00], suppress=1)
+                log("[Tx] UDS 3E 00 (%d/8)" % (i + 1))
+            except Exception:
+                pass
+            time.sleep(0.25)
+    time.sleep(0.5)
     for i in range(8):
         try:
             rx = ext.uds_req(BUS, 0x22, [0x21, 0x13])
@@ -84,15 +108,30 @@ def do_charge_disable():
 def read_version():
     """3E 00 唤醒 burst + 22 F195 读版本。"""
     log("---- 读版本号 ----")
-    # 唤醒 burst: 3E 00 ×3 + 0.2s
-    for i in range(3):
-        try:
-            ext.uds_try(BUS, 0x3E, [0x00], suppress=1)
-            log("[Tx] 3E 00 (%d/3)" % (i + 1))
-        except Exception:
-            pass
-        time.sleep(0.2)
-    # 读版本
+    # 唤醒 burst
+    dev = getattr(shim, '_dev', None)
+    if dev:
+        for i in range(8):
+            dev.send_can(0x18DA0D03,
+                         bytes([0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]),
+                         ext=True)
+            log("[Tx] raw 3E 00 (%d/8)" % (i + 1))
+            time.sleep(0.25)
+        t0 = time.time()
+        while time.time() - t0 < 0.5:
+            for item in dev.pump():
+                pass
+            time.sleep(0.02)
+    else:
+        for i in range(8):
+            try:
+                ext.uds_try(BUS, 0x3E, [0x00], suppress=1)
+            except Exception:
+                pass
+            time.sleep(0.25)
+    time.sleep(1.0)
+    # 读版本（等设备完全唤醒）
+    time.sleep(1.0)
     for i in range(8):
         try:
             rx = ext.uds_req(BUS, 0x22, [0xF1, 0x95])
