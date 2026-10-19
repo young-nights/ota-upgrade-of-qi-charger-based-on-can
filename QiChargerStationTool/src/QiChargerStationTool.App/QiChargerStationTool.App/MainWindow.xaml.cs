@@ -219,8 +219,10 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 执行一次设备操作：自动置灰按钮、超时保护、完成后恢复。
+    /// body 返回 false 表示已自行提示失败（不再报「完成」）；异常在内部消化为 FAIL。
     /// </summary>
-    private async Task RunOpAsync(string name, TimeSpan timeout, Func<UdsClient, CancellationToken, Task> body)
+    private async Task RunOpAsync(string name, TimeSpan timeout,
+        Func<UdsClient, CancellationToken, Task<bool>> body)
     {
         if (IsBusyGuard()) return;
         SetBusy(true, name + "…");
@@ -228,7 +230,6 @@ public partial class MainWindow : Window
         _cts = new CancellationTokenSource(timeout);
         var ct = _cts.Token;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        // 在 UI 线程取好连接，避免后台线程访问控件
         ZqwlSerialTransport transport;
         lock (_transportLock)
         {
@@ -243,36 +244,38 @@ public partial class MainWindow : Window
         }
         try
         {
-            // body 内所有异常都在此消化为失败结果，绝不抛到 WPF 引发崩溃框
             string failMsg = "";
+            bool bodyOk = false;
             await Task.Run(async () =>
             {
                 try
                 {
-                    AppendLog($"CAN 复用已连接端口");
+                    AppendLog("CAN 复用已连接端口");
                     var iso = new IsoTpClient(transport);
-                    iso.OnLog += m => AppendLog(m);
+                    // 只挂 uds.OnLog：UdsClient 已转发 IsoTp 日志，避免双份
                     var uds = new UdsClient(iso);
                     uds.OnLog += m => AppendLog(m);
-                    await body(uds, ct);
+                    bodyOk = await body(uds, ct);
                 }
                 catch (Exception ex)
                 {
                     failMsg = FormatOpError(ex);
+                    bodyOk = false;
                 }
             }, ct);
 
             sw.Stop();
-            if (failMsg.Length == 0)
+            if (bodyOk && failMsg.Length == 0)
             {
                 AppendLog($"==== 完成 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
             }
-            else
+            else if (failMsg.Length > 0)
             {
                 AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {failMsg} ====");
                 AppendResult("FAIL", name, failMsg);
                 SetState("失败", Colors.Crimson, failMsg);
             }
+            // bodyOk==false 且无 failMsg：body 已自行提示过 FAIL，不重复
         }
         catch (Exception ex)
         {
@@ -362,7 +365,7 @@ public partial class MainWindow : Window
                     SetState("失败", Colors.Crimson, r.Error);
                     AppendLog($"[FAIL] 读 SN: {r.Error}");
                 });
-                return;
+                return false;
             }
             var sn = DecodeSn(r.Data);
             await UiAsync(() =>
@@ -371,6 +374,7 @@ public partial class MainWindow : Window
                 TxtSnHint.Text = $"设备 SN: {sn}";
                 Pass("读 SN", sn);
             });
+            return true;
         });
 
     private async void OnSnWrite(object sender, RoutedEventArgs e)
@@ -399,6 +403,7 @@ public partial class MainWindow : Window
                 TxtSnHint.Text = $"写入成功: {readBack}";
                 Pass("写 SN", readBack);
             });
+            return true;
         });
     }
 
@@ -407,7 +412,23 @@ public partial class MainWindow : Window
     private async void OnReadVersion(object sender, RoutedEventArgs e)
         => await RunOpAsync("读软件版本", TimeSpan.FromSeconds(8), async (uds, ct) =>
         {
-            var (ok, ver, err) = await Task.Run(() => uds.TryReadSwVersion(ct), ct);
+            // 若设备刚 BOOTUP，自动多等 1s 再读，避免上电窗口必失败
+            var (ok, ver, err) = await Task.Run(() =>
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    var r = uds.TryReadSwVersion(ct);
+                    if (r.Ok) return r;
+                    if (i < 2 && r.Error.Contains("BOOTUP", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AppendLog("[读版本] 检测到 APP 刚 BOOTUP，1s 后自动重试…");
+                        Thread.Sleep(1000);
+                        continue;
+                    }
+                    return r;
+                }
+                return uds.TryReadSwVersion(ct);
+            }, ct);
             if (!ok)
             {
                 await UiAsync(() =>
@@ -416,9 +437,10 @@ public partial class MainWindow : Window
                     SetState("失败", Colors.Crimson, err);
                     AppendLog($"[FAIL] 读软件版本: {err}");
                 });
-                return;
+                return false;
             }
             await UiAsync(() => Pass("读软件版本", ver));
+            return true;
         });
 
     /// <summary>OTA：MCU1 APP，块 128B，使用 AT32 OTA 固件路径。</summary>
@@ -536,6 +558,7 @@ public partial class MainWindow : Window
             }
 
             await UiAsync(() => Pass(name, $"{size}B 传输完成"));
+            return true;
         });
     }
 
@@ -562,29 +585,46 @@ public partial class MainWindow : Window
                 }
             }, ct);
 
-            await Task.Run(() =>
+            var (ok, ver, err) = await Task.Run(() => uds.TryReadSwVersion(ct), ct);
+            if (!ok)
             {
-                try
+                await UiAsync(() =>
                 {
-                    AppendLog("[自检] 发 22 F195 …");
-                    var ver = uds.ReadSwVersion();
-                    AppendLog($"[自检] 应答版本: {ver}");
-                    Pass("链路自检", $"F195 = {ver}");
-                }
-                catch (Exception ex)
-                {
-                    AppendLog($"[自检] 22 F195 失败: {ex.Message}");
+                    AppendLog($"[自检] 22 F195 失败: {err}");
                     AppendLog("[自检] 请查看上方 [CAN-TX]/[CAN-RX]：有 CAN-RX=协议/ID 问题；无 CAN-RX=硬件/盒子/设备未上电");
-                    throw;
-                }
-            }, ct);
+                    AppendResult("FAIL", "链路自检", err);
+                    SetState("失败", Colors.Crimson, err);
+                });
+                return false;
+            }
+            await UiAsync(() =>
+            {
+                AppendLog($"[自检] 应答版本: {ver}");
+                Pass("链路自检", $"F195 = {ver}");
+            });
+            return true;
         });
 
     /// <summary>Qi 芯片状态全量查询：IAP + 充电 + 传感器 + 功率档位，任意会话可读。</summary>
     private async void OnQiStatusQuery(object sender, RoutedEventArgs e)
         => await RunOpAsync("Qi 状态查询", TimeSpan.FromSeconds(20), async (uds, ct) =>
         {
-            var st = await Task.Run(() => uds.ReadQiChipStatus(ct), ct);
+            QiChargerStationTool.Core.Protocol.QiChipStatus st;
+            try
+            {
+                st = await Task.Run(() => uds.ReadQiChipStatus(ct), ct);
+            }
+            catch (Exception ex)
+            {
+                var msg = FormatOpError(ex);
+                await UiAsync(() =>
+                {
+                    AppendResult("FAIL", "Qi 状态查询", msg);
+                    SetState("失败", Colors.Crimson, msg);
+                });
+                return false;
+            }
+            bool fail = false;
             await UiAsync(() =>
             {
                 foreach (var line in st.ToDisplayString().Split('\n'))
@@ -593,6 +633,7 @@ public partial class MainWindow : Window
                 {
                     AppendResult("FAIL", "Qi 状态查询", "IAP 失败态");
                     SetState("失败", Colors.Crimson, "IAP 状态=失败，请检查 Qi 芯片固件");
+                    fail = true;
                     return;
                 }
                 var summary =
@@ -600,6 +641,7 @@ public partial class MainWindow : Window
                     $"{st.OutputPowerMw}mW · {st.FaultName} · 档位 {st.PowerLimitName}";
                 Pass("Qi 状态查询", summary);
             });
+            return !fail;
         });
 
     /// <summary>
@@ -633,6 +675,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException($"写后读回不符 期望=0x{powerCode:X2} 实际=0x{readBack:X2}");
 
             await UiAsync(() => Pass($"设置 Qi 功率 {label}", $"已设置 {label}（0x{powerCode:X2}），读回一致"));
+            return true;
         });
     }
 
@@ -648,6 +691,7 @@ public partial class MainWindow : Window
             await Task.Run(() => uds.Request(ProtoIds.SidWdbi,
                 new byte[] { 0x21, 0x01, (byte)(enable ? 0x01 : 0x00) }, timeoutMs: 4000), ct);
             await UiAsync(() => Pass(name, enable ? "已开启" : "已关闭"));
+            return true;
         });
     }
 

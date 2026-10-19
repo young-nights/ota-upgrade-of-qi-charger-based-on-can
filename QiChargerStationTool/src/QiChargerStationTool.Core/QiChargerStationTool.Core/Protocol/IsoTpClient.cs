@@ -149,6 +149,7 @@ public sealed class IsoTpClient
         var cfBuf = new List<byte>();
         int seen = 0, dropped = 0;
         var noiseIds = new Dictionary<uint, int>();
+        _sawBootup = false;
 
         while (Environment.TickCount64 < deadline)
         {
@@ -162,9 +163,12 @@ public sealed class IsoTpClient
                     dropped++;
                     uint nid = f.Id & 0x1FFFFFFF;
                     noiseIds[nid] = noiseIds.TryGetValue(nid, out var c) ? c + 1 : 1;
+                    if (nid == ProtoIds.LifecycleId && f.Data.Length >= 3
+                        && f.Data[0] == 0x01 && f.Data[1] == 0x41 && f.Data[2] == 0x00)
+                        _sawBootup = true;
                     string diag = DecodeDiag(nid, f.Data);
                     if (noiseIds[nid] <= 3)
-                        Log($"[RX?] id={nid:X8x} {Hex(f.Data)}{(diag.Length > 0 ? "  → " + diag : "")}");
+                        Log($"[RX?] id={nid:X8} {Hex(f.Data)}{(diag.Length > 0 ? "  → " + diag : "")}");
                     continue;
                 }
                 int pci = f.Data[0] & 0xF0;
@@ -218,10 +222,13 @@ public sealed class IsoTpClient
 
         // 给出可操作的结论
         string hint = "";
-        if (noiseIds.ContainsKey(ProtoIds.BootDiagId))
+        bool sawBootup = noiseIds.ContainsKey(ProtoIds.LifecycleId) && _sawBootup;
+        if (sawBootup)
+            hint = "；已见 APP BOOTUP，APP 刚启动可能尚未就绪，请点「读软件版本」重试";
+        else if (noiseIds.ContainsKey(ProtoIds.BootDiagId))
             hint = "；设备在 Boot（收到 0x18FF480D 诊断帧），APP 未运行/UDS 栈不在，请等 APP 起来或先烧录/恢复 APP";
         else if (noiseIds.ContainsKey(ProtoIds.LifecycleId))
-            hint = "；仅见生命周期帧，APP 可能刚上电或 UDS 未就绪";
+            hint = "；仅见生命周期帧，APP 可能刚上电或 UDS 未就绪，请重试";
         else if (dropped == 0 && seen == 0)
             hint = "；总线无任何回包，查 CANH/CANL/终端电阻/盒子 TX";
 
@@ -232,6 +239,9 @@ public sealed class IsoTpClient
             (noise.Length > 0 ? $"；噪声: {noise}" : "；总线无回包") + hint;
         return null;
     }
+
+    /// <summary>本次等待中是否见过 APP BOOTUP（01 41 00）。</summary>
+    private bool _sawBootup;
 
     /// <summary>最近一次 <see cref="TryReceive"/> 超时的诊断摘要。</summary>
     public string LastTimeoutDetail { get; private set; } = "";

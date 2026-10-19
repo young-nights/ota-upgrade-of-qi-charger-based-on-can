@@ -125,7 +125,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
         data.CopyTo(pkt, 7);
         pkt[^1] = CanFtr;
         _port.Write(pkt, 0, pkt.Length);
-        OnRawLog?.Invoke($"[CAN-TX] {id:X8x} {Convert.ToHexString(data)}");
+        OnRawLog?.Invoke($"[CAN-TX] {id:X8} {Convert.ToHexString(data)}");
     }
 
     public bool TryReceive(out CanFrame frame, int timeoutMs = 0)
@@ -251,7 +251,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
             var data = new byte[dlc];
             Buffer.BlockCopy(_buf, i + 7, data, 0, dlc);
             _rxQueue.Enqueue(new CanFrame(id, data));
-            OnRawLog?.Invoke($"[CAN-RX] {id:X8x} {Convert.ToHexString(data)}");
+            OnRawLog?.Invoke($"[CAN-RX] {id:X8} {Convert.ToHexString(data)}");
             i += total;
         }
         if (i > 0)
