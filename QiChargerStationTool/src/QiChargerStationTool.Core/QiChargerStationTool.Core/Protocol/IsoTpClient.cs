@@ -103,7 +103,7 @@ public sealed class IsoTpClient
     }
 
     /// <summary>Receive one complete UDS payload. Skips lifecycle/non-matching noise.</summary>
-    public byte[] Receive(Func<byte[], bool> match, int timeoutMs)
+    public byte[] Receive(Func<byte[], bool> match, int timeoutMs, CancellationToken ct = default)
     {
         long deadline = Environment.TickCount64 + timeoutMs;
         byte[]? ffBuf = null;
@@ -113,6 +113,7 @@ public sealed class IsoTpClient
 
         while (Environment.TickCount64 < deadline)
         {
+            ct.ThrowIfCancellationRequested();
             Pump();
             while (_rxq.TryDequeue(out var f))
             {
@@ -120,9 +121,8 @@ public sealed class IsoTpClient
                 if ((f.Id & 0x1FFFFFFF) != (_rxId & 0x1FFFFFFF) || f.Data.Length == 0)
                 {
                     dropped++;
-                    // 噪声帧也打出来，方便确认总线有无回包
-                    if (seen <= 8)
-                        Log($"[RX?] id={f.Id:X8x} {Hex(f.Data)}（非目标 ID，丢弃）");
+                    // 噪声帧 ID 打出来，方便确认设备在发什么
+                    Log($"[RX?] id={f.Id:X8x} {Hex(f.Data)}");
                     continue;
                 }
                 int pci = f.Data[0] & 0xF0;

@@ -16,7 +16,8 @@ public sealed class UdsClient
     private void Log(string m) => OnLog?.Invoke(m);
 
     public byte[] Request(byte sid, byte[] payload, int timeoutMs = 3000,
-                          int waitPendingMs = 45_000, byte? expectSub = null)
+                          int waitPendingMs = 45_000, byte? expectSub = null,
+                          CancellationToken ct = default)
     {
         var uds = new byte[1 + payload.Length];
         uds[0] = sid;
@@ -26,6 +27,7 @@ public sealed class UdsClient
         long pendingDeadline = Environment.TickCount64 + waitPendingMs;
         while (true)
         {
+            ct.ThrowIfCancellationRequested();
             var data = _tp.Receive(
                 d =>
                 {
@@ -36,7 +38,7 @@ public sealed class UdsClient
                     if (expectSub is { } sub && (d.Length < 2 || d[1] != sub)) return false;
                     return true;
                 },
-                timeoutMs);
+                timeoutMs, ct);
 
             if (data[0] == ProtoIds.SidNrc)
             {
@@ -67,9 +69,9 @@ public sealed class UdsClient
 
     public void KeepAlive() => RequestSuppress(ProtoIds.SidTp, new byte[] { 0x80 });
 
-    public string ReadSwVersion()
+    public string ReadSwVersion(CancellationToken ct = default)
     {
-        var rx = Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 5000);
+        var rx = Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 3000, ct: ct);
         if (rx.Length < 4) throw new InvalidOperationException("F195 response too short");
         int start = 3;
         int len = rx.Length - start;

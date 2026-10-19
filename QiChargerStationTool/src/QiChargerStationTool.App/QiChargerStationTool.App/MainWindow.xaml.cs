@@ -256,12 +256,19 @@ public partial class MainWindow : Window
             sw.Stop();
             AppendLog($"==== 完成 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
         }
+        catch (TimeoutException tex)
+        {
+            sw.Stop();
+            AppendLog($"==== 超时 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {tex.Message} ====");
+            AppendResult("TIMEOUT", name, tex.Message);
+            SetState("超时", Colors.Crimson, $"{name} 无应答，已自动结束");
+        }
         catch (OperationCanceledException)
         {
             sw.Stop();
             AppendLog($"==== 超时/取消 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
             AppendResult("TIMEOUT", name, $"超过 {timeout.TotalSeconds:F0}s 或被停止");
-            SetState("超时", Colors.Crimson, $"{name} 超时");
+            SetState("超时", Colors.Crimson, $"{name} 已停止");
         }
         catch (Exception ex)
         {
@@ -274,6 +281,19 @@ public partial class MainWindow : Window
         {
             SetBusy(false);
         }
+    }
+
+    /// <summary>全局异常兜底：只记日志，不崩溃、不停监听。</summary>
+    public void ReportCrash(Exception ex)
+    {
+        try
+        {
+            AppendLog($"[异常已捕获] {ex.GetType().Name}: {ex.Message}");
+            AppendLog("[异常] 操作已终止，请重试或检查连接");
+            SetState("异常", Colors.Crimson, ex.Message);
+            SetBusy(false);
+        }
+        catch { /* ignore */ }
     }
 
     private bool IsBusyGuard()
@@ -362,13 +382,9 @@ public partial class MainWindow : Window
     // ---------- 测试操作按钮 ----------
 
     private async void OnReadVersion(object sender, RoutedEventArgs e)
-        => await RunOpAsync("读软件版本", TimeSpan.FromSeconds(15), async (uds, ct) =>
+        => await RunOpAsync("读软件版本", TimeSpan.FromSeconds(8), async (uds, ct) =>
         {
-            var ver = await Task.Run(() =>
-            {
-                var rx = uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 5000);
-                return DecodeSn(rx);
-            }, ct);
+            var ver = await Task.Run(() => uds.ReadSwVersion(ct), ct);
             await UiAsync(() => Pass("读软件版本", ver));
         });
 
