@@ -83,6 +83,19 @@ UI 档位 **5W / 10W / 15W** → 映射 Qi 芯片档位码 **0x01 / 0x02 / 0x03*
 
 ### COM 口自动扫描
 
-顶部「COM 口」下拉框启动时自动扫描系统串口，按 **VID:PID `3562:0101`** 识别 ZQWL-CANFD 并标 ★ 自动选中。点「扫描」可重扫（例如盒子刚从 WSL `usbipd detach` 回来）。
+顶部「COM 口」下拉框启动时自动扫描系统串口并自动选中 ZQWL 盒子（标 ★）。点「扫描」可重扫（例如盒子刚从 WSL `usbipd detach` 回来）。
 
-实现：`ComPortScanner`（WMI `Win32_PnPEntity` 取 PnP 描述 + `SerialPort.GetPortNames()` 兜底）。
+**识别规则（按优先级）：**
+
+| 规则 | 说明 |
+|------|------|
+| 厂商 VID `3562` | 智嵌 ZQWL 全系（CAN / CANFD，PID 可不同）都能中 |
+| `ExtraComMatch` | `appsettings.json` 追加 VID:PID 或任意子串，兼容其它厂商盒子 |
+| 描述关键字 | `ZQWL` / `智嵌` / `CANFD` / `USB-CAN` |
+| 多个 ZQWL 时 | 优先 PID `0101`（本仓库 CANFD）或描述含 CANFD |
+
+```json
+"ExtraComMatch": [ "VID_1A86&PID_7523", "CH340" ]
+```
+
+实现：`ComPortScanner`（WMI `Win32_PnPEntity` + `SerialPort.GetPortNames()` 兜底）。

@@ -19,12 +19,34 @@ public partial class MainWindow : Window
         InitializeComponent();
         Loaded += (_, _) =>
         {
+            LoadExtraComMatch();
             ScanPorts(keepSelection: null);
             FocusSnBox();
         };
     }
 
-    /// <summary>扫描串口并填充下拉框；自动选中 ZQWL-CANFD。</summary>
+    /// <summary>从 appsettings.json 读 ExtraComMatch（额外 VID:PID/子串），追加到扫描匹配表。</summary>
+    private static void LoadExtraComMatch()
+    {
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            if (!File.Exists(path)) return;
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            if (!doc.RootElement.TryGetProperty("ExtraComMatch", out var arr)
+                || arr.ValueKind != System.Text.Json.JsonValueKind.Array)
+                return;
+            foreach (var item in arr.EnumerateArray())
+            {
+                var s = item.GetString();
+                if (!string.IsNullOrWhiteSpace(s) && !ComPortScanner.ExtraMatchIds.Contains(s))
+                    ComPortScanner.ExtraMatchIds.Add(s);
+            }
+        }
+        catch { /* 配置可选，失败不阻断扫描 */ }
+    }
+
+    /// <summary>扫描串口并填充下拉框；自动选中 ZQWL CAN 盒子。</summary>
     private void ScanPorts(string? keepSelection)
     {
         try
@@ -34,11 +56,11 @@ public partial class MainWindow : Window
             CmbPort.ItemsSource = ports;
             CmbPort.SelectedItem = pick;
             if (pick is null)
-                AppendLog("[COM] 未发现串口——请检查 ZQWL-CANFD 是否已从 WSL detach 到 Windows");
+                AppendLog("[COM] 未发现串口——请检查 ZQWL 盒子是否已从 WSL detach 到 Windows");
             else if (pick.IsZqwlCan)
-                AppendLog($"[COM] 自动选中 ZQWL-CANFD: {pick.PortName}");
+                AppendLog($"[COM] 自动选中 ZQWL: {pick.PortName}（{pick.Description}）");
             else
-                AppendLog($"[COM] 未识别到 ZQWL-CANFD（3562:0101），当前选中 {pick.PortName}（{pick.Description}）");
+                AppendLog($"[COM] 未识别到 ZQWL（VID_3562 / 描述含 CAN），当前选中 {pick.PortName}（{pick.Description}）");
         }
         catch (Exception ex)
         {

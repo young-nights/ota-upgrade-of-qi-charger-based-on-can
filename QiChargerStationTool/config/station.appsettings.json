@@ -1,6 +1,7 @@
 {
-  "ComPort": "COM9",
+  "ComPort": "",
   "Baud": 2000000,
+  "ExtraComMatch": [],
   "FirmwarePath": "firmware/app_image_v1_1_57.bin",
   "SnCode": "",
   "DoReadVersion": true,

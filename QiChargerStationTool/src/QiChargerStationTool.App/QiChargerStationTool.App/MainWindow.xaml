@@ -105,7 +105,7 @@
         <ComboBox x:Name="CmbPort" Grid.Column="1" Height="30" Margin="2"
                   VerticalContentAlignment="Center"
                   DisplayMemberPath="DisplayName"
-                  ToolTip="自动扫描串口，★ 为 ZQWL-CANFD（VID:PID 3562:0101）"/>
+                  ToolTip="自动扫描串口，★ 为 ZQWL CAN 盒子（默认认 VID_3562，可配置 ExtraComMatch）"/>
         <Button Grid.Column="2" Content="扫描" Style="{StaticResource GrayBtn}"
                 Width="56" Height="30" MinHeight="30" Margin="2,2,8,2"
                 Click="OnScanPorts"
