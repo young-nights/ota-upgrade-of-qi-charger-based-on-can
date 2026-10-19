@@ -41,7 +41,7 @@ _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = _find_repo_root(_TOOLS_DIR)
 PRIVATE_KEY_PATH = os.path.join(REPO_ROOT, "docs", "keys", "private.pem")
 
-# 功率档位: 0x01=5W, 0x02=10W, 0x03=15W
+# 功率档位: 0x01=5W, 0x02=10W, 0x03=15W（Qi 芯片 QI_POWER_*，写 DID 0x210D 用档位码）
 POWER_LEVEL = 0x03
 
 # 充电状态轮询间隔（秒）
@@ -102,9 +102,8 @@ CHARGE_DISABLED = 0x00
 CHARGE_STANDBY  = 0x01
 CHARGE_CHARGING = 0x04
 
-# 功率档位映射。DID 0x210D 写的是 uint16 小端毫瓦，不是档位字节。
+# 功率档位映射。DID 0x210D 线上即档位码（0x01/0x02/0x03），与 Qi 芯片协议 QI_POWER_* 一致
 POWER_NAME = {0x01: "5W", 0x02: "10W", 0x03: "15W"}
-POWER_MW = {0x01: 500, 0x02: 1000, 0x03: 1500}
 
 # secp256r1
 _P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
@@ -844,8 +843,8 @@ def run_charge_start(bus_id):
 
     if not os.path.isfile(PRIVATE_KEY_PATH):
         raise RuntimeError("找不到私钥: " + PRIVATE_KEY_PATH)
-    if POWER_LEVEL not in POWER_MW:
-        raise RuntimeError("未知功率档位 0x%02X" % POWER_LEVEL)
+    if POWER_LEVEL not in POWER_NAME:
+        raise RuntimeError("未知功率档位码 0x%02X（可选 0x01=5W / 0x02=10W / 0x03=15W）" % POWER_LEVEL)
     priv = load_ec_private_key(PRIVATE_KEY_PATH)
 
     uds_init()
@@ -870,11 +869,11 @@ def run_charge_start(bus_id):
     send_security_key(bus_id, priv)
     _log("安全解锁成功")
 
-    # Step 3: 设置功率（DID 0x210D = uint16 LE mW：500/1000/1500）
+    # Step 3: 设置功率档位码（DID 0x210D = 1 字节 0x01/0x02/0x03）
     #         ——经 S3 兜底包装：NRC 0x22/0x33 时重发 10 03 + 重解锁 + 重试一次
-    mw = POWER_MW[POWER_LEVEL]
-    _log("---- Step 3: 设置功率 %s (%d mW) ----" % (POWER_NAME.get(POWER_LEVEL, "?"), mw))
-    _wdbi_with_s3_guard(bus_id, [0x21, 0x0D, mw & 0xFF, (mw >> 8) & 0xFF], priv)
+    code = POWER_LEVEL
+    _log("---- Step 3: 设置功率 %s (0x%02X) ----" % (POWER_NAME.get(POWER_LEVEL, "?"), code))
+    _wdbi_with_s3_guard(bus_id, [0x21, 0x0D, code], priv)
 
     # Step 4: 使能充电（同样经 S3 兜底包装）
     _log("---- Step 4: 使能充电 ----")

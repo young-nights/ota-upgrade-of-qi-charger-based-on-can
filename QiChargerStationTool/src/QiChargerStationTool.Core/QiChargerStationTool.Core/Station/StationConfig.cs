@@ -13,8 +13,8 @@ public sealed class StationConfig
     public bool DoChargeTest { get; set; }
     public bool DoQiStatusQuery { get; set; } = true;
     public bool DoSetQiPower { get; set; }
-    /// <summary>DID 0x210D 档位：500=5W / 1000=10W / 1500=15W（固件仅认这三个值）。</summary>
-    public ushort QiPowerLimit { get; set; } = 1500;
+    /// <summary>DID 0x210D 档位码：0x01=5W / 0x02=10W / 0x03=15W（Qi 芯片 QI_POWER_*）。</summary>
+    public ushort QiPowerCode { get; set; } = 0x03;
     public ushort ChargePowerLevel { get; set; } = 0x03; // 15W
     public int TransferBlock { get; set; } = 128;
     public string LogDirectory { get; set; } = "logs";

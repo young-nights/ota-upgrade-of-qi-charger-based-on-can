@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.2.1";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.2.2";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -170,7 +170,7 @@ static uint8_t  g_qi_thermal_derate   = 100U;   /*!< DID 0x210C, 100%=no deratin
 static uint8_t  g_qi_last_fault_detail[4] = {0U};  /*!< DID 0x2110, 4-byte fault detail */
 
 /* Qi persistent config (loaded from NVM at init) */
-static uint16_t g_qi_power_limit_mw   = 1500U;  /*!< DID 0x210D, 1500 mW = 15W default */
+static uint16_t g_qi_power_level      = QI_POWER_15W;  /*!< DID 0x210D 档位码 (QI_POWER_*), 默认 15W */
 
 /** @brief  SIT1145 Normal + CAN online. Power-on is Normal (idle 30 s → Sleep). */
 static uint8_t  g_can_awake = 0;
@@ -1141,9 +1141,22 @@ static void qi_nvm_load_config(void)
     if (nvm_drv_read(NVM_OFFSET_POWER_LIMIT, buf, 2U) == NVM_STATUS_OK)
     {
       uint16_t val = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
-      if ((val == 500U) || (val == 1000U) || (val == 1500U))
+      /* 新值：档位码 QI_POWER_*；兼容旧 NVM 的 500/1000/1500 并映射 */
+      if ((val == QI_POWER_5W) || (val == QI_POWER_10W) || (val == QI_POWER_15W))
       {
-        g_qi_power_limit_mw = val;
+        g_qi_power_level = val;
+      }
+      else if (val == 500U)
+      {
+        g_qi_power_level = QI_POWER_5W;
+      }
+      else if (val == 1000U)
+      {
+        g_qi_power_level = QI_POWER_10W;
+      }
+      else if (val == 1500U)
+      {
+        g_qi_power_level = QI_POWER_15W;
       }
     }
   }
@@ -1414,9 +1427,9 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 1U;
       return 0;
     case DID_POWER_LIMIT:
-      out[0] = (uint8_t)(g_qi_power_limit_mw & 0xFFU);
-      out[1] = (uint8_t)((g_qi_power_limit_mw >> 8) & 0xFFU);
-      *olen = 2U;
+      /* 档位码 QI_POWER_5W/10W/15W (0x01/0x02/0x03)，1 字节 */
+      out[0] = (uint8_t)g_qi_power_level;
+      *olen = 1U;
       return 0;
     case DID_LAST_FAULT_DETAIL:
       memcpy(out, g_qi_last_fault_detail, 4U);
@@ -1828,30 +1841,39 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
 
       case DID_POWER_LIMIT:
       {
-        uint16_t val;
+        /* 线上格式：DID 后 1 字节档位码 0x01/0x02/0x03（= QI_POWER_5W/10W/15W），
+           与 Qi 芯片协议一致；UI 侧 5W/10W/15W 映射到该码。兼容旧 2 字节
+           500/1000/1500 载荷（LE），映射到对应档位码后转发。 */
+        uint8_t qi_power;
         uint8_t nvm_buf[2];
-        if (len < 5U)
+        if (len < 4U)
         {
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_INCORRECT_MESSAGE_LENGTH);
           return;
         }
-        val = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
-        /* only accept 5W / 10W / 15W */
-        if ((val != 500U) && (val != 1000U) && (val != 1500U))
+        qi_power = data[3];
+        if (len >= 5U)
+        {
+          /* 兼容旧 2 字节 uint16 LE mW 编码 */
+          uint16_t val16 = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
+          if (val16 == 500U)       qi_power = QI_POWER_5W;
+          else if (val16 == 1000U) qi_power = QI_POWER_10W;
+          else if (val16 == 1500U) qi_power = QI_POWER_15W;
+          else                     qi_power = (uint8_t)val16;
+        }
+        /* only accept 0x01=5W / 0x02=10W / 0x03=15W */
+        if ((qi_power != QI_POWER_5W) && (qi_power != QI_POWER_10W) &&
+            (qi_power != QI_POWER_15W))
         {
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_REQUEST_OUT_OF_RANGE);
           return;
         }
-        g_qi_power_limit_mw = val;
-        nvm_buf[0] = (uint8_t)(val & 0xFFU);
-        nvm_buf[1] = (uint8_t)((val >> 8) & 0xFFU);
+        g_qi_power_level = qi_power;
+        nvm_buf[0] = qi_power;
+        nvm_buf[1] = 0U;
         (void)qi_nvm_save(NVM_OFFSET_POWER_LIMIT, nvm_buf, 2U);
         /* forward to Qi chip: 5W=0x01, 10W=0x02, 15W=0x03 */
-        {
-          uint8_t qi_power = (val == 500U) ? QI_POWER_5W :
-                             (val == 1000U) ? QI_POWER_10W : QI_POWER_15W;
-          (void)qi_protocol_set_power(qi_power, 0U);
-        }
+        (void)qi_protocol_set_power(qi_power, 0U);
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];

@@ -39,21 +39,21 @@ public sealed class QiStatusQueryStep : ITestStep
 }
 
 /// <summary>
-/// 设置 Qi 功率：10 03 扩展会话 → SA 解锁 → 2E 210D（uint16 LE, 500/1000/1500）→ 读回校验。
-/// 与 python_tools/zcanpro/qi/zcanpro_qi_set_power.py 同构。
+/// 设置 Qi 功率：10 03 扩展会话 → SA 解锁 → 2E 210D（1 字节档位码 0x01/0x02/0x03）→ 读回校验。
+/// UI 5W/10W/15W 映射 Qi 芯片 QI_POWER_5W/10W/15W；同 zcanpro_qi_set_power.py。
 /// </summary>
 public sealed class SetQiPowerStep : ITestStep
 {
     public string Name => "设置 Qi 功率";
     public bool Critical => false;
 
-    /// <summary>目标档位（500=5W / 1000=10W / 1500=15W）。</summary>
-    public ushort PowerLimit { get; init; } = ProtoIds.PowerLimit15W;
+    /// <summary>目标档位码（0x01=5W / 0x02=10W / 0x03=15W）。</summary>
+    public byte PowerCode { get; init; } = ProtoIds.Power15W;
 
     public async Task<TestStepResult> RunAsync(StationContext ctx, CancellationToken ct)
     {
         await Task.Yield();
-        string label = QiChipStatusCodec.PowerLimitName(PowerLimit);
+        string label = QiChipStatusCodec.PowerLimitName(PowerCode);
         try
         {
             ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }); // extended
@@ -70,17 +70,17 @@ public sealed class SetQiPowerStep : ITestStep
             if (!await SecurityAccess.UnlockAsync(ctx.Uds, signer, m => ctx.Log("[SA] " + m), ct))
                 return new TestStepResult { Name = Name, Status = TestStepStatus.Failed, Message = "SA 解锁失败" };
 
-            ctx.Uds.WriteQiPowerLimit(PowerLimit);
-            ctx.Log($"2E 210D 写入 {PowerLimit} ({label})");
+            ctx.Uds.WriteQiPowerLimit(PowerCode);
+            ctx.Log($"2E 210D 写入 0x{PowerCode:X2} ({label})");
 
             // 读回校验
-            var readBack = QiChipStatusCodec.ReadU16Le(ctx.Uds.ReadDid(ProtoIds.DidPowerLimit));
-            if (readBack != PowerLimit)
+            var readBack = QiChipStatusCodec.ReadU8(ctx.Uds.ReadDid(ProtoIds.DidPowerLimit));
+            if (readBack != PowerCode)
                 return new TestStepResult
                 {
                     Name = Name,
                     Status = TestStepStatus.Failed,
-                    Message = $"写后读回不符 期望={PowerLimit} 实际={readBack}",
+                    Message = $"写后读回不符 期望=0x{PowerCode:X2} 实际=0x{readBack:X2}",
                 };
 
             return new TestStepResult { Name = Name, Status = TestStepStatus.Passed, Message = label };

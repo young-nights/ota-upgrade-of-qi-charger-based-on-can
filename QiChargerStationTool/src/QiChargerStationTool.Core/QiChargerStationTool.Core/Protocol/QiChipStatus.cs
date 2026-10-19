@@ -24,7 +24,8 @@ public sealed class QiChipStatus
     public byte? FodStatus { get; init; }
     public byte? FaultCode { get; init; }
     public byte? ThermalDerate { get; init; }
-    public ushort? PowerLimit { get; init; }
+    /// <summary>DID 0x210D 档位码（0x01/0x02/0x03）。</summary>
+    public byte? PowerLimit { get; init; }
 
     public string IapStateName => QiChipStatusCodec.IapStateName(IapState);
     public string ChargeStateName => ChargeState is { } s ? QiChipStatusCodec.ChargeStateName(s) : "读取失败";
@@ -103,21 +104,21 @@ public static class QiChipStatusCodec
     public static string FodName(byte v) => FodStates.TryGetValue(v, out var n) ? n : $"未知(0x{v:X2})";
     public static string FaultName(byte v) => FaultCodes.TryGetValue(v, out var n) ? n : $"未知(0x{v:X2})";
 
-    /// <summary>DID 0x210D 档位名。固件只认 500/1000/1500 → 5W/10W/15W。</summary>
-    public static string PowerLimitName(ushort v) => v switch
+    /// <summary>DID 0x210D 档位码名。0x01=5W / 0x02=10W / 0x03=15W（Qi 芯片协议 QI_POWER_*）。</summary>
+    public static string PowerLimitName(byte v) => v switch
     {
-        ProtoIds.PowerLimit5W => "5W (500)",
-        ProtoIds.PowerLimit10W => "10W (1000)",
-        ProtoIds.PowerLimit15W => "15W (1500)",
-        _ => $"未知(0x{v:X4})",
+        ProtoIds.Power5W => "5W (0x01)",
+        ProtoIds.Power10W => "10W (0x02)",
+        ProtoIds.Power15W => "15W (0x03)",
+        _ => $"未知(0x{v:X2})",
     };
 
-    /// <summary>UI 档位标签 → 线上数值。</summary>
-    public static ushort PowerLimitFromWatts(int watts) => watts switch
+    /// <summary>UI 档位标签（W）→ Qi 芯片档位码。</summary>
+    public static byte PowerCodeFromWatts(int watts) => watts switch
     {
-        5 => ProtoIds.PowerLimit5W,
-        10 => ProtoIds.PowerLimit10W,
-        15 => ProtoIds.PowerLimit15W,
+        5 => ProtoIds.Power5W,
+        10 => ProtoIds.Power10W,
+        15 => ProtoIds.Power15W,
         _ => throw new ArgumentOutOfRangeException(nameof(watts), watts, "功率仅支持 5 / 10 / 15 W"),
     };
 

@@ -63,9 +63,9 @@ public class IsoTpCodecTests
         Assert.Equal(0x2132, ProtoIds.DidQiIapStatus);
         Assert.Equal(0x2133, ProtoIds.DidQiFwVersion);
         Assert.Equal(0x210D, ProtoIds.DidPowerLimit);
-        Assert.Equal(500, ProtoIds.PowerLimit5W);
-        Assert.Equal(1000, ProtoIds.PowerLimit10W);
-        Assert.Equal(1500, ProtoIds.PowerLimit15W);
+        Assert.Equal(0x01, ProtoIds.Power5W);
+        Assert.Equal(0x02, ProtoIds.Power10W);
+        Assert.Equal(0x03, ProtoIds.Power15W);
     }
 }
 
@@ -114,21 +114,21 @@ public class QiChipStatusTests
     }
 
     [Fact]
-    public void PowerLimitFromWatts_MapsToWireValues()
+    public void PowerCodeFromWatts_MapsToQiChipCodes()
     {
-        Assert.Equal(500, QiChipStatusCodec.PowerLimitFromWatts(5));
-        Assert.Equal(1000, QiChipStatusCodec.PowerLimitFromWatts(10));
-        Assert.Equal(1500, QiChipStatusCodec.PowerLimitFromWatts(15));
-        Assert.Throws<ArgumentOutOfRangeException>(() => QiChipStatusCodec.PowerLimitFromWatts(7));
+        Assert.Equal(0x01, QiChipStatusCodec.PowerCodeFromWatts(5));
+        Assert.Equal(0x02, QiChipStatusCodec.PowerCodeFromWatts(10));
+        Assert.Equal(0x03, QiChipStatusCodec.PowerCodeFromWatts(15));
+        Assert.Throws<ArgumentOutOfRangeException>(() => QiChipStatusCodec.PowerCodeFromWatts(7));
     }
 
     [Fact]
     public void PowerLimitName_KnownAndUnknown()
     {
-        Assert.Equal("5W (500)", QiChipStatusCodec.PowerLimitName(500));
-        Assert.Equal("10W (1000)", QiChipStatusCodec.PowerLimitName(1000));
-        Assert.Equal("15W (1500)", QiChipStatusCodec.PowerLimitName(1500));
-        Assert.StartsWith("未知", QiChipStatusCodec.PowerLimitName(777));
+        Assert.Equal("5W (0x01)", QiChipStatusCodec.PowerLimitName(0x01));
+        Assert.Equal("10W (0x02)", QiChipStatusCodec.PowerLimitName(0x02));
+        Assert.Equal("15W (0x03)", QiChipStatusCodec.PowerLimitName(0x03));
+        Assert.StartsWith("未知", QiChipStatusCodec.PowerLimitName(0x77));
     }
 
     [Fact]
@@ -150,13 +150,13 @@ public class QiChipStatusTests
             ChargeState = 0x04,
             OutputPowerMw = 1500,
             FaultCode = 0x00,
-            PowerLimit = 1500,
+            PowerLimit = 0x03,
         };
         var text = st.ToDisplayString();
         Assert.Contains("成功 (SUCCESS)", text);
         Assert.Contains("1.2.3", text);
         Assert.Contains("充电中 (CHARGING)", text);
         Assert.Contains("1500 mW", text);
-        Assert.Contains("15W (1500)", text);
+        Assert.Contains("15W (0x03)", text);
     }
 }

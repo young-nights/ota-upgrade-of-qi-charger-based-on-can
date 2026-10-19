@@ -40,13 +40,13 @@ public static class ProtoIds
     public const ushort DidFodStatus = 0x2109;     // u8
     public const ushort DidFaultCode = 0x210B;     // u8
     public const ushort DidThermalDerate = 0x210C; // u8, 100=无降额
-    public const ushort DidPowerLimit = 0x210D;    // u16 LE, 仅 500/1000/1500
+    public const ushort DidPowerLimit = 0x210D;    // u8 档位码, 仅 0x01/0x02/0x03
 
     /// <summary>
-    /// DID 0x210D 功率档位（固件 can_protocol.c 仅接受这三个值，对应 Qi 5W/10W/15W）。
-    /// 注意：线上的数值不是字面 mW（5W≠5000），而是固件约定的 500/1000/1500。
+    /// DID 0x210D 功率档位码 —— 与 Qi 芯片协议 QI_POWER_* 一致：
+    /// 0x01=5W / 0x02=10W / 0x03=15W。UI 的 5W/10W/15W 映射到这三个码。
     /// </summary>
-    public const ushort PowerLimit5W = 500;
-    public const ushort PowerLimit10W = 1000;
-    public const ushort PowerLimit15W = 1500;
+    public const byte Power5W = 0x01;
+    public const byte Power10W = 0x02;
+    public const byte Power15W = 0x03;
 }

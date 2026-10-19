@@ -2,8 +2,8 @@
 """
 ZCANPRO 脚本 — 设置 Qi 芯片功率
 
-写 DID 0x210D（uint16 LE, 单位 mW）：
-  0x01 = 5W (500mW), 0x02 = 10W (1000mW), 0x03 = 15W (1500mW)
+写 DID 0x210D（1 字节档位码，与 Qi 芯片协议 QI_POWER_* 一致）：
+  0x01 = 5W, 0x02 = 10W, 0x03 = 15W
 
 需要：扩展会话（10 03）+ SecurityAccess
 固件门禁（can_protocol.c handle_write_data_by_id 的 DID_POWER_LIMIT case）：
@@ -14,7 +14,7 @@ security_unlocked，否则 NRC 0x22/0x33
 无应答（已排除 Standby）时直接退出，绝不猜测继续。
 
 用法: ZCANPRO → 高级功能 → 扩展脚本 → 打开本文件
-      修改下方 POWER_MW 值后运行
+      修改下方 POWER_CODE 值后运行
 """
 
 import os
@@ -43,8 +43,8 @@ _TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = _find_repo_root(_TOOLS_DIR)
 PRIVATE_KEY_PATH = os.path.join(REPO_ROOT, "docs", "keys", "private.pem")
 
-# 功率档位 (uint16 LE, mW)
-POWER_MW = 1500  # 500=5W, 1000=10W, 1500=15W
+# 功率档位码（1 字节，Qi 芯片 QI_POWER_*）
+POWER_CODE = 0x03  # 0x01=5W, 0x02=10W, 0x03=15W
 
 # ======== UDS 常量 ========
 UDS_REQ_ID  = 0x18DA0D03
@@ -422,7 +422,7 @@ def _wdbi_with_s3_guard(bus_id, payload, priv, wait_pending_s=0):
 
     固件门禁（can_protocol.c handle_write_data_by_id 的 DID_POWER_LIMIT case）：写 0x210D 要求
     SESSION_EXTENDED+security_unlocked——NRC 0x22=会话不满足（S3 超时回
-    default 的典型表现），0x33=安全态被清。0x210D 值域（非 500/1000/1500）回 0x31、
+    default 的典型表现），0x33=安全态被清。0x210D 值域（非 0x01/0x02/0x03）回 0x31、
     长度不足回 0x13（同 case 内校验），不会误入本兜底。会话字节与本脚本业务链
     一致（10 03 扩展会话，blocking#2 修复后）。日志注明「S3 超时恢复」。
     """
@@ -726,11 +726,11 @@ def probe_location(bus_id):
 
 def run(bus_id):
     # stopTask 在本函数只读不写，无需 global 声明（pyflakes 清零；预存在死声明）
-    power_name = {500: "5W", 1000: "10W", 1500: "15W"}
-    if POWER_MW not in power_name:
-        raise RuntimeError("无效功率: %d mW (可选 500/1000/1500)" % POWER_MW)
+    power_name = {0x01: "5W", 0x02: "10W", 0x03: "15W"}
+    if POWER_CODE not in power_name:
+        raise RuntimeError("无效功率档位码: 0x%02X (可选 0x01=5W / 0x02=10W / 0x03=15W)" % POWER_CODE)
 
-    _log("======== 设置 Qi 功率: %s ========" % power_name[POWER_MW])
+    _log("======== 设置 Qi 功率: %s (0x%02X) ========" % (power_name[POWER_CODE], POWER_CODE))
 
     if not os.path.isfile(PRIVATE_KEY_PATH):
         raise RuntimeError("找不到私钥: " + PRIVATE_KEY_PATH)
@@ -764,18 +764,17 @@ def run(bus_id):
     send_security_key(bus_id, priv)
     _log("安全解锁成功")
 
-    # 3. 写功率 (DID 0x210D, uint16 LE mW)——经 S3 兜底包装：写撞 NRC 0x22/0x33
-    #    （会话回 default/安全态被清）时重发 10 03 + 完整重解锁 + 重试一次
-    _log("---- 写入功率 %d mW ----" % POWER_MW)
-    _wdbi_with_s3_guard(bus_id, [0x21, 0x0D, POWER_MW & 0xFF, (POWER_MW >> 8) & 0xFF], priv)
-    _log("功率已设置: %s" % power_name[POWER_MW])
+    # 3. 写功率档位码 (DID 0x210D, 1 字节 0x01/0x02/0x03)——经 S3 兜底包装
+    _log("---- 写入功率档位码 0x%02X ----" % POWER_CODE)
+    _wdbi_with_s3_guard(bus_id, [0x21, 0x0D, POWER_CODE], priv)
+    _log("功率已设置: %s (0x%02X)" % (power_name[POWER_CODE], POWER_CODE))
 
 
 def z_main():
     global stopTask
     stopTask = False
     _log("======== Qi 功率设置工具 ========")
-    _log("目标功率: %d mW" % POWER_MW)
+    _log("目标档位码: 0x%02X" % POWER_CODE)
     buses = zcanpro.get_buses()
     if not buses:
         _log("请先打开 CAN 通道 (250kbps, 扩展帧)")

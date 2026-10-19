@@ -364,17 +364,17 @@ public partial class MainWindow : Window
         });
 
     /// <summary>
-    /// 设置 Qi 功率：10 03 + SA → 2E 210D。档位 5W/10W/15W 映射固件值 500/1000/1500。
+    /// 设置 Qi 功率：10 03 + SA → 2E 210D。UI 5W/10W/15W 映射档位码 0x01/0x02/0x03。
     /// </summary>
     private async void OnQiSetPower(object sender, RoutedEventArgs e)
     {
         if (CmbQiPower.SelectedItem is not ComboBoxItem item ||
-            !ushort.TryParse(item.Tag?.ToString(), out var powerLimit))
+            !byte.TryParse(item.Tag?.ToString(), out var powerCode))
         {
             SetState("失败", Colors.Crimson, "请选择功率档位");
             return;
         }
-        string label = item.Content?.ToString() ?? powerLimit.ToString();
+        string label = item.Content?.ToString() ?? powerCode.ToString();
 
         await RunOpAsync($"设置 Qi 功率 {label}", TimeSpan.FromSeconds(60), async (uds, ct) =>
         {
@@ -384,16 +384,16 @@ public partial class MainWindow : Window
             if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
                 throw new InvalidOperationException("SA 解锁失败");
 
-            await Task.Run(() => uds.WriteQiPowerLimit(powerLimit), ct);
-            AppendLog($"2E 210D 写入 {powerLimit} ({label})");
+            await Task.Run(() => uds.WriteQiPowerLimit(powerCode), ct);
+            AppendLog($"2E 210D 写入 0x{powerCode:X2} ({label})");
 
             var readBack = await Task.Run(() =>
-                QiChargerStationTool.Core.Protocol.QiChipStatusCodec.ReadU16Le(
+                QiChargerStationTool.Core.Protocol.QiChipStatusCodec.ReadU8(
                     uds.ReadDid(ProtoIds.DidPowerLimit)), ct);
-            if (readBack != powerLimit)
-                throw new InvalidOperationException($"写后读回不符 期望={powerLimit} 实际={readBack}");
+            if (readBack != powerCode)
+                throw new InvalidOperationException($"写后读回不符 期望=0x{powerCode:X2} 实际=0x{readBack:X2}");
 
-            await UiAsync(() => Pass($"设置 Qi 功率 {label}", $"已设置 {label}（{powerLimit}），读回一致"));
+            await UiAsync(() => Pass($"设置 Qi 功率 {label}", $"已设置 {label}（0x{powerCode:X2}），读回一致"));
         });
     }
 

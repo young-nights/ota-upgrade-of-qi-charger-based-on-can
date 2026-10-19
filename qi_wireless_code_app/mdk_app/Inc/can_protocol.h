@@ -143,7 +143,7 @@ extern "C" {
 #define DID_ALIGNMENT               0x210AU   /*!< alignment status, NRC 0x31 (HW not supported) */
 #define DID_FAULT_CODE              0x210BU   /*!< fault code, uint8 */
 #define DID_THERMAL_DERATE          0x210CU   /*!< thermal derating level, uint8 */
-#define DID_POWER_LIMIT             0x210DU   /*!< power limit, uint16 mW, R/W+NVM (500/1000/1500) */
+#define DID_POWER_LIMIT             0x210DU   /*!< power limit, uint8 档位码, R/W+NVM (0x01=5W/0x02=10W/0x03=15W，即 QI_POWER_*) */
 #define DID_LAST_FAULT_DETAIL       0x2110U   /*!< last fault detail, 4B */
 #define DID_CLAMP_STATE             0x2118U   /*!< PA0 hall: 0=closed, 1=open */
 #define DID_SIT1145_LP_STATUS       0x2119U   /*!< SIT1145 LP: flags, wup_cnt, last_sleep_sec */
@@ -197,7 +197,7 @@ extern "C" {
 /*  NVM offsets for Qi persistent configuration                               */
 /* ========================================================================== */
 
-#define NVM_OFFSET_POWER_LIMIT      0x100U    /*!< DID 0x210D power limit, uint16 mW */
+#define NVM_OFFSET_POWER_LIMIT      0x100U    /*!< DID 0x210D power limit 档位码 (QI_POWER_*) */
 
 /* ========================================================================== */
 /*  RoutineControl routine IDs                                               */

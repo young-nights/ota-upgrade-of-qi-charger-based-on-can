@@ -141,21 +141,20 @@ public sealed class UdsClient
             FodStatus = TryU8(ProtoIds.DidFodStatus),
             FaultCode = TryU8(ProtoIds.DidFaultCode),
             ThermalDerate = TryU8(ProtoIds.DidThermalDerate),
-            PowerLimit = TryU16(ProtoIds.DidPowerLimit),
+            PowerLimit = TryU8(ProtoIds.DidPowerLimit),
         };
     }
 
     /// <summary>
-    /// 设置 Qi 功率档位。固件门禁：扩展会话(10 03)+SA 解锁后写 DID 0x210D
-    /// （uint16 LE，仅 500/1000/1500）。
+    /// 设置 Qi 功率档位码。固件门禁：扩展会话(10 03)+SA 解锁后写 DID 0x210D
+    /// （1 字节，0x01=5W / 0x02=10W / 0x03=15W，与 Qi 芯片 QI_POWER_* 一致）。
     /// </summary>
-    public void WriteQiPowerLimit(ushort powerLimit)
+    public void WriteQiPowerLimit(byte powerCode)
     {
-        if (powerLimit is not (ProtoIds.PowerLimit5W or ProtoIds.PowerLimit10W or ProtoIds.PowerLimit15W))
-            throw new ArgumentOutOfRangeException(nameof(powerLimit), powerLimit,
-                "功率档位仅支持 500(5W) / 1000(10W) / 1500(15W)");
-        WriteDid(ProtoIds.DidPowerLimit,
-            new byte[] { (byte)(powerLimit & 0xFF), (byte)(powerLimit >> 8) });
+        if (powerCode is not (ProtoIds.Power5W or ProtoIds.Power10W or ProtoIds.Power15W))
+            throw new ArgumentOutOfRangeException(nameof(powerCode), powerCode,
+                "功率档位码仅支持 0x01(5W) / 0x02(10W) / 0x03(15W)");
+        WriteDid(ProtoIds.DidPowerLimit, new byte[] { powerCode });
     }
 }
 

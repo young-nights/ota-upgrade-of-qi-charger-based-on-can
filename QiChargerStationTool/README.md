@@ -44,7 +44,7 @@ dotnet publish src/QiChargerStationTool.App -c Release -r win-x64 --self-contain
 3. **写 SN** — 10 02 + SA + 2E F18C（需私钥）
 4. **OTA 升级** — 10 02 → SA → 2E 20 10 01 → 31 擦除 → 34/36/37
 5. **Qi 状态查询** — 22 2132/2102/2104/2105/2108/2109/210B/210C/210D（任意会话）
-6. **设置 Qi 功率** — 10 03 + SA + 2E 210D（500/1000/1500 = 5W/10W/15W）
+6. **设置 Qi 功率** — 10 03 + SA + 2E 210D（档位码 0x01=5W / 0x02=10W / 0x03=15W）
 7. **充电启停** — 2E 21 01（可选）
 
 密钥：将 `docs/keys/private.pem` 拷到输出目录 `keys/private.pem`。
@@ -67,8 +67,13 @@ dotnet publish src/QiChargerStationTool.App -c Release -r win-x64 --self-contain
 
 ### 设置 Qi 功率
 
-UI 档位 **5W / 10W / 15W** → 线上写 DID `0x210D` 的 **500 / 1000 / 1500**（uint16 LE）。
-固件 `can_protocol.c` 只接受这三个值，不是字面 mW（5W≠5000）。需要扩展会话 `10 03` + SA 解锁，写后读回校验。
+UI 档位 **5W / 10W / 15W** → 映射 Qi 芯片档位码 **0x01 / 0x02 / 0x03**（`QI_POWER_5W/10W/15W`），写 DID `0x210D`（1 字节）。需要扩展会话 `10 03` + SA 解锁，写后读回校验。
+
+| UI | 线上档位码 | Qi 芯片 |
+|----|-----------|---------|
+| 5W | `0x01` | QI_POWER_5W |
+| 10W | `0x02` | QI_POWER_10W |
+| 15W | `0x03` | QI_POWER_15W |
 
 ## 硬件
 

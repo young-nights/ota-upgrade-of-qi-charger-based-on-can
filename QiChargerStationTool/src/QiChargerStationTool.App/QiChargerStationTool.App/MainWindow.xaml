@@ -166,13 +166,13 @@
         <TextBlock Text="Qi 功率档位" FontWeight="Bold" Margin="6,8,6,2"/>
         <ComboBox x:Name="CmbQiPower" Margin="6,0,6,4" Height="30"
                   VerticalContentAlignment="Center" SelectedIndex="2">
-          <ComboBoxItem Content="5W" Tag="500"/>
-          <ComboBoxItem Content="10W" Tag="1000"/>
-          <ComboBoxItem Content="15W" Tag="1500"/>
+          <ComboBoxItem Content="5W" Tag="1"/>
+          <ComboBoxItem Content="10W" Tag="2"/>
+          <ComboBoxItem Content="15W" Tag="3"/>
         </ComboBox>
         <Button x:Name="BtnQiSetPower" Content="设置 Qi 功率" Style="{StaticResource GrayBtn}"
                 Click="OnQiSetPower"
-                ToolTip="写 DID 0x210D（扩展会话+SA）。固件仅接受 500/1000/1500，对应 5W/10W/15W"/>
+                ToolTip="写 DID 0x210D（扩展会话+SA）。档位码 0x01=5W / 0x02=10W / 0x03=15W，映射 Qi 芯片 QI_POWER_*"/>
         <Separator Margin="6,10"/>
         <Button x:Name="BtnChargeOn" Content="开启充电" Style="{StaticResource GrayBtn}"
                 Click="OnChargeOn"/>
