@@ -29,6 +29,39 @@ public sealed class IsoTpClient
 
     private void Log(string m) => OnLog?.Invoke(m);
 
+    /// <summary>解码 Boot M1–M4 / 生命周期帧，便于一眼看出设备在 Boot 还是 APP。</summary>
+    private static string DecodeDiag(uint id, byte[] d)
+    {
+        if (id == ProtoIds.BootDiagId && d.Length >= 2)
+        {
+            return d[0] switch
+            {
+                0xA1 when d.Length >= 5 =>
+                    $"Boot M1 src={d[1]} magic_ok={d[2]} ver_ok={d[3]} crc_ok={d[4]}",
+                0xA2 when d.Length >= 3 =>
+                    $"Boot M2 result={d[1]:X2} detail={d[2]:X2}",
+                0xA3 when d.Length >= 4 =>
+                    $"Boot M3 pass={d[1]} fail_step={d[2]:X2} target={d[3]:X2}",
+                0xA4 when d.Length >= 5 =>
+                    $"Boot M4 jump=0x{d[4]:X2}{d[3]:X2}{d[2]:X2}{d[1]:X2}",
+                _ => $"Boot Diag {Convert.ToHexString(d)}",
+            };
+        }
+        if (id == ProtoIds.LifecycleId && d.Length >= 3)
+        {
+            if (d.Length >= 4 && d[0] == 0x01 && d[1] == 0x41 && d[2] == 0x42 && d[3] == 0x54)
+                return $"Safe-mode 心跳 ABT cause={d[4]:X2} fail_step={(d.Length > 5 ? d[5] : (byte)0):X2}（卡在 Boot，APP 未运行）";
+            if (d[0] == 0x01 && d[1] == 0x41 && d[2] == 0x00)
+                return "APP BOOTUP（APP 启动中）";
+            if (d.Length >= 4 && d[0] == 0x01 && d[1] == 0x41 && d[2] == 0x57 && d[3] == 0x4B)
+                return "APP AWK 唤醒确认";
+            if (d[0] == 0x06 && d[1] == 0x41)
+                return "APP shutdown";
+            return $"生命周期 {Convert.ToHexString(d.AsSpan(0, Math.Min(4, d.Length)).ToArray())}";
+        }
+        return "";
+    }
+
     /// <summary>Move transport RX into local queue (called by UdsClient pump loop).</summary>
     public void Pump()
     {
@@ -129,8 +162,9 @@ public sealed class IsoTpClient
                     dropped++;
                     uint nid = f.Id & 0x1FFFFFFF;
                     noiseIds[nid] = noiseIds.TryGetValue(nid, out var c) ? c + 1 : 1;
+                    string diag = DecodeDiag(nid, f.Data);
                     if (noiseIds[nid] <= 3)
-                        Log($"[RX?] id={nid:X8x} {Hex(f.Data)}");
+                        Log($"[RX?] id={nid:X8x} {Hex(f.Data)}{(diag.Length > 0 ? "  → " + diag : "")}");
                     continue;
                 }
                 int pci = f.Data[0] & 0xF0;
@@ -181,11 +215,21 @@ public sealed class IsoTpClient
 
         string noise = string.Join(", ",
             noiseIds.Select(kv => $"0x{kv.Key:X8}×{kv.Value}"));
+
+        // 给出可操作的结论
+        string hint = "";
+        if (noiseIds.ContainsKey(ProtoIds.BootDiagId))
+            hint = "；设备在 Boot（收到 0x18FF480D 诊断帧），APP 未运行/UDS 栈不在，请等 APP 起来或先烧录/恢复 APP";
+        else if (noiseIds.ContainsKey(ProtoIds.LifecycleId))
+            hint = "；仅见生命周期帧，APP 可能刚上电或 UDS 未就绪";
+        else if (dropped == 0 && seen == 0)
+            hint = "；总线无任何回包，查 CANH/CANL/终端电阻/盒子 TX";
+
         Log($"[RX] 超时: 收 {seen} 帧/噪声 {dropped}，目标 0x{_rxId:X8}" +
-            (noise.Length > 0 ? $"，噪声ID: {noise}" : "，无任何帧"));
+            (noise.Length > 0 ? $"，噪声ID: {noise}" : "，无任何帧") + hint);
         LastTimeoutDetail =
             $"收到 {seen} 帧/噪声 {dropped}，目标 ID 0x{_rxId:X8}" +
-            (noise.Length > 0 ? $"；噪声: {noise}" : "；总线无回包");
+            (noise.Length > 0 ? $"；噪声: {noise}" : "；总线无回包") + hint;
         return null;
     }
 
