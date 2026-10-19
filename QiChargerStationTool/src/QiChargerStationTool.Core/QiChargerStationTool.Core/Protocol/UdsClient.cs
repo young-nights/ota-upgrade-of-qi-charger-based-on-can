@@ -178,4 +178,41 @@ public sealed class UdsException : Exception
         Sid = sid;
         Nrc = nrc;
     }
+
+    /// <summary>NRC 中文名。</summary>
+    public string NrcName => Nrc switch
+    {
+        0x13 => "0x13 响应长度不正确",
+        0x22 => "0x22 条件不满足（会话/状态不对）",
+        0x24 => "0x24 请求顺序错误",
+        0x31 => "0x31 请求超范围（DID 不支持/不在当前模式）",
+        0x33 => "0x33 安全访问被拒（未解锁）",
+        0x35 => "0x35 密钥无效",
+        0x36 => "0x36 失败次数超限",
+        0x37 => "0x37 需延时重试（SA 锁定）",
+        0x72 => "0x72 通用编程失败",
+        0x78 => "0x78 响应挂起",
+        _ => $"NRC 0x{Nrc:X2}",
+    };
+
+    /// <summary>结合 SID/DID 给可操作建议。</summary>
+    public string Explain(byte[]? requestPayload = null)
+    {
+        var s = NrcName;
+        if (Nrc == 0x31 && requestPayload is { Length: >= 2 })
+        {
+            ushort did = (ushort)((requestPayload[0] << 8) | requestPayload[1]);
+            if (did is 0xF18C or 0xF195 or 0xF193)
+                s += " —— 该 DID 在 Boot Safe Mode 不提供，设备可能未进 APP（查 0x18FF480D/ABT 心跳）";
+            else
+                s += $" —— DID 0x{did:X4} 不支持或当前模式不可读";
+        }
+        else if (Nrc == 0x22)
+            s += " —— 先切换会话（10 03 扩展 / 10 02 编程）再试";
+        else if (Nrc == 0x33)
+            s += " —— 需 SecurityAccess 解锁";
+        else if (Nrc is 0x36 or 0x37)
+            s += " —— SA 锁定，等约 30s 后重试";
+        return s;
+    }
 }

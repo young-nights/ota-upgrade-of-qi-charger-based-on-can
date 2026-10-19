@@ -256,6 +256,14 @@ public partial class MainWindow : Window
             sw.Stop();
             AppendLog($"==== 完成 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
         }
+        catch (UdsException uex)
+        {
+            sw.Stop();
+            string detail = uex.Explain();
+            AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {detail} ====");
+            AppendResult("FAIL", name, detail);
+            SetState("失败", Colors.Crimson, detail);
+        }
         catch (TimeoutException tex)
         {
             sw.Stop();
