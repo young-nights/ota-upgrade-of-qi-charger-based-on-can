@@ -65,7 +65,25 @@ public sealed class ZqwlSerialTransport : ICanTransport
     public void Open()
     {
         if (_port is null) throw new ObjectDisposedException(nameof(ZqwlSerialTransport));
-        if (!_port.IsOpen) _port.Open();
+        try
+        {
+            if (!_port.IsOpen) _port.Open();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new InvalidOperationException(
+                $"打开 {_portName} 被拒绝（串口被占用）：" +
+                "①关掉其它占用该口的程序（旧的上位机/串口助手/SecureCRT）；" +
+                "②若曾 attach 到 WSL，管理员 PowerShell 执行 usbipd detach；" +
+                "③拔插一次 USB 盒子；④任务管理器结束残留的 QiChargerStationTool 进程。" +
+                " 详情：" + ex.Message, ex);
+        }
+        catch (IOException ex)
+        {
+            throw new InvalidOperationException(
+                $"打开 {_portName} 失败：设备可能已拔出或驱动异常，请重新插拔 USB。详情：{ex.Message}", ex);
+        }
+
         OnRawLog?.Invoke($"[OPEN] {_portName} @ {_port.BaudRate}");
 
         // 与 zqwl_can_listen.py open_can0_250k() 同构，缺一步 CAN 就不会开
