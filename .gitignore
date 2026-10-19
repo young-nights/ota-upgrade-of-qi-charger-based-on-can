@@ -90,3 +90,4 @@ python_tools/burn bin/
 **/obj/
 *.user
 *.suo
+publish/

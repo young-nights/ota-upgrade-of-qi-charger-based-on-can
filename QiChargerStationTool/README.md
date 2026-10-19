@@ -23,7 +23,7 @@ QiChargerStationTool/
 
 ```powershell
 # VS2022 打开
-\\wsl.localhost\Ubuntu-24.04\home\whites\embedded_item\ota-upgrade-of-qi-charger-based-on-can\QiChargerStationTool\QiChargerStationTool.sln
+\\wsl.localhost\Ubuntu-24.04\home\xuanxuan\embedded_item\ota-upgrade-of-qi-charger-based-on-can\QiChargerStationTool\QiChargerStationTool.sln
 
 # 或命令行
 dotnet build
@@ -31,11 +31,49 @@ dotnet test
 dotnet run --project src/QiChargerStationTool.App
 ```
 
-产线发布（单文件免运行时）：
+## 打包发布（产线）
+
+### 方式 A：一键脚本（推荐）
+
+在 **Windows PowerShell**、`QiChargerStationTool` 目录下：
 
 ```powershell
-dotnet publish src/QiChargerStationTool.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+# 绿色版 + 单文件版（自带 .NET，拷到工控机即用）
+.\publish.ps1
+
+# 额外打 zip
+.\publish.ps1 -Zip
+
+# 小体积（目标机需装 .NET 8 Desktop Runtime）
+.\publish.ps1 -SelfContained:$false
 ```
+
+输出：
+
+| 目录 | 说明 |
+|------|------|
+| `publish\QiChargerStationTool-Portable\` | **绿色文件夹**，含 exe + 依赖 + `keys\private.pem` + 使用说明 |
+| `publish\QiChargerStationTool-SingleFile\` | **单文件** `QiChargerStationTool.exe`，双击即用 |
+| `publish\*.zip` | 加 `-Zip` 时生成 |
+
+### 方式 B：安装包（Inno Setup）
+
+1. 先跑 `.\publish.ps1`
+2. 安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+3. 用 Compiler 打开 `installer\QiChargerStationTool.iss` → **Compile**
+4. 得到 `publish\QiChargerStationTool-Setup.exe`（带桌面图标、开始菜单）
+
+### 方式 C：手动命令
+
+```powershell
+dotnet publish src/QiChargerStationTool.App -c Release -r win-x64 `
+  --self-contained true -p:PublishSingleFile=true -o publish\app
+```
+
+**产线机注意：**
+- 用 `self-contained`（脚本默认）则**不用装 .NET**
+- 把 `docs\keys\private.pem` 拷到 exe 旁 `keys\private.pem`（脚本已自动做）
+- ZQWL-CANFD 插 Windows（usbipd detach），不要被 WSL 占用
 
 ## 测试流程
 

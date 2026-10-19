@@ -8,6 +8,10 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>QiChargerStationTool.App</RootNamespace>
     <AssemblyName>QiChargerStationTool</AssemblyName>
+    <Version>1.0.0</Version>
+    <Product>QiChargerStationTool</Product>
+    <Description>Qi 充电模块产线测试上位机</Description>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
