@@ -298,11 +298,12 @@ uint8_t sit1145_sleep_mode_set(void)
  * @brief  配置 CAN 唤醒并进入 Sleep 模式（完整序列）
  * @note   对齐官方 FAE SIT1145_SleepMode_Set() 序列，适配本项目硬件：
  *         - WAKE 引脚恒高不可用 → 不配 0x4C WAKE_enable，仅用 CAN 唤醒
- *         - 选择性唤醒不启用（CPNC=0），标准 CAN WUP 任意 250kbps 帧触发
+ *         - 选择性唤醒（CPNC=1）：WUF 只匹配 ID=0x18DA0D03 + DLC=3 + 3E xx
+ *         - 配置失败退化到标准 WUP（任意帧唤醒）
  *         序列：
  *         1) 清事件标志 0x61/0x63/0x64（W1C，对齐官方 SleepMode_Set）
- *         2) 使能 CAN 唤醒：0x23 Transceiver_event_en 写 CWE=1
- *         3) CAN Control：CFDC=1, PNCOK=0, CPNC=0, CMC=01（主动+UVLO）
+ *         2) 配置 WUF 过滤 + 使能 CPNC（选择性唤醒）
+ *         3) CAN Control：CFDC=1, CPNC=1, PNCOK=1（最后写 PNCOK 锁定）
  *         4) 进 Sleep：写 0x01 = MC_SLEEP_MODE
  *         进入后 SPI 断开，唤醒由 CAN WUP 触发（芯片自动回 Standby），
  *         主循环通过 PA11/RXD 电平检测唤醒。
@@ -316,19 +317,29 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_write_reg(SIT1145_REG_SYSTEM_EVENT_STATUS, 0xFFU);
   sit1145_write_reg(SIT1145_REG_TRX_EVENT_STATUS, 0xFFU);
   sit1145_write_reg(SIT1145_REG_WAKE_PIN_EVENT_STATUS, 0xFFU);
-  /* 0x24 CW/WUF 一并清（官方写 0x64 覆盖 WAKE 引脚事件，本项目 CW 在 0x24） */
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT,
                     SIT1145_CW | SIT1145_WUF);
 
-  /* 2) 使能 CAN 唤醒（CWE=1）——WAKE 引脚恒高不可用，仅依赖 CAN WUP */
-  sit1145_wake_enable();
+  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03, DLC=3, 匹配 3E xx） */
+  if (sit1145_wuf_config_uds() == 0U)
+  {
+    /* 配置失败：退化到标准 WUP（任意帧唤醒） */
+    sit1145_wake_enable();
+    can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
+                 | SIT1145_CAN_NETW_INVALID
+                 | SIT1145_SEL_WAKEUP_DIS
+                 | SIT1145_CAN_MODE_NORMAL;
+  }
+  else
+  {
+    /* 3) 使能选择性唤醒：CPNC=1 → PNCOK=1（最后写，锁定配置寄存器） */
+    sit1145_wuf_enable();
+    can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
+                 | SIT1145_SEL_WAKEUP_EN
+                 | SIT1145_CAN_MODE_NORMAL;
+  }
 
-  /* 3) CAN Control：CFDC=1, PNCOK=0, CPNC=0, CMC=01
-   *    回读验证 + 重试——配置失败时 CAN 唤醒不可靠，不进 Sleep */
-  can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
-               | SIT1145_CAN_NETW_INVALID
-               | SIT1145_SEL_WAKEUP_DIS
-               | SIT1145_CAN_MODE_NORMAL;
+  /* CAN Control 回读验证 + 重试 */
   {
     uint8_t attempt;
     for (attempt = 0U; attempt < 3U; attempt++)
@@ -611,22 +622,23 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
     frame_ctrl |= SIT1145_WUF_PNDM;  /* 评估数据字段 */
   }
 
-  /* 计算 ID 寄存器值 */
+  /* 计算 ID 寄存器值（小端序，规格书 REC V1.5 表）：
+   * ID0=ID[7:0], ID1=ID[15:8], ID2=ID[23:16], ID3=ID[28:24] */
   if (cfg->ide != 0U)
   {
-    /* 扩展帧 29 位：ID[28:21]/ID[20:13]/ID[12:5]/ID[4:0] */
-    id0 = (uint8_t)((cfg->can_id >> 21) & 0xFFU);
-    id1 = (uint8_t)((cfg->can_id >> 13) & 0xFFU);
-    id2 = (uint8_t)((cfg->can_id >> 5) & 0xFFU);
-    id3 = (uint8_t)((cfg->can_id & 0x1FU) << 3);
-    m0 = (uint8_t)((cfg->can_id_mask >> 21) & 0xFFU);
-    m1 = (uint8_t)((cfg->can_id_mask >> 13) & 0xFFU);
-    m2 = (uint8_t)((cfg->can_id_mask >> 5) & 0xFFU);
-    m3 = (uint8_t)((cfg->can_id_mask & 0x1FU) << 3);
+    /* 扩展帧 29 位 */
+    id0 = (uint8_t)(cfg->can_id & 0xFFU);
+    id1 = (uint8_t)((cfg->can_id >> 8) & 0xFFU);
+    id2 = (uint8_t)((cfg->can_id >> 16) & 0xFFU);
+    id3 = (uint8_t)((cfg->can_id >> 24) & 0x1FU);
+    m0 = (uint8_t)(cfg->can_id_mask & 0xFFU);
+    m1 = (uint8_t)((cfg->can_id_mask >> 8) & 0xFFU);
+    m2 = (uint8_t)((cfg->can_id_mask >> 16) & 0xFFU);
+    m3 = (uint8_t)((cfg->can_id_mask >> 24) & 0x1FU);
   }
   else
   {
-    /* 标准帧 11 位：ID[10:3]/ID[2:0] 存入 REG2/REG3 */
+    /* 标准帧 11 位：ID[10:3]→ID2, ID[2:0]→ID3[7:5] */
     id0 = 0U;
     id1 = 0U;
     id2 = (uint8_t)((cfg->can_id >> 3) & 0xFFU);
@@ -701,6 +713,37 @@ void sit1145_wuf_enable(void)
 
   /* 清除残留的 WUF/CW 标志 */
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT, SIT1145_CW | SIT1145_WUF);
+}
+
+/**
+ * @brief  配置 UDS 唤醒过滤（ID=0x18DA0D03, DLC=3, 匹配 3E xx）
+ * @note   按规格书 REC V1.5 配置：
+ *         ID=0x18DA0D03 扩展帧精确匹配（掩码全 0）
+ *         DLC=3（匹配 3 字节 ISO-TP SF: PCI + SID + Sub）
+ *         数据掩码 DM5=0x02(PCI len), DM6=0x3E(SID), DM7=0x00(Sub 不检查)
+ *         匹配 02 3E 00 和 02 3E 80，不匹配 02 10 xx
+ * @retval 1=配置成功，0=失败
+ */
+uint8_t sit1145_wuf_config_uds(void)
+{
+  sit1145_wuf_cfg_t cfg;
+
+  cfg.ide = 1U;           /* 扩展帧 */
+  cfg.dlc = 3U;           /* 3 字节 ISO-TP SF */
+  cfg.pndm = 1U;          /* 评估数据字段 */
+  cfg.can_id = 0x18DA0D03U;
+  cfg.can_id_mask = 0U;   /* 全精确匹配 */
+  /* DLC=3 用 DM5/DM6/DM7（图8），对应数据字节 0/1/2 */
+  cfg.data_mask[0] = 0x00U;  /* DM0: 不检查 */
+  cfg.data_mask[1] = 0x00U;  /* DM1: 不检查 */
+  cfg.data_mask[2] = 0x00U;  /* DM2: 不检查 */
+  cfg.data_mask[3] = 0x00U;  /* DM3: 不检查 */
+  cfg.data_mask[4] = 0x00U;  /* DM4: 不检查 */
+  cfg.data_mask[5] = 0x02U;  /* DM5: PCI 长度 bit1（SF len=2） */
+  cfg.data_mask[6] = 0x3EU;  /* DM6: SID=0x3E 全匹配 */
+  cfg.data_mask[7] = 0x00U;  /* DM7: Sub 不检查（00/80 均可） */
+
+  return sit1145_wuf_config(&cfg);
 }
 
 /**

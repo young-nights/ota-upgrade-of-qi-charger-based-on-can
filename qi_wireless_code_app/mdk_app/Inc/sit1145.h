@@ -79,15 +79,16 @@ extern "C" {
 #define SIT1145_REG_MASK_REG1             0x2C  /**< WUF ID 掩码寄存器1（读写） */
 #define SIT1145_REG_MASK_REG2             0x2D  /**< WUF ID 掩码寄存器2（读写） */
 #define SIT1145_REG_MASK_REG3             0x2E  /**< WUF ID 掩码寄存器3（读写） */
-#define SIT1145_REG_FRAME_CTRL            0x21  /**< WUF 帧控制（读写）：IDE/DLC/PNDM */
-#define SIT1145_REG_DATA_MASK0            0x30  /**< WUF 数据掩码寄存器0（读写） */
-#define SIT1145_REG_DATA_MASK1            0x31  /**< WUF 数据掩码寄存器1（读写） */
-#define SIT1145_REG_DATA_MASK2            0x32  /**< WUF 数据掩码寄存器2（读写） */
-#define SIT1145_REG_DATA_MASK3            0x33  /**< WUF 数据掩码寄存器3（读写） */
-#define SIT1145_REG_DATA_MASK4            0x34  /**< WUF 数据掩码寄存器4（读写） */
-#define SIT1145_REG_DATA_MASK5            0x35  /**< WUF 数据掩码寄存器5（读写） */
-#define SIT1145_REG_DATA_MASK6            0x36  /**< WUF 数据掩码寄存器6（读写） */
-#define SIT1145_REG_DATA_MASK7            0x37  /**< WUF 数据掩码寄存器7（读写） */
+#define SIT1145_REG_FRAME_CTRL            0x2F  /**< WUF 帧控制（读写）：IDE(bit7)/PNDM(bit6)/DLC[3:0] */
+#define SIT1145_REG_DATA_MASK0            0x68  /**< WUF 数据掩码寄存器0（读写） */
+#define SIT1145_REG_DATA_MASK1            0x69  /**< WUF 数据掩码寄存器1（读写） */
+#define SIT1145_REG_DATA_MASK2            0x6A  /**< WUF 数据掩码寄存器2（读写） */
+#define SIT1145_REG_DATA_MASK3            0x6B  /**< WUF 数据掩码寄存器3（读写） */
+#define SIT1145_REG_DATA_MASK4            0x6C  /**< WUF 数据掩码寄存器4（读写） */
+#define SIT1145_REG_DATA_MASK5            0x6D  /**< WUF 数据掩码寄存器5（读写） */
+#define SIT1145_REG_DATA_MASK6            0x6E  /**< WUF 数据掩码寄存器6（读写） */
+#define SIT1145_REG_DATA_MASK7            0x6F  /**< WUF 数据掩码寄存器7（读写） */
+/* DLC=3 用 DM5/DM6/DM7（图8），依次对应数据字节 0/1/2 */
 #define SIT1145_REG_IDENTIFICATION        0x7E  /**< 芯片识别码（只读）：0x70=AQ，0x74=AQ-FD */
 #define SIT1145_REG_GLOBAL_EVENT_STATUS   0x60  /**< 全局事件状态（只读）：WPE/TRXE/SYSE */
 #define SIT1145_REG_SYSTEM_EVENT_STATUS   0x61  /**< 系统事件状态（只读）：PO/OTW/SPIF */
@@ -337,7 +338,7 @@ extern "C" {
  * @brief IDE 位（bit6）：Identifier Extension
  * @note  0 = 标准帧（11 位 ID），1 = 扩展帧（29 位 ID）
  */
-#define SIT1145_WUF_IDE             (1U << 6)
+#define SIT1145_WUF_IDE             (1U << 7)  /* bit7: 1=扩展帧 */
 
 /**
  * @brief DLC 位（bit[3:0]）：Data Length Code
@@ -352,7 +353,7 @@ extern "C" {
  * @note  0 = 仅评估 ID + CRC（忽略数据字段）
  *        1 = 评估 ID + CRC + DLC + 数据字段（默认）
  */
-#define SIT1145_WUF_PNDM            (1U << 7)
+#define SIT1145_WUF_PNDM            (1U << 6)  /* bit6: 1=评估数据字段 */
 
 /* ==========================================================================
  *  WUF 配置结构体
@@ -399,6 +400,7 @@ typedef struct {
 #define SIT1145_CAN_FD_TOLERANCE_EN (1U << SIT1145_CAN_CTRL_CFDC_POS)   /**< bit6=1：容忍 CAN FD 帧 */
 #define SIT1145_CAN_NETW_INVALID    (0U << SIT1145_CAN_CTRL_PNCOK_POS)  /**< bit5=0：局部网络配置无效 */
 #define SIT1145_SEL_WAKEUP_DIS      (0U << SIT1145_CAN_CTRL_CPNC_POS)   /**< bit4=0：关闭选择性唤醒 */
+#define SIT1145_SEL_WAKEUP_EN       (1U << SIT1145_CAN_CTRL_CPNC_POS)   /**< bit4=1：使能选择性唤醒 */
 
 /* CMC 模式值（bit[1:0]）— 数据手册表4 */
 #define SIT1145_CMC_OFFLINE         0x00  /**< 离线模式：CAN 收发器完全关闭，不上总线 */
@@ -615,6 +617,12 @@ uint8_t sit1145_is_can_fault(void);
  * @retval 1=配置成功，0=配置失败（回读不匹配）
  */
 uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg);
+
+/**
+ * @brief  配置 UDS 唤醒过滤（ID=0x18DA0D03, DLC=3, 匹配 3E xx）
+ * @retval 1=配置成功，0=失败
+ */
+uint8_t sit1145_wuf_config_uds(void);
 
 /**
  * @brief  使能选择性唤醒（CPNC=1 + PNCOK=1 + CWE=1）
