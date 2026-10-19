@@ -18,7 +18,9 @@ public sealed class ZqwlSerialTransport : ICanTransport
     private int _bufLen;
     private bool _disposed;
 
-    /// <summary>原始串口收发（HEX），供调试窗口观察。null = 不记录。</summary>
+    /// <summary>
+    /// 调试日志：只报 CAN 数据帧。盒子心跳(5A FF/FE)、配置应答(49 3B) 一律不上报。
+    /// </summary>
     public event Action<string>? OnRawLog;
 
     public ZqwlSerialTransport(string portName, int baud = 2_000_000)
@@ -36,16 +38,13 @@ public sealed class ZqwlSerialTransport : ICanTransport
 
     public bool IsOpen => _port?.IsOpen == true;
 
-    private void RawLog(string dir, byte[] data, int len)
-        => OnRawLog?.Invoke($"[{dir}] {Convert.ToHexString(data, 0, len)}");
-
     private void WriteRaw(byte[] pkt, string tag)
     {
         if (_port is not { IsOpen: true })
             throw new InvalidOperationException($"ZQWL port {_portName} not open");
         _port.Write(pkt, 0, pkt.Length);
-        RawLog("TX", pkt, pkt.Length);
-        if (tag.Length > 0) OnRawLog?.Invoke($"  ({tag})");
+        // 配置帧只在打开阶段打一行摘要，不进 CAN 日志
+        if (tag.Length > 0) OnRawLog?.Invoke($"[CFG] {tag}");
     }
 
     /// <summary>49 3B 配置帧：func + rw + 16B payload + 45 2E。</summary>
@@ -126,8 +125,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
         data.CopyTo(pkt, 7);
         pkt[^1] = CanFtr;
         _port.Write(pkt, 0, pkt.Length);
-        RawLog("TX", pkt, pkt.Length);
-        OnRawLog?.Invoke($"  (CAN {id:X8x} dlc={dlc})");
+        OnRawLog?.Invoke($"[CAN-TX] {id:X8x} {Convert.ToHexString(data)}");
     }
 
     public bool TryReceive(out CanFrame frame, int timeoutMs = 0)
@@ -184,7 +182,6 @@ public sealed class ZqwlSerialTransport : ICanTransport
             var tmp = new byte[n];
             int got = _port.Read(tmp, 0, n);
             if (got <= 0) return;
-            RawLog("RX", tmp, got);
             lock (_rxLock)
             {
                 // 满了先丢弃旧数据，避免 _bufLen 越界
@@ -219,12 +216,10 @@ public sealed class ZqwlSerialTransport : ICanTransport
         int i = 0;
         while (i < _bufLen)
         {
-            // heartbeat / cfg replies start with 49 3B
+            // heartbeat / cfg replies start with 49 3B —— 静默丢弃
             if (i + 1 < _bufLen && _buf[i] == 0x49 && _buf[i + 1] == 0x3B)
             {
                 if (_bufLen - i < 22) break;
-                if (i == 0)
-                    OnRawLog?.Invoke("  (cfg/心跳应答 49 3B 22B)");
                 i += 22;
                 continue;
             }
@@ -237,11 +232,9 @@ public sealed class ZqwlSerialTransport : ICanTransport
             byte b1 = _buf[i + 1];
             if (b1 is 0xFF or 0xFE)
             {
-                // 盒子状态心跳：0xFF=1/2 路 17B，0xFE=4 路 32B。非 CAN 帧，定时上报，丢弃。
+                // 盒子状态心跳（FF=1/2路17B / FE=4路32B）：静默丢弃，不进日志
                 int hb = b1 == 0xFF ? 17 : 32;
                 if (_bufLen - i < hb) break;
-                if (i == 0) // 仅在帧边界标注，避免刷屏
-                    OnRawLog?.Invoke($"  (heartbeat {(b1 == 0xFF ? "1ch/2ch 17B" : "4ch 32B")}，已忽略)");
                 i += hb;
                 continue;
             }
@@ -258,7 +251,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
             var data = new byte[dlc];
             Buffer.BlockCopy(_buf, i + 7, data, 0, dlc);
             _rxQueue.Enqueue(new CanFrame(id, data));
-            OnRawLog?.Invoke($"  (CAN-RX {id:X8x} dlc={dlc} {Convert.ToHexString(data)})");
+            OnRawLog?.Invoke($"[CAN-RX] {id:X8x} {Convert.ToHexString(data)}");
             i += total;
         }
         if (i > 0)
