@@ -732,24 +732,23 @@ uint8_t sit1145_wuf_config_uds(void)
   sit1145_wuf_cfg_t cfg;
 
   cfg.ide = 1U;           /* 扩展帧 */
-  cfg.dlc = 3U;           /* 3 字节 ISO-TP SF */
+  cfg.dlc = 8U;           /* CAN 帧 DLC=8（8 字节数据），必须与实际帧一致 */
   cfg.pndm = 1U;          /* 评估数据字段 */
   cfg.can_id = 0x18DA0D03U;
   cfg.can_id_mask = 0U;   /* 全精确匹配 */
-  /* DLC=3 用 DM5/DM6/DM7（图8），对应数据字节 0/1/2
-   * 掩码规则：至少一位同时为 1 则匹配。不能精确等于，只能排除。
-   * DM6=0x0C（bit2+bit3）：这两个位在 0x3E(=0b00111110) 中有，
-   * 在 0x10/0x22/0x27/0x31/0x34/0x36/0x37 等常见 SID 中都没有，
-   * 排除 DSC/RDBI/SA/RC/RD/TD/TE 等非唤醒 SID。
-   * 0x2E(WDBI) 也有 bit2+bit3 会匹配——硬件掩码的已知限制。 */
-  cfg.data_mask[0] = 0x00U;  /* DM0: 不检查 */
-  cfg.data_mask[1] = 0x00U;  /* DM1: 不检查 */
-  cfg.data_mask[2] = 0x00U;  /* DM2: 不检查 */
-  cfg.data_mask[3] = 0x00U;  /* DM3: 不检查 */
-  cfg.data_mask[4] = 0x00U;  /* DM4: 不检查 */
-  cfg.data_mask[5] = 0x02U;  /* DM5: PCI 长度 bit1（SF len=2） */
-  cfg.data_mask[6] = 0x0CU;  /* DM6: bit2+bit3（0x3E 独有，排除 0x10/0x22 等） */
-  cfg.data_mask[7] = 0x00U;  /* DM7: Sub 不检查（00/80 均可） */
+  /* DLC=8 用 DM0~DM7，对应数据字节 0~7。
+   * 掩码规则：至少一位同时为 1 则匹配。
+   * DM0=0x02：PCI 长度 bit1（SF len=2，匹配 02 3E 00/80）
+   * DM1=0x0C：SID bit2+bit3（0x3E 独有，排除 0x10/0x22/0x27/0x31/0x34/0x36/0x37）
+   * DM2~DM7=0x00：不检查 */
+  cfg.data_mask[0] = 0x02U;  /* DM0: PCI 长度 bit1 */
+  cfg.data_mask[1] = 0x0CU;  /* DM1: SID bit2+bit3 */
+  cfg.data_mask[2] = 0x00U;  /* DM2: Sub 不检查 */
+  cfg.data_mask[3] = 0x00U;  /* DM3 */
+  cfg.data_mask[4] = 0x00U;  /* DM4 */
+  cfg.data_mask[5] = 0x00U;  /* DM5 */
+  cfg.data_mask[6] = 0x00U;  /* DM6 */
+  cfg.data_mask[7] = 0x00U;  /* DM7 */
 
   return sit1145_wuf_config(&cfg);
 }
