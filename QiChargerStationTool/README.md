@@ -1,6 +1,6 @@
-# QiChargerStationTool — 产线测试上位机（C# / WPF / .NET 8）
+# QiChargerStationTool — 维修上位机（C# / WPF / .NET 8）
 
-面向 Qi 无线充电模块 CAN-UDS 产线工位的测试工具。选型见 `docs/17. 产线上位机技术选型与环境配置.md`。
+面向 Qi 无线充电模块 CAN-UDS **维修/返修工位**的诊断与刷写工具。使用说明见 `docs/17. 维修上位机使用与开发说明.md`。
 
 ## 结构
 
