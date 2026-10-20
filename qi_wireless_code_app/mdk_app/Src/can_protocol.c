@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.11";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.12";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -510,23 +510,42 @@ static void can_lp_enter_sleep(void)
     }
   }
 
-  /* ---- WUF 配置诊断帧（E2）----
-   * 进 Sleep 前配置 WUF 过滤，把配置结果发到总线。
-   * [0]=0xE2 [1]=wuf_config 结果 [2]=帧控制回读 [3]=ID0 [4]=ID1 [5]=ID2 [6]=ID3 [7]=0xA5 */
+  /* ---- WUF 配置诊断帧（E2/E3）----
+   * E2: [0]=0xE2 [1]=wuf_ok [2]=frame_ctrl [3]=MASK0 [4]=MASK1 [5]=MASK2 [6]=MASK3 [7]=0xA5
+   * E3: [0]=0xE3 [1]=ID0 [2]=ID1 [3]=ID2 [4]=ID3 [5]=DM0 [6]=DM1 [7]=0xA5 */
   {
     uint8_t wuf_ok = sit1145_wuf_config_uds();
     uint8_t wuf_diag[8];
+    uint8_t handle;
+
+    /* E2: 掩码寄存器回读 */
     wuf_diag[0] = 0xE2U;
     wuf_diag[1] = wuf_ok;
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
-    wuf_diag[3] = sit1145_read_reg(SIT1145_REG_ID_REG0);
-    wuf_diag[4] = sit1145_read_reg(SIT1145_REG_ID_REG1);
-    wuf_diag[5] = sit1145_read_reg(SIT1145_REG_ID_REG2);
-    wuf_diag[6] = sit1145_read_reg(SIT1145_REG_ID_REG3);
+    wuf_diag[3] = sit1145_read_reg(SIT1145_REG_MASK_REG0);
+    wuf_diag[4] = sit1145_read_reg(SIT1145_REG_MASK_REG1);
+    wuf_diag[5] = sit1145_read_reg(SIT1145_REG_MASK_REG2);
+    wuf_diag[6] = sit1145_read_reg(SIT1145_REG_MASK_REG3);
     wuf_diag[7] = 0xA5U;
     if (can_driver_send(0x18FF270DU, wuf_diag, 8) == 0)
     {
-      uint8_t handle;
+      if (can_driver_last_tx_handle(&handle) == 0)
+      {
+        (void)can_driver_wait_tx_frame(handle, 20U);
+      }
+    }
+
+    /* E3: ID 寄存器 + 数据掩码回读 */
+    wuf_diag[0] = 0xE3U;
+    wuf_diag[1] = sit1145_read_reg(SIT1145_REG_ID_REG0);
+    wuf_diag[2] = sit1145_read_reg(SIT1145_REG_ID_REG1);
+    wuf_diag[3] = sit1145_read_reg(SIT1145_REG_ID_REG2);
+    wuf_diag[4] = sit1145_read_reg(SIT1145_REG_ID_REG3);
+    wuf_diag[5] = sit1145_read_reg(SIT1145_REG_DATA_MASK0);
+    wuf_diag[6] = sit1145_read_reg(SIT1145_REG_DATA_MASK1);
+    wuf_diag[7] = 0xA5U;
+    if (can_driver_send(0x18FF270DU, wuf_diag, 8) == 0)
+    {
       if (can_driver_last_tx_handle(&handle) == 0)
       {
         (void)can_driver_wait_tx_frame(handle, 20U);
