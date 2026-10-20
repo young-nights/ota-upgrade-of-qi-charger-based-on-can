@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.12";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.13";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -535,7 +535,7 @@ static void can_lp_enter_sleep(void)
       }
     }
 
-    /* E3: ID 寄存器 + 数据掩码回读 */
+    /* E3: ID 寄存器 + 数据掩码 DM0-DM1 回读 */
     wuf_diag[0] = 0xE3U;
     wuf_diag[1] = sit1145_read_reg(SIT1145_REG_ID_REG0);
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_ID_REG1);
@@ -543,6 +543,23 @@ static void can_lp_enter_sleep(void)
     wuf_diag[4] = sit1145_read_reg(SIT1145_REG_ID_REG3);
     wuf_diag[5] = sit1145_read_reg(SIT1145_REG_DATA_MASK0);
     wuf_diag[6] = sit1145_read_reg(SIT1145_REG_DATA_MASK1);
+    wuf_diag[7] = 0xA5U;
+    if (can_driver_send(0x18FF270DU, wuf_diag, 8) == 0)
+    {
+      if (can_driver_last_tx_handle(&handle) == 0)
+      {
+        (void)can_driver_wait_tx_frame(handle, 20U);
+      }
+    }
+
+    /* E4: 数据掩码 DM2-DM7 回读 */
+    wuf_diag[0] = 0xE4U;
+    wuf_diag[1] = sit1145_read_reg(SIT1145_REG_DATA_MASK2);
+    wuf_diag[2] = sit1145_read_reg(SIT1145_REG_DATA_MASK3);
+    wuf_diag[3] = sit1145_read_reg(SIT1145_REG_DATA_MASK4);
+    wuf_diag[4] = sit1145_read_reg(SIT1145_REG_DATA_MASK5);
+    wuf_diag[5] = sit1145_read_reg(SIT1145_REG_DATA_MASK6);
+    wuf_diag[6] = sit1145_read_reg(SIT1145_REG_DATA_MASK7);
     wuf_diag[7] = 0xA5U;
     if (can_driver_send(0x18FF270DU, wuf_diag, 8) == 0)
     {
