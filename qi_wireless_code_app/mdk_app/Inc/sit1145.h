@@ -249,7 +249,9 @@ extern "C" {
  *        1 = 使能标准 CAN 唤醒检测（ISO 11898-2 WUP 模式）
  *        0 = 关闭 CAN 唤醒检测
  */
-#define SIT1145_CWE                 (1U << 0)
+#define SIT1145_CWE                 (1U << 0)  /* bit0: CAN 唤醒使能 */
+#define SIT1145_CFE                 (1U << 1)  /* bit1: CAN 故障检测使能 */
+#define SIT1145_CBSE                (1U << 4)  /* bit4: CAN 总线静默检测使能 */
 
 /**
  * @brief WUF 位（bit1）：Wake-Up Frame event

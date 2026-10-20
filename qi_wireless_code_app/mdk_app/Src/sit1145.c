@@ -320,7 +320,7 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT,
                     SIT1145_CW | SIT1145_WUF);
 
-  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03, DLC=3, 匹配 3E xx） */
+  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03, DLC=8, 匹配 3E xx） */
   if (sit1145_wuf_config_uds() == 0U)
   {
     /* 配置失败：退化到标准 WUP（任意帧唤醒） */
@@ -971,7 +971,11 @@ uint8_t sit1145_is_spi_fault(void)
  */
 void sit1145_wake_enable(void)
 {
-  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN, SIT1145_CWE);
+  /* 官方 SIT1145.c SleepMode_Set: CAN_BUS_SILENCE_CONF | CAN_FAILURE_CONF | WEAK_PIN_EVEN
+   * = CAN_FAILURE_EN | REMOTE_WEAKUP_EN = CFE(1) | CWE(0) = 0x03
+   * CBSE=0（总线静默检测禁用，官方配置） */
+  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN,
+                    SIT1145_CWE | SIT1145_CFE);
 }
 
 /**
