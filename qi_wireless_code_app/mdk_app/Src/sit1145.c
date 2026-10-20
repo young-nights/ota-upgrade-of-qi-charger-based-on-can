@@ -744,8 +744,8 @@ uint8_t sit1145_wuf_config_uds(void)
    * DM0=0x02：PCI 长度 bit1（SF len=2，匹配 02 3E 00/80）
    * DM1=0x0C：SID bit2+bit3（0x3E 独有，排除 0x10/0x22/0x27/0x31/0x34/0x36/0x37）
    * DM2~DM7=0x00：不检查 */
-  cfg.data_mask[0] = 0x02U;  /* DM0: PCI 长度 bit1 */
-  cfg.data_mask[1] = 0x0CU;  /* DM1: SID bit2+bit3 */
+  cfg.data_mask[0] = 0x00U;  /* DM0: 不检查（PCI 对所有 SF 帧都是 0x02，查了必过） */
+  cfg.data_mask[1] = 0x0CU;  /* DM1: SID bit2+bit3（0x3E 独有，排除 0x10/0x22/0x27 等） */
   cfg.data_mask[2] = 0x00U;  /* DM2: Sub 不检查 */
   cfg.data_mask[3] = 0x00U;  /* DM3 */
   cfg.data_mask[4] = 0x00U;  /* DM4 */
