@@ -79,7 +79,7 @@ extern "C" {
 #define SIT1145_REG_MASK_REG1             0x2C  /**< WUF ID 掩码寄存器1（读写） */
 #define SIT1145_REG_MASK_REG2             0x2D  /**< WUF ID 掩码寄存器2（读写） */
 #define SIT1145_REG_MASK_REG3             0x2E  /**< WUF ID 掩码寄存器3（读写） */
-#define SIT1145_REG_FRAME_CTRL            0x2F  /**< WUF 帧控制（读写）：IDE(bit7)/PNDM(bit6)/DLC[3:0] */
+#define SIT1145_REG_FRAME_CTRL            0x21  /**< WUF 帧控制（读写）：IDE(bit7)/PNDM(bit6)/DLC[3:0] */
 #define SIT1145_REG_DATA_MASK0            0x68  /**< WUF 数据掩码寄存器0（读写） */
 #define SIT1145_REG_DATA_MASK1            0x69  /**< WUF 数据掩码寄存器1（读写） */
 #define SIT1145_REG_DATA_MASK2            0x6A  /**< WUF 数据掩码寄存器2（读写） */
