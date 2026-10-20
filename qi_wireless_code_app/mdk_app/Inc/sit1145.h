@@ -399,6 +399,7 @@ typedef struct {
 
 #define SIT1145_CAN_FD_TOLERANCE_EN (1U << SIT1145_CAN_CTRL_CFDC_POS)   /**< bit6=1：容忍 CAN FD 帧 */
 #define SIT1145_CAN_NETW_INVALID    (0U << SIT1145_CAN_CTRL_PNCOK_POS)  /**< bit5=0：局部网络配置无效 */
+#define SIT1145_CAN_NETW_VALID      (1U << SIT1145_CAN_CTRL_PNCOK_POS)  /**< bit5=1：局部网络配置有效（锁定） */
 #define SIT1145_SEL_WAKEUP_DIS      (0U << SIT1145_CAN_CTRL_CPNC_POS)   /**< bit4=0：关闭选择性唤醒 */
 #define SIT1145_SEL_WAKEUP_EN       (1U << SIT1145_CAN_CTRL_CPNC_POS)   /**< bit4=1：使能选择性唤醒 */
 

@@ -332,10 +332,13 @@ uint8_t sit1145_sleep_enter(void)
   }
   else
   {
-    /* 3) 使能选择性唤醒：CPNC=1 → PNCOK=1（最后写，锁定配置寄存器） */
+    /* 3) 使能选择性唤醒：CPNC=1 → PNCOK=1（最后写，锁定配置寄存器）
+     *    注意：can_ctrl_val 必须包含 PNCOK=1，否则 wuf_enable 设的 PNCOK
+     *    会被这次 CAN Control 写回清零，WUF 过滤器失效！ */
     sit1145_wuf_enable();
     can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
                  | SIT1145_SEL_WAKEUP_EN
+                 | SIT1145_CAN_NETW_VALID
                  | SIT1145_CAN_MODE_NORMAL;
   }
 
