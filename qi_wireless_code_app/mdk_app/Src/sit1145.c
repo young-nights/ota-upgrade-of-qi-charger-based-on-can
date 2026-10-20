@@ -614,22 +614,22 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
     return 0;
   }
 
-  /* 计算帧控制寄存器值：IDE + DLC + PNDM */
+  /* 计算帧控制寄存器值：IDE(bit7) + PNDM(bit6) + DLC[3:0]
+   * 官方 SIT1145.h: FRAME_CTRL_IDE_POS=7, FRAME_CTRL_PNDM_POS=6 */
   frame_ctrl = (uint8_t)(cfg->dlc & SIT1145_WUF_DLC_MASK);
   if (cfg->ide != 0U)
   {
-    frame_ctrl |= SIT1145_WUF_IDE;  /* 扩展帧 */
+    frame_ctrl |= SIT1145_WUF_IDE;  /* bit7: 扩展帧 */
   }
   if (cfg->pndm != 0U)
   {
-    frame_ctrl |= SIT1145_WUF_PNDM;  /* 评估数据字段 */
+    frame_ctrl |= SIT1145_WUF_PNDM;  /* bit6: 评估数据字段 */
   }
 
-  /* 计算 ID 寄存器值（小端序，规格书 REC V1.5 表）：
+  /* 计算 ID 寄存器值（小端序，官方 SIT1145_ID_Set 一致）：
    * ID0=ID[7:0], ID1=ID[15:8], ID2=ID[23:16], ID3=ID[28:24] */
   if (cfg->ide != 0U)
   {
-    /* 扩展帧 29 位 */
     id0 = (uint8_t)(cfg->can_id & 0xFFU);
     id1 = (uint8_t)((cfg->can_id >> 8) & 0xFFU);
     id2 = (uint8_t)((cfg->can_id >> 16) & 0xFFU);
@@ -641,7 +641,6 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
   }
   else
   {
-    /* 标准帧 11 位：ID[10:3]→ID2, ID[2:0]→ID3[7:5] */
     id0 = 0U;
     id1 = 0U;
     id2 = (uint8_t)((cfg->can_id >> 3) & 0xFFU);
@@ -652,22 +651,22 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
     m3 = (uint8_t)((cfg->can_id_mask & 0x07U) << 5);
   }
 
-  /* 写入帧控制寄存器 */
-  sit1145_write_reg(SIT1145_REG_FRAME_CTRL, frame_ctrl);
+  /* 官方写入顺序：ID → 掩码 → 数据掩码 → 帧控制最后写
+   * （帧控制最后写，避免被后续寄存器写入影响） */
 
-  /* 写入 ID 寄存器 */
+  /* 1) 写入 ID 寄存器 */
   sit1145_write_reg(SIT1145_REG_ID_REG0, id0);
   sit1145_write_reg(SIT1145_REG_ID_REG1, id1);
   sit1145_write_reg(SIT1145_REG_ID_REG2, id2);
   sit1145_write_reg(SIT1145_REG_ID_REG3, id3);
 
-  /* 写入 ID 掩码寄存器 */
+  /* 2) 写入 ID 掩码寄存器 */
   sit1145_write_reg(SIT1145_REG_MASK_REG0, m0);
   sit1145_write_reg(SIT1145_REG_MASK_REG1, m1);
   sit1145_write_reg(SIT1145_REG_MASK_REG2, m2);
   sit1145_write_reg(SIT1145_REG_MASK_REG3, m3);
 
-  /* 写入数据掩码寄存器 */
+  /* 3) 写入数据掩码寄存器 */
   sit1145_write_reg(SIT1145_REG_DATA_MASK0, cfg->data_mask[0]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK1, cfg->data_mask[1]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK2, cfg->data_mask[2]);
@@ -676,6 +675,9 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
   sit1145_write_reg(SIT1145_REG_DATA_MASK5, cfg->data_mask[5]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK6, cfg->data_mask[6]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK7, cfg->data_mask[7]);
+
+  /* 4) 帧控制寄存器最后写（官方顺序） */
+  sit1145_write_reg(SIT1145_REG_FRAME_CTRL, frame_ctrl);
 
   /* 回读帧控制寄存器验证 */
   if (sit1145_read_reg(SIT1145_REG_FRAME_CTRL) != frame_ctrl)
