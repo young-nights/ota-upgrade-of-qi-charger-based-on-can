@@ -699,26 +699,26 @@ void sit1145_wuf_enable(void)
 {
   uint8_t can_ctrl;
 
-  /* 读取当前 CAN 控制寄存器 */
+  /* 官方 SleepMode_Set 顺序：0x23 → 0x20(PNCOK=1 最后)。
+   * 关键：写任何 PN 配置寄存器(0x20-0x2F)都会清 PNCOK，
+   * 所以 PNCOK=1 必须是最后一次 PN 配置寄存器写入！ */
+
+  /* 1) 先写 Transceiver_event_enable (0x23) */
+  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN,
+                    SIT1145_CWE | SIT1145_CFE);
+
+  /* 2) 清残留事件 (0x24) */
+  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT, SIT1145_CW | SIT1145_WUF);
+
+  /* 3) 最后写 CAN Control (0x20)：CPNC=1 + PNCOK=1（锁定） */
   can_ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
   if (can_ctrl == 0xFFU)
   {
     return;  /* SPI 失败 */
   }
-
-  /* 设置 CPNC=1（选择性唤醒使能） */
   can_ctrl |= (1U << SIT1145_CAN_CTRL_CPNC_POS);
-  sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl);
-
-  /* 设置 PNCOK=1（配置有效，锁定配置寄存器） */
   can_ctrl |= (1U << SIT1145_CAN_CTRL_PNCOK_POS);
   sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl);
-
-  /* 使能 CWE */
-  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN, SIT1145_CWE);
-
-  /* 清除残留的 WUF/CW 标志 */
-  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT, SIT1145_CW | SIT1145_WUF);
 }
 
 /**
