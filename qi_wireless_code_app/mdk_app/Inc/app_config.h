@@ -63,7 +63,7 @@
  * @brief  CAN 空闲多久进 Sleep（ms），CAN_LP_SLEEP_ENABLE=1 时生效
  * @note   充电中会持续刷新空闲计时，不会进 Sleep
  */
-#define CAN_LP_IDLE_TIMEOUT_MS      (30UL * 1000UL)
+#define CAN_LP_IDLE_TIMEOUT_MS      (5UL * 1000UL)
 
 /* ==========================================================================
  *  UDS 会话
