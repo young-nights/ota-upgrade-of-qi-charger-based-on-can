@@ -803,6 +803,7 @@ void sit1145_wuf_clear(void);
  * @note   规格书：「当关闭偏置并重新启用部分联网时，计数器数值被重置为零」
  *         实现：CPNC=0 → 延时 → CPNC=1 → PNCOK=1
  *         同时 W1C 清除 PNFDE 标志（0x63 bit5）
+ *         ⚠️ 1.1.20 测试发现调用后设备无响应，已从 can_lp_enter_sleep 移除
  * @retval 1=成功，0=SPI 失败
  */
 uint8_t sit1145_clear_pn_error_counter(void);

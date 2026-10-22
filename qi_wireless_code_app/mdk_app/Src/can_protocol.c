@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.20";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.21";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -601,11 +601,6 @@ static void can_lp_enter_sleep(void)
    *    Keep it before any GPIO change — moving TXD to GPIO while still in
    *    Normal would drive the bus dominant. */
   can_driver_offline();
-
-  /* ---- 强制清零 PN 错误计数器 ----
-   * 规格书：「当关闭偏置并重新启用部分联网时，计数器数值被重置为零」
-   * 进 Sleep 前调用，避免残留计数器导致 PNFDE 误报 → 误唤醒 */
-  (void)sit1145_clear_pn_error_counter();
 
   /* ---- Sleep 模式 ----
    * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control（回读验证
