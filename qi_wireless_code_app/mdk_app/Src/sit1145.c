@@ -1051,6 +1051,52 @@ void sit1145_wuf_clear(void)
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT, SIT1145_WUF);
 }
 
+/**
+ * @brief  强制清零 PN 错误计数器（进 Sleep 前调用）
+ * @note   规格书 REC V1.5：「当关闭偏置并重新启用部分联网时，计数器数值被重置为零」
+ *         实现步骤：
+ *         1. 读取当前 CAN Control
+ *         2. CPNC=0（关闭选择性唤醒 → 偏置关闭）
+ *         3. 延时 1ms
+ *         4. CPNC=1 + PNCOK=1（重新启用部分网络 → 计数器归零）
+ *         5. W1C 清除 PNFDE 标志（0x63 bit5）
+ * @retval 1=成功，0=SPI 失败
+ */
+uint8_t sit1145_clear_pn_error_counter(void)
+{
+  uint8_t can_ctrl;
+
+  /* 读取当前 CAN Control */
+  can_ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+  if (can_ctrl == 0xFFU)
+  {
+    return 0U;  /* SPI 失败 */
+  }
+
+  /* 步骤1: CPNC=0（关闭选择性唤醒） */
+  can_ctrl &= ~(1U << SIT1145_CAN_CTRL_CPNC_POS);
+  can_ctrl &= ~(1U << SIT1145_CAN_CTRL_PNCOK_POS);  /* 同时清 PNCOK */
+  sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl);
+
+  /* 延时 1ms 等待偏置关闭稳定 */
+  sit1145_delay_ms(1U);
+
+  /* 步骤2: CPNC=1 + PNCOK=1（重新启用部分网络 → 计数器归零） */
+  can_ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+  if (can_ctrl == 0xFFU)
+  {
+    return 0U;
+  }
+  can_ctrl |= (1U << SIT1145_CAN_CTRL_CPNC_POS);
+  can_ctrl |= (1U << SIT1145_CAN_CTRL_PNCOK_POS);
+  sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl);
+
+  /* 步骤3: W1C 清除 PNFDE 标志（0x63 bit5） */
+  sit1145_write_reg(SIT1145_REG_TRX_EVENT_STATUS, SIT1145_TRX_EVT_STA_PNFDE);
+
+  return 1U;
+}
+
 /* ==========================================================================
  *  导出函数 — 初始化
  * ========================================================================== */

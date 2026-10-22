@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.19";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.20";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -567,6 +567,32 @@ static void can_lp_enter_sleep(void)
         (void)can_driver_wait_tx_frame(handle, 20U);
       }
     }
+
+    /* E5: PNFDE 状态 + 错误计数器清零前快照
+     * [0]=0xE5 [1]=TRX_EVENT_STATUS(0x63) [2]=bit5=PNFDE [3]=CAN_CONTROL(0x20)
+     * [4]=TRANSCEIVER_EVENT_EN(0x23) [5]=bit4=CPNS [6]=bit0=CFS [7]=0xA5 */
+    {
+      uint8_t ev63  = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+      uint8_t cctl  = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+      uint8_t ce    = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
+      uint8_t trsta = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_STATUS);
+
+      wuf_diag[0] = 0xE5U;
+      wuf_diag[1] = ev63;
+      wuf_diag[2] = (uint8_t)((ev63 & SIT1145_TRX_EVT_STA_PNFDE) ? 0x01U : 0x00U);
+      wuf_diag[3] = cctl;
+      wuf_diag[4] = ce;
+      wuf_diag[5] = (uint8_t)((trsta & 0x20U) ? 0x01U : 0x00U);  /* CPNS bit5 */
+      wuf_diag[6] = (uint8_t)((trsta & 0x01U) ? 0x01U : 0x00U);  /* CFS  bit0 */
+      wuf_diag[7] = 0xA5U;
+      if (can_driver_send(0x18FF270DU, wuf_diag, 8) == 0)
+      {
+        if (can_driver_last_tx_handle(&handle) == 0)
+        {
+          (void)can_driver_wait_tx_frame(handle, 20U);
+        }
+      }
+    }
   }
 
   /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
@@ -575,6 +601,11 @@ static void can_lp_enter_sleep(void)
    *    Keep it before any GPIO change — moving TXD to GPIO while still in
    *    Normal would drive the bus dominant. */
   can_driver_offline();
+
+  /* ---- 强制清零 PN 错误计数器 ----
+   * 规格书：「当关闭偏置并重新启用部分联网时，计数器数值被重置为零」
+   * 进 Sleep 前调用，避免残留计数器导致 PNFDE 误报 → 误唤醒 */
+  (void)sit1145_clear_pn_error_counter();
 
   /* ---- Sleep 模式 ----
    * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control（回读验证

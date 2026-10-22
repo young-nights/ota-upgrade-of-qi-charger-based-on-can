@@ -798,6 +798,15 @@ void sit1145_wakeup_clear(void);
  */
 void sit1145_wuf_clear(void);
 
+/**
+ * @brief  强制清零 PN 错误计数器（进 Sleep 前调用）
+ * @note   规格书：「当关闭偏置并重新启用部分联网时，计数器数值被重置为零」
+ *         实现：CPNC=0 → 延时 → CPNC=1 → PNCOK=1
+ *         同时 W1C 清除 PNFDE 标志（0x63 bit5）
+ * @retval 1=成功，0=SPI 失败
+ */
+uint8_t sit1145_clear_pn_error_counter(void);
+
 #ifdef __cplusplus
 }
 #endif
