@@ -736,7 +736,7 @@ uint8_t sit1145_wuf_config_uds(void)
 
   cfg.ide = 1U;           /* 扩展帧 */
   cfg.dlc = 8U;           /* CAN 帧 DLC=8（8 字节数据），必须与实际帧一致 */
-  cfg.pndm = 1U;          /* 评估数据字段 */
+  cfg.pndm = 0U;          /* 不评估数据字段（规格书：PNDM=0 只用 ID 精确匹配，过滤最可靠） */
   cfg.can_id = 0x18DA0D03U;
   cfg.can_id_mask = 0U;   /* 全精确匹配 */
   /* DLC=8 用 DM0~DM7，对应数据字节 0~7。
