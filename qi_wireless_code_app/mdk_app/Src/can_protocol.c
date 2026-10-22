@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.16";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.17";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -224,7 +224,7 @@ static uint32_t g_lp_wipe_last_ms = 0U;   /* tick of last clear attempt (throttl
  *  the first poll at inhibit expiry; armed by can_lp_enter_sleep() on every
  *  Sleep entry, consumed in can_protocol_poll() */
 static uint8_t  g_lp_pre_wipe_due = 0U;
-static uint32_t g_charge_gate_since = 0U;  /* charging gate stale timeout */
+
 
 /** ignore self-wake for a short window after entering Sleep */
 #define CAN_LP_WAKE_INHIBIT_MS  100U
@@ -514,13 +514,12 @@ static void can_lp_enter_sleep(void)
    * E2: [0]=0xE2 [1]=wuf_ok [2]=frame_ctrl [3]=MASK0 [4]=MASK1 [5]=MASK2 [6]=MASK3 [7]=0xA5
    * E3: [0]=0xE3 [1]=ID0 [2]=ID1 [3]=ID2 [4]=ID3 [5]=DM0 [6]=DM1 [7]=0xA5 */
   {
-    uint8_t wuf_ok = sit1145_wuf_config_uds();
     uint8_t wuf_diag[8];
     uint8_t handle;
 
-    /* E2: 掩码寄存器回读 */
+    /* E2: 掩码寄存器回读（WUF 配置在 sit1145_sleep_enter 内做，这里只读） */
     wuf_diag[0] = 0xE2U;
-    wuf_diag[1] = wuf_ok;
+    wuf_diag[1] = 0U;  /* wuf_ok 在 sit1145_sleep_enter 内确定，此处预设 0 */
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
     wuf_diag[3] = sit1145_read_reg(SIT1145_REG_MASK_REG0);
     wuf_diag[4] = sit1145_read_reg(SIT1145_REG_MASK_REG1);
@@ -3247,12 +3246,8 @@ void can_protocol_poll(void)
     /* Charging gate: ALWAYS refresh idle timer while charging + device
      * present. No stale timeout — charging must never enter Sleep. */
     g_uds_last_ms = now;
-    g_charge_gate_since = 0U;
   }
-  else
-  {
-    g_charge_gate_since = 0U;  /* gate released, reset stale timer */
-  }
+  /* else: gate released, idle timer counts down naturally */
   /* 有符号比较（同 g_announce_due_ms 判定风格）：同轮 poll 内 mark_uds（响应发送 /
    * 唤醒 enter_normal）刷新 g_uds_last_ms 后，过期 now 参与无符号减法会下溢成
    * 巨大值导致误进 Sleep */
