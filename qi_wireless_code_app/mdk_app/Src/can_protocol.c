@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.17";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.18";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -607,7 +607,9 @@ static void can_lp_go_sleep(void)
 {
   if (g_can_awake != 0U)
   {
-    (void)can_driver_wait_tx_idle(20U);
+    /* 清 TX 队列：周期广播帧可能残留，用 wait_tx_all_idle 等所有邮箱
+     * 清空，避免 SB 停机帧排队在周期帧后面导致进 Sleep 时间不稳定 */
+    (void)can_driver_wait_tx_all_idle(50U);
     session_reset_to_default();
     /* SB marker (06 41 53 42) must be confirmed on the wire before CAN goes
      * offline, otherwise the bus never shows SB ahead of the silence. Send
