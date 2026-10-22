@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.21";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.22";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -565,32 +565,6 @@ static void can_lp_enter_sleep(void)
       if (can_driver_last_tx_handle(&handle) == 0)
       {
         (void)can_driver_wait_tx_frame(handle, 20U);
-      }
-    }
-
-    /* E5: PNFDE 状态 + 错误计数器清零前快照
-     * [0]=0xE5 [1]=TRX_EVENT_STATUS(0x63) [2]=bit5=PNFDE [3]=CAN_CONTROL(0x20)
-     * [4]=TRANSCEIVER_EVENT_EN(0x23) [5]=bit4=CPNS [6]=bit0=CFS [7]=0xA5 */
-    {
-      uint8_t ev63  = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
-      uint8_t cctl  = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
-      uint8_t ce    = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
-      uint8_t trsta = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_STATUS);
-
-      wuf_diag[0] = 0xE5U;
-      wuf_diag[1] = ev63;
-      wuf_diag[2] = (uint8_t)((ev63 & SIT1145_TRX_EVT_STA_PNFDE) ? 0x01U : 0x00U);
-      wuf_diag[3] = cctl;
-      wuf_diag[4] = ce;
-      wuf_diag[5] = (uint8_t)((trsta & 0x20U) ? 0x01U : 0x00U);  /* CPNS bit5 */
-      wuf_diag[6] = (uint8_t)((trsta & 0x01U) ? 0x01U : 0x00U);  /* CFS  bit0 */
-      wuf_diag[7] = 0xA5U;
-      if (can_driver_send(0x18FF270DU, wuf_diag, 8) == 0)
-      {
-        if (can_driver_last_tx_handle(&handle) == 0)
-        {
-          (void)can_driver_wait_tx_frame(handle, 20U);
-        }
       }
     }
   }
