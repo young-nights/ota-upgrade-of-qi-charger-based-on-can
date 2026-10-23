@@ -2,16 +2,29 @@ using QiChargerStationTool.Core.Protocol;
 
 namespace QiChargerStationTool.Core.Station.Steps;
 
-/// <summary>Probe device online: 3E 00 + 22 2113.</summary>
+/// <summary>Probe device online: wake burst + 3E 00 + 22 2113.</summary>
 public sealed class ConnectStep : ITestStep
 {
     public string Name => "连接探测";
     public bool Critical => true;
 
+    /// <summary>SIT1145 WUF 唤醒需要 ≥6 帧 raw CAN burst（PNDM=0 纯 ID 匹配）。</summary>
+    private const int WakeBurstCount = 8;
+    private const int WakeBurstGapMs = 250;
+
     public async Task<TestStepResult> RunAsync(StationContext ctx, CancellationToken ct)
     {
         try
         {
+            // 唤醒 burst：发 ≥6 帧 raw CAN 3E 00 到 0x18DA0D03，触发 SIT1145 WUF
+            ctx.Log($"发送唤醒 burst ({WakeBurstCount} 帧)…");
+            for (int i = 0; i < WakeBurstCount; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                ctx.Uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
+                await Task.Delay(WakeBurstGapMs, ct);
+            }
+
             for (int i = 0; i < 8; i++)
             {
                 ct.ThrowIfCancellationRequested();
