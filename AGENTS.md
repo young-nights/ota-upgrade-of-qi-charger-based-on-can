@@ -146,3 +146,30 @@ A4 00 41 00 08 CC CC CC   # 跳 0x08004100
 - 收包循环 `time.sleep(0.01)`
 - attach BUSID `7-4`
 - MCU 已上电再开监听（Boot 标记只有几十毫秒）
+
+## QiChargerStationTool（C#/.NET 8 产线上位机）
+
+### WSL 构建与测试
+
+```bash
+# .NET 8 SDK 已装在用户级（无需 sudo）
+export PATH="$HOME/.dotnet:$PATH"
+
+# 编译 Core 库（协议层 + StationStep，跨平台）
+cd QiChargerStationTool/src/QiChargerStationTool.Core/QiChargerStationTool.Core
+dotnet build    # 0 Warning 0 Error
+
+# 运行单元测试
+cd QiChargerStationTool/tests/QiChargerStationTool.Tests
+dotnet test     # 14/14 Passed
+```
+
+- **WPF UI 层**（`QiChargerStationTool.App`）是 `net8.0-windows`，WSL 无法编译，需 Windows Visual Studio / `dotnet build`
+- Core 库是 `net8.0`，WSL 可编译可测
+- 修改 StationTool 代码后，WSL 侧至少验证 Core 库 `dotnet build` + `dotnet test`
+
+### 唤醒 burst 约定（2026-10-23）
+
+- SIT1145 PNDM=0 纯 ID 匹配，唤醒需要 **≥6 帧 raw CAN `3E 00`**（`0x18DA0D03`），间隔 250ms
+- `ConnectStep`（BasicSteps.cs）和 `WaitUdsReadyAsync`（MainWindow.xaml.cs）都内置唤醒 burst
+- 单帧 UDS 请求无法唤醒 Sleep 状态设备
