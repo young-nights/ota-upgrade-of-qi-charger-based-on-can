@@ -10,4 +10,8 @@
     <ProjectReference Include="..\..\ProductionStationTool.PowerZ\ProductionStationTool.PowerZ\ProductionStationTool.PowerZ.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+  </ItemGroup>
+
 </Project>
