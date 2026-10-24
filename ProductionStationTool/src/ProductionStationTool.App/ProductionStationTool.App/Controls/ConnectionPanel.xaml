@@ -1,0 +1,45 @@
+<UserControl x:Class="ProductionStationTool.App.Controls.ConnectionPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <TextBlock Text="串口接入区" Style="{StaticResource SectionTitle}"/>
+        <WrapPanel Margin="0,10,0,0">
+
+            <StackPanel Margin="0,0,24,0">
+                <TextBlock Text="CAN 盒子串口" Style="{StaticResource FieldLabel}"/>
+                <StackPanel Orientation="Horizontal">
+                    <ComboBox x:Name="ComboCanPort" Style="{StaticResource FieldCombo}"
+                              Width="130" MinWidth="130" Height="32"/>
+                    <Button x:Name="BtnRefresh" Content="刷新" Style="{StaticResource GhostButton}"
+                            Margin="8,0,0,0" Height="32" Click="BtnRefresh_Click"/>
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Margin="0,0,24,0">
+                <TextBlock Text="PowerZ 串口" Style="{StaticResource FieldLabel}"/>
+                <ComboBox x:Name="ComboPowerZPort" Style="{StaticResource FieldCombo}"
+                          Width="130" MinWidth="130" Height="32"/>
+            </StackPanel>
+
+            <StackPanel Margin="0,0,24,0">
+                <TextBlock Text="操作" Style="{StaticResource FieldLabel}"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="BtnConnect" Content="连接" Style="{StaticResource PrimaryButton}"
+                            Height="32" Click="BtnConnect_Click"/>
+                    <Button x:Name="BtnDisconnect" Content="断开" Style="{StaticResource GhostButton}"
+                            Margin="8,0,0,0" Height="32" Click="BtnDisconnect_Click"/>
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel>
+                <TextBlock Text="连接状态" Style="{StaticResource FieldLabel}"/>
+                <Border x:Name="BadgeConn" Background="#F1F5F9" CornerRadius="12"
+                        Padding="14,4" HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <TextBlock x:Name="TxtConnStatus" Text="未连接"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="13"/>
+                </Border>
+            </StackPanel>
+
+        </WrapPanel>
+    </StackPanel>
+</UserControl>

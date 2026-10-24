@@ -2,8 +2,26 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Grid>
-        <TextBlock x:Name="TxtTitle" Text="预留工位"
-                   FontSize="28" FontWeight="Bold"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Style="{StaticResource Card}">
+            <TextBlock Text="预留工位" Style="{StaticResource SectionTitle}"/>
+        </Border>
+
+        <Border Grid.Row="2" Style="{StaticResource Card}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock x:Name="TxtTitle" Text="预留工位（测试项待定义）"
+                           FontSize="28" FontWeight="Bold"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="测试项定义后替换为独立工位页面（含串口接入 / 流程 / 数据展示 / 日志四分区）"
+                           FontSize="14" Foreground="{StaticResource TextSecondaryBrush}"
+                           HorizontalAlignment="Center" Margin="0,12,0,0"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

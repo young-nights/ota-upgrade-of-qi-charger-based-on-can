@@ -1,51 +1,128 @@
 <Window x:Class="ProductionStationTool.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="产线测试上位机" Height="640" Width="1000">
-    <Grid Margin="12">
+        Title="产线测试上位机" Height="780" Width="1280"
+        Background="{StaticResource BgBrush}">
+    <Grid Margin="16">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220"/>
+            <ColumnDefinition Width="240"/>
+            <ColumnDefinition Width="16"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="12"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- 左：工位选择 -->
-        <GroupBox Grid.Row="0" Grid.Column="0" Header="工位选择">
-            <ListBox x:Name="ListStations" FontSize="18"
-                     SelectedIndex="0"
-                     SelectionChanged="ListStations_SelectionChanged">
-                <ListBoxItem Content="工位1 — SN + 电流电压"/>
-                <ListBoxItem Content="工位2 — 老化测试"/>
-                <ListBoxItem Content="工位3 — 预留"/>
-                <ListBoxItem Content="工位4 — 预留"/>
-            </ListBox>
-        </GroupBox>
+        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource Card}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="工位选择" Style="{StaticResource SectionTitle}"
+                           Margin="0,0,0,12"/>
+                <TextBlock DockPanel.Dock="Top"
+                           Text="一个 App 集成多个工位，点击切换页面"
+                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                           Margin="0,0,0,12" TextWrapping="Wrap"/>
+                <ListBox x:Name="ListStations" FontSize="16"
+                         SelectedIndex="0"
+                         Background="Transparent" BorderThickness="0"
+                         SelectionChanged="ListStations_SelectionChanged">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="14,12"/>
+                            <Setter Property="Margin" Value="0,0,0,8"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="bd" CornerRadius="8"
+                                                Background="#F8FAFC"
+                                                BorderBrush="#E2E8F0" BorderThickness="1"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="bd" Property="Background" Value="#EFF6FF"/>
+                                                <Setter TargetName="bd" Property="BorderBrush" Value="#93C5FD"/>
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="bd" Property="Background" Value="#2563EB"/>
+                                                <Setter TargetName="bd" Property="BorderBrush" Value="#2563EB"/>
+                                                <Setter Property="Foreground" Value="White"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBoxItem Content="工位1 — SN + 电流电压"/>
+                    <ListBoxItem Content="工位2 — 老化测试"/>
+                    <ListBoxItem Content="工位3 — 预留"/>
+                    <ListBoxItem Content="工位4 — 预留"/>
+                </ListBox>
+            </DockPanel>
+        </Border>
 
-        <!-- 右：当前工位页面 + 操作按钮 -->
-        <Grid Grid.Row="0" Grid.Column="1" Margin="12,0,0,0">
+        <!-- 右：操作栏 + 工位页面宿主 -->
+        <Grid Grid.Row="0" Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="12"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
-                <Button x:Name="BtnStart" Content="开始测试" Width="160" Height="56"
-                        FontSize="24" Click="BtnStart_Click"/>
-                <Button x:Name="BtnFactoryReset" Content="恢复出厂设置" Width="160" Height="56"
-                        FontSize="18" Margin="16,0,0,0" Click="BtnFactoryReset_Click"/>
-                <TextBlock x:Name="TxtCurrent" VerticalAlignment="Center"
-                           FontSize="16" Margin="24,0,0,0" Text="当前：工位1"/>
-            </StackPanel>
+            <!-- 顶部操作栏 -->
+            <Border Grid.Row="0" Style="{StaticResource Card}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="TxtCurrent" Text="工位1 — SN + 电流电压"
+                                   FontSize="20" FontWeight="Bold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBlock Text="自动检测串口/CAN → 点击「开始测试」自动跑完流程"
+                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                   Margin="0,4,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="BtnStart" Content="开始测试" Width="150" Height="52"
+                                FontSize="20" FontWeight="SemiBold"
+                                Style="{StaticResource PrimaryButton}"
+                                Click="BtnStart_Click"/>
+                        <Button x:Name="BtnFactoryReset" Content="恢复出厂设置" Width="140" Height="52"
+                                FontSize="15" Margin="12,0,0,0"
+                                Style="{StaticResource DangerButton}"
+                                Click="BtnFactoryReset_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
             <!-- 工位页面宿主 -->
-            <ContentControl x:Name="PageHost" Grid.Row="1"/>
+            <ContentControl x:Name="PageHost" Grid.Row="2"/>
         </Grid>
 
         <!-- 状态栏 -->
-        <TextBlock x:Name="TxtStatus" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,12,0,0"
-                   Text="就绪：自动检测串口/CAN 后点击「开始测试」"/>
+        <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource Card}"
+                Padding="14,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Ellipse Grid.Column="0" Width="10" Height="10"
+                         Fill="{StaticResource SuccessBrush}" VerticalAlignment="Center"/>
+                <TextBlock x:Name="TxtStatus" Grid.Column="1" Margin="8,0,0,0"
+                           FontSize="13" Foreground="{StaticResource TextSecondaryBrush}"
+                           Text="就绪：自动检测串口/CAN 后点击「开始测试」"/>
+                <TextBlock Grid.Column="2" FontSize="13"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           Text="ProductionStationTool"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

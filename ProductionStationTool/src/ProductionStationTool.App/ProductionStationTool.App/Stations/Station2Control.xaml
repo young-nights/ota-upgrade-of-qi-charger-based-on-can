@@ -1,28 +1,105 @@
 <UserControl x:Class="ProductionStationTool.App.Stations.Station2Control"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ProductionStationTool.App.Controls">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="150"/>
         </Grid.RowDefinitions>
 
-        <!-- 结果大字 -->
-        <TextBlock x:Name="TxtResult" Grid.Row="0" Text="待老化"
-                   FontSize="56" FontWeight="Bold" HorizontalAlignment="Center"
-                   Margin="0,8,0,16"/>
+        <!-- ① 串口接入区 -->
+        <Border Grid.Row="0" Style="{StaticResource Card}">
+            <controls:ConnectionPanel x:Name="ConnPanel"/>
+        </Border>
 
-        <!-- 老化进度 -->
-        <StackPanel Grid.Row="1" Margin="24,0">
-            <ProgressBar x:Name="ProgressAging" Height="28" Minimum="0" Maximum="100"/>
-            <TextBlock x:Name="TxtRemaining" Text="老化时长：30 分钟"
-                       FontSize="18" HorizontalAlignment="Center" Margin="0,8,0,12"/>
-        </StackPanel>
+        <!-- ② 流程区 + ③ 数据展示区 -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-        <!-- 详情 -->
-        <GroupBox Grid.Row="2" Header="老化详情">
-            <ListBox x:Name="ListDetails" FontSize="16"/>
-        </GroupBox>
+            <!-- 流程区 -->
+            <Border Grid.Column="0" Style="{StaticResource Card}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="老化流程" Style="{StaticResource SectionTitle}"
+                               Margin="0,0,0,12"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <controls:FlowStepsPanel x:Name="FlowPanel"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- 数据展示区 -->
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="数据展示" Style="{StaticResource SectionTitle}"/>
+
+                        <!-- 结果大字 -->
+                        <Border x:Name="BadgeResult" Background="#F1F5F9" CornerRadius="8"
+                                Padding="24,12" Margin="0,12,0,16" HorizontalAlignment="Left">
+                            <TextBlock x:Name="TxtResult" Text="待老化" FontSize="44"
+                                       FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+
+                        <!-- 老化进度 -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="1.2*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Background="{StaticResource FieldBgBrush}"
+                                    CornerRadius="8" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="剩余时间" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock x:Name="TxtRemaining" Text="30:00"
+                                               FontSize="32" FontWeight="Bold"
+                                               Foreground="{StaticResource AccentBrush}"/>
+                                    <TextBlock Text="老化时长 30 分钟" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
+                                    CornerRadius="8" Padding="14">
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="老化进度" Style="{StaticResource FieldLabel}"/>
+                                    <ProgressBar x:Name="ProgressAging" Height="22"
+                                                 Minimum="0" Maximum="100"/>
+                                    <TextBlock x:Name="TxtProgressPct" Text="0%"
+                                               FontSize="12" HorizontalAlignment="Right"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- 老化说明 -->
+                        <TextBlock Text="老化项目" Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
+                        <ListBox x:Name="ListDetails" FontSize="14" MinHeight="80"
+                                 Background="{StaticResource FieldBgBrush}"
+                                 BorderBrush="{StaticResource CardBorderBrush}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- ④ 日志区 -->
+        <Border Grid.Row="4" Style="{StaticResource Card}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="运行日志" Style="{StaticResource SectionTitle}"
+                           Margin="0,0,0,8"/>
+                <controls:LogPanel x:Name="LogPanel"/>
+            </DockPanel>
+        </Border>
     </Grid>
 </UserControl>
