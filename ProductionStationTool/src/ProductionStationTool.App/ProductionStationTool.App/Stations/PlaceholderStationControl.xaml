@@ -1,0 +1,9 @@
+<UserControl x:Class="ProductionStationTool.App.Stations.PlaceholderStationControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <TextBlock x:Name="TxtTitle" Text="预留工位"
+                   FontSize="28" FontWeight="Bold"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Grid>
+</UserControl>

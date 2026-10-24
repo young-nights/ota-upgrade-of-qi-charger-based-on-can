@@ -1,0 +1,20 @@
+<UserControl x:Class="ProductionStationTool.App.Stations.Station1Control"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 结果大字 -->
+        <TextBlock x:Name="TxtResult" Grid.Row="0" Text="待测试"
+                   FontSize="56" FontWeight="Bold" HorizontalAlignment="Center"
+                   Margin="0,8,0,16"/>
+
+        <!-- 异常项 / 详情 -->
+        <GroupBox Grid.Row="1" Header="测试详情（异常项红字）">
+            <ListBox x:Name="ListDetails" FontSize="16"/>
+        </GroupBox>
+    </Grid>
+</UserControl>

@@ -1,0 +1,28 @@
+<UserControl x:Class="ProductionStationTool.App.Stations.Station2Control"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 结果大字 -->
+        <TextBlock x:Name="TxtResult" Grid.Row="0" Text="待老化"
+                   FontSize="56" FontWeight="Bold" HorizontalAlignment="Center"
+                   Margin="0,8,0,16"/>
+
+        <!-- 老化进度 -->
+        <StackPanel Grid.Row="1" Margin="24,0">
+            <ProgressBar x:Name="ProgressAging" Height="28" Minimum="0" Maximum="100"/>
+            <TextBlock x:Name="TxtRemaining" Text="老化时长：30 分钟"
+                       FontSize="18" HorizontalAlignment="Center" Margin="0,8,0,12"/>
+        </StackPanel>
+
+        <!-- 详情 -->
+        <GroupBox Grid.Row="2" Header="老化详情">
+            <ListBox x:Name="ListDetails" FontSize="16"/>
+        </GroupBox>
+    </Grid>
+</UserControl>
