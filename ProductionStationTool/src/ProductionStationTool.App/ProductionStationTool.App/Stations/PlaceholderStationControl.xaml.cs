@@ -23,5 +23,9 @@ public partial class PlaceholderStationControl : UserControl, IStationPage
         return Task.CompletedTask;
     }
 
-    public Task FactoryResetAsync(CancellationToken ct = default) => Task.CompletedTask;
+    /// <summary>切换下一台：预留页仅复位标题提示，串口连接保持。</summary>
+    public void ResetForNext()
+    {
+        TxtTitle.Text = $"工位{_stationNo} — 预留（测试项待定义）";
+    }
 }

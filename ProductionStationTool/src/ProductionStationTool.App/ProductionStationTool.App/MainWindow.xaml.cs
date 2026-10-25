@@ -6,7 +6,7 @@ namespace ProductionStationTool.App;
 
 /// <summary>
 /// 工位外壳：一个 App 集成多个工位页面，左侧列表自主切换。
-/// 「开始测试」「恢复出厂设置」作用于当前选中工位。
+/// 「开始测试」「下一个」作用于当前选中工位。
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -60,22 +60,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void BtnFactoryReset_Click(object sender, RoutedEventArgs e)
+    private void BtnNext_Click(object sender, RoutedEventArgs e)
     {
         var page = _pages[ListStations.SelectedIndex];
-        BtnFactoryReset.IsEnabled = false;
-        try
-        {
-            await page.FactoryResetAsync();
-            TxtStatus.Text = $"{page.Title}：已清测试标志（恢复出厂设置）";
-        }
-        catch (Exception ex)
-        {
-            TxtStatus.Text = $"{page.Title}：清标志异常 {ex.Message}";
-        }
-        finally
-        {
-            BtnFactoryReset.IsEnabled = true;
-        }
+        page.ResetForNext();
+        TxtStatus.Text = $"{page.Title}：已切换下一台，串口保持连接，等待开始测试";
     }
 }

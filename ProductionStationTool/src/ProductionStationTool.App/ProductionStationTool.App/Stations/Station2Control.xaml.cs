@@ -82,10 +82,17 @@ public partial class Station2Control : UserControl, IStationPage
         // 占位：后续在此读老化后电压/电流并判限、入库、置标志
     }
 
-    public Task FactoryResetAsync(CancellationToken ct = default)
+    /// <summary>切换下一台：老化进度/结果/流程/日志复位，串口连接保持。</summary>
+    public void ResetForNext()
     {
-        LogPanel.Append("已请求清测试标志 / 恢复出厂设置（待接入设备）");
-        return Task.CompletedTask;
+        FlowPanel.Reset();
+        ListDetails.Items.Clear();
+        ProgressAging.Value = 0;
+        TxtProgressPct.Text = "0%";
+        TxtRemaining.Text = $"{AgingMinutes:00}:00";
+        SetBadge("待老化", MutedBrush, Color.FromRgb(0xF1, 0xF5, 0xF9));
+        LogPanel.Clear();
+        LogPanel.Append("已切换下一台，串口保持连接，等待开始测试");
     }
 
     private void SetBadge(string text, Brush fg, Color bg)

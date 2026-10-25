@@ -93,10 +93,11 @@
                                 FontSize="20" FontWeight="SemiBold"
                                 Style="{StaticResource PrimaryButton}"
                                 Click="BtnStart_Click"/>
-                        <Button x:Name="BtnFactoryReset" Content="恢复出厂设置" Width="140" Height="52"
-                                FontSize="15" Margin="12,0,0,0"
-                                Style="{StaticResource DangerButton}"
-                                Click="BtnFactoryReset_Click"/>
+                        <Button x:Name="BtnNext" Content="下一个" Width="140" Height="52"
+                                FontSize="18" Margin="12,0,0,0"
+                                Style="{StaticResource GhostButton}"
+                                Click="BtnNext_Click"
+                                ToolTip="切换下一台产品：刷新上位机状态，串口保持连接"/>
                     </StackPanel>
                 </Grid>
             </Border>

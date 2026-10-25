@@ -63,11 +63,20 @@ public partial class Station1Control : UserControl, IStationPage
         return Task.CompletedTask;
     }
 
-    public Task FactoryResetAsync(CancellationToken ct = default)
+    /// <summary>切换下一台：数据展示区/流程/日志复位，串口连接保持。</summary>
+    public void ResetForNext()
     {
-        // 占位：后续接 ITestFlagService.ClearAllFlagsAsync
-        LogPanel.Append("已请求清测试标志 / 恢复出厂设置（待接入设备）");
-        return Task.CompletedTask;
+        FlowPanel.Reset();
+        ListAbnormal.Items.Clear();
+        TxtSn.Text = "—";
+        TxtVoltage.Text = "—";
+        TxtCurrent.Text = "—";
+        TxtPowerJudge.Text = "—";
+        TxtResult.Text = "待测试";
+        TxtResult.Foreground = MutedBrush;
+        BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
+        LogPanel.Clear();
+        LogPanel.Append("已切换下一台，串口保持连接，等待开始测试");
     }
 
     /// <summary>把一次测试结果显示到数据展示区（异常项红字）。</summary>
