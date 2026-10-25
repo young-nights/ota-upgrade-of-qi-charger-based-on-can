@@ -291,6 +291,9 @@ uint8_t sit1145_normal_mode_set(void)
  */
 uint8_t sit1145_sleep_mode_set(void)
 {
+  /* Sleep 只能从 Standby 进入：先切 Standby 再 Sleep */
+  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_STANDBY_MODE);
+  sit1145_delay_ms(5U);
   return sit1145_set_mode(SIT1145_MC_SLEEP_MODE);
 }
 
@@ -304,7 +307,9 @@ uint8_t sit1145_sleep_mode_set(void)
  *         1) 清事件标志 0x61/0x63/0x64（W1C，对齐官方 SleepMode_Set）
  *         2) 配置 WUF 过滤 + 使能 CPNC（选择性唤醒）
  *         3) CAN Control：CFDC=1, CPNC=1, PNCOK=1（最后写 PNCOK 锁定）
- *         4) 进 Sleep：写 0x01 = MC_SLEEP_MODE
+ *         4) 进 Sleep：Normal → Standby（回读验证）→ Sleep（SPI 断开后
+ *            用识别码寄存器读不到芯片 ID 作为入睡凭证；直接从 Normal 写
+ *            Sleep 会被模式状态机忽略，是「测不到休眠」的根因）
  *         进入后 SPI 断开，唤醒由 CAN WUP 触发（芯片自动回 Standby），
  *         主循环通过 PA11/RXD 电平检测唤醒。
  * @retval 1=进入 Sleep（SPI 已断开，无法验证），0=进入前寄存器配置失败
@@ -345,20 +350,54 @@ uint8_t sit1145_sleep_enter(void)
   /* CAN Control 回读验证 + 重试 */
   {
     uint8_t attempt;
+    uint8_t ctrl_ok = 0U;
     for (attempt = 0U; attempt < 3U; attempt++)
     {
       sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
       if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) == can_ctrl_val)
       {
-        /* 4) 进 Sleep（SPI 断开，无法回读） */
-        sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
-        return 1U;
+        ctrl_ok = 1U;
+        break;
       }
       sit1145_delay_ms(1U);
     }
+    if (ctrl_ok == 0U)
+    {
+      /* CAN Control 配置失败：不进 Sleep，调用方降级处理 */
+      return 0U;
+    }
   }
-  /* CAN Control 配置失败：不进 Sleep，调用方降级处理 */
-  return 0U;
+
+  /* 4) Normal → Standby（模式状态机：Sleep 只能从 Standby 进入，
+   *    Normal 直写 0x01 会被芯片忽略——1.1.23 及之前「从未真正进
+   *    休眠」的根因）。Standby 下 SPI 仍可用，可回读验证。 */
+  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_STANDBY_MODE);
+  sit1145_delay_ms(5U);  /* tMODE：等模式切换稳定后再回读/再切 */
+  if ((sit1145_read_reg(SIT1145_REG_MODE_CONTROL) & SIT1145_MC_MODE_MASK)
+      != SIT1145_MC_STANDBY_MODE)
+  {
+    /* Standby 都进不去：退回 Normal，保持总线可用 */
+    (void)sit1145_set_mode(SIT1145_MC_NORMAL_MODE);
+    return 0U;
+  }
+
+  /* 5) Standby → Sleep（写后 SPI 断开，无法回读 MODE） */
+  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
+  sit1145_delay_ms(5U);
+
+  /* 6) 入睡验证：Sleep 下 SPI 失效。读识别码寄存器——
+   *    仍回 0x70/0x74 = 芯片没睡（请求被忽略 / 被立刻唤醒），
+   *    置失败让调用方恢复 CAN 并置 g_lp_sleep_fail（DID 0x2119 bit2）；
+   *    回 0xFF 等其它值 = SPI 已断 = 确认入睡。 */
+  {
+    uint8_t id = sit1145_read_reg(SIT1145_REG_IDENTIFICATION);
+    if ((id == SIT1145_ID_AQ) || (id == SIT1145_ID_AQ_FD))
+    {
+      (void)sit1145_set_mode(SIT1145_MC_NORMAL_MODE);
+      return 0U;
+    }
+  }
+  return 1U;
 }
 
 /**
