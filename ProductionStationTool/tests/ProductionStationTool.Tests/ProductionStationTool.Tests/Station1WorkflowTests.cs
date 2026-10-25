@@ -11,11 +11,6 @@ public class Station1WorkflowTests
     {
         public TestFlag Flag = TestFlag.NotTested;
         public bool Cleared;
-        public Task<TestFlag> GetFlagAsync(StationId s, CancellationToken ct = default)
-            => Task.FromResult(Flag);
-        public Task<IReadOnlyDictionary<StationId, TestFlag>> GetAllFlagsAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyDictionary<StationId, TestFlag>>(
-                new Dictionary<StationId, TestFlag> { [StationId.Station1] = Flag });
         public Task SetFlagAsync(StationId s, TestFlag f, CancellationToken ct = default)
         { Flag = f; return Task.CompletedTask; }
         public Task ClearAllFlagsAsync(CancellationToken ct = default)
@@ -43,22 +38,6 @@ public class Station1WorkflowTests
 
     private static Station1Workflow NewWorkflow(FakeFlags flags, FakeStore store)
         => new(flags, store, snGenerate: (_, s) => $"SN-{s:D4}");
-
-    [Fact]
-    public async Task FlagAlreadyPassed_SkipsFlow()
-    {
-        var flags = new FakeFlags { Flag = TestFlag.Passed };
-        var store = new FakeStore();
-        var wf = NewWorkflow(flags, store);
-        var pz = new FakePowerZ(5.0, 1.0);
-
-        var r = await wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult("SN-0001"),
-            () => Task.CompletedTask, pz, new PowerLimits { VoltageMin = 0, VoltageMax = 9, CurrentMin = 0, CurrentMax = 9 });
-
-        Assert.True(r.Skipped);
-        Assert.True(r.Passed);
-        Assert.Empty(store.Rows);   // 跳过时不动库
-    }
 
     [Fact]
     public async Task SnWriteFails_NotStored()

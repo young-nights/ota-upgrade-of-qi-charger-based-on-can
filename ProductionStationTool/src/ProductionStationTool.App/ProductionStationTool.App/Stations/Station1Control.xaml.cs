@@ -24,7 +24,6 @@ public partial class Station1Control : UserControl, IStationPage
         InitializeComponent();
         FlowPanel.SetSteps(
             "连接设备（串口/CAN 自动检测）",
-            "查询测试标志（已测则跳过）",
             "生成 SN 码",
             "写入 SN 并回读验证",
             "开启无线充电",
@@ -50,7 +49,7 @@ public partial class Station1Control : UserControl, IStationPage
         LogPanel.Append("开始工位 1 测试流程（骨架演示）");
 
         // 占位演示：按步骤点亮流程区；接入 CAN/PowerZ 后替换为 Station1Workflow
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < FlowPanel.Steps.Count; i++)
         {
             FlowPanel.Mark(i, StepStatus.Running);
             LogPanel.Append($"步骤 {i + 1} 进行中…");
@@ -76,14 +75,6 @@ public partial class Station1Control : UserControl, IStationPage
     {
         ListAbnormal.Items.Clear();
         TxtSn.Text = string.IsNullOrEmpty(result.Sn) ? "—" : result.Sn;
-
-        if (result.Skipped)
-        {
-            SetResultBadge(true);
-            TxtPowerJudge.Text = "标志位已置位，跳过";
-            LogPanel.Append("标志位=1：跳过流程，直接 PASS");
-            return;
-        }
 
         SetResultBadge(result.Passed);
 

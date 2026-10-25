@@ -27,7 +27,6 @@ public partial class Station2Control : UserControl, IStationPage
         InitializeComponent();
         FlowPanel.SetSteps(
             "连接设备（串口/CAN 自动检测）",
-            "查询测试标志（已测则跳过）",
             "开启带载（启动充电）",
             $"带载老化 {AgingMinutes} 分钟",
             "老化后读取电压/电流",
@@ -55,8 +54,7 @@ public partial class Station2Control : UserControl, IStationPage
 
         FlowPanel.Mark(0, StepStatus.Passed);
         FlowPanel.Mark(1, StepStatus.Passed);
-        FlowPanel.Mark(2, StepStatus.Passed);
-        FlowPanel.Mark(3, StepStatus.Running);
+        FlowPanel.Mark(2, StepStatus.Running);
 
         var total = TimeSpan.FromMinutes(AgingMinutes);
         var sw = Stopwatch.StartNew();
@@ -74,9 +72,9 @@ public partial class Station2Control : UserControl, IStationPage
         ProgressAging.Value = 100;
         TxtProgressPct.Text = "100%";
         TxtRemaining.Text = "00:00";
+        FlowPanel.Mark(2, StepStatus.Passed);
         FlowPanel.Mark(3, StepStatus.Passed);
         FlowPanel.Mark(4, StepStatus.Passed);
-        FlowPanel.Mark(5, StepStatus.Passed);
 
         SetBadge("PASS", SuccessBrush, Color.FromRgb(0xDC, 0xFC, 0xE7));
         ListDetails.Items.Add($"带载老化 {AgingMinutes} 分钟完成");
