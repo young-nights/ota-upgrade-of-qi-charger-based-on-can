@@ -6,7 +6,7 @@ namespace ProductionStationTool.App.Stations;
 /// </summary>
 public interface IStationPage
 {
-    /// <summary>工位号 1~4（对应 Flash 4 个测试标志位）。</summary>
+    /// <summary>工位号 1~4。</summary>
     int StationNo { get; }
 
     /// <summary>页面标题（工位选择栏显示）。</summary>

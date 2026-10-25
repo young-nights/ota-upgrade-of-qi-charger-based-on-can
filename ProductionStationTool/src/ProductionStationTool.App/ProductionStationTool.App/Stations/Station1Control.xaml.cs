@@ -28,7 +28,7 @@ public partial class Station1Control : UserControl, IStationPage
             "写入 SN 并回读验证",
             "开启无线充电",
             "PowerZ 采样电流/电压",
-            "判限并入库、置标志");
+            "判限并入库");
 
         ConnPanel.ConnectRequested += (can, pz) =>
         {

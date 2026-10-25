@@ -1,5 +1,4 @@
 using ProductionStationTool.Core.Data;
-using ProductionStationTool.Core.Flags;
 using ProductionStationTool.Core.Sn;
 using ProductionStationTool.PowerZ;
 
@@ -14,7 +13,7 @@ public sealed record Station1Result(
 
 /// <summary>
 /// 工位 1 流程编排（构想文档）：
-///   生成 SN → 写入 SN → 回读验证 → 开充电 → PowerZ 采样判限 → 入库 → 置标志
+///   生成 SN → 写入 SN → 回读验证 → 开充电 → PowerZ 采样判限 → 入库
 ///
 /// 关键约定：
 ///  - SN 写入失败 → **不入库**，流水号不消耗（下次生成仍用同一序号）；
@@ -22,18 +21,15 @@ public sealed record Station1Result(
 /// </summary>
 public sealed class Station1Workflow
 {
-    private readonly ITestFlagService _flags;
     private readonly ITestRecordStore _store;
     private readonly Func<DateTime, int, string> _snGenerate; // 可注入以便测试
     private int _nextSequence;
 
     public Station1Workflow(
-        ITestFlagService flags,
         ITestRecordStore store,
         int startSequence = 1,
         Func<DateTime, int, string>? snGenerate = null)
     {
-        _flags = flags;
         _store = store;
         _nextSequence = startSequence;
         _snGenerate = snGenerate ?? ((d, s) => SnGenerator.Generate(d, s));
@@ -74,7 +70,7 @@ public sealed class Station1Workflow
             ? null
             : new PowerJudgement(sample.Value.Voltage, sample.Value.Current, passed, fails);
 
-        // 5. 入库（SN 写入成功才会走到这里）→ 置标志
+        // 5. 入库（SN 写入成功才会走到这里）
         _store.Add(new TestRecord
         {
             Sn = sn,
@@ -86,9 +82,6 @@ public sealed class Station1Workflow
             TestTime = DateTime.Now,
         });
         _nextSequence++;
-
-        if (passed)
-            await _flags.SetFlagAsync(StationId.Station1, TestFlag.Passed, ct);
 
         return new Station1Result(sn, passed, judgement, fails);
     }

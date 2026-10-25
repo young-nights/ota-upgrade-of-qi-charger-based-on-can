@@ -30,7 +30,7 @@ public partial class Station2Control : UserControl, IStationPage
             "开启带载（启动充电）",
             $"带载老化 {AgingMinutes} 分钟",
             "老化后读取电压/电流",
-            "判限并入库、置标志");
+            "判限并入库");
 
         ConnPanel.ConnectRequested += (can, pz) =>
         {
@@ -79,7 +79,7 @@ public partial class Station2Control : UserControl, IStationPage
         SetBadge("PASS", SuccessBrush, Color.FromRgb(0xDC, 0xFC, 0xE7));
         ListDetails.Items.Add($"带载老化 {AgingMinutes} 分钟完成");
         LogPanel.Append("老化完成，PASS");
-        // 占位：后续在此读老化后电压/电流并判限、入库、置标志
+        // 占位：后续在此读老化后电压/电流并判限、入库
     }
 
     /// <summary>切换下一台：老化进度/结果/流程/日志复位，串口连接保持。</summary>

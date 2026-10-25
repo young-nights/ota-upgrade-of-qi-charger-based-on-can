@@ -1,4 +1,3 @@
-using ProductionStationTool.Core.Flags;
 using ProductionStationTool.Core.Station;
 using ProductionStationTool.PowerZ;
 
@@ -7,16 +6,6 @@ namespace ProductionStationTool.Tests;
 /// <summary>工位 1 流程行为测试（构想文档关键约定）。</summary>
 public class Station1WorkflowTests
 {
-    private sealed class FakeFlags : ITestFlagService
-    {
-        public TestFlag Flag = TestFlag.NotTested;
-        public bool Cleared;
-        public Task SetFlagAsync(StationId s, TestFlag f, CancellationToken ct = default)
-        { Flag = f; return Task.CompletedTask; }
-        public Task ClearAllFlagsAsync(CancellationToken ct = default)
-        { Cleared = true; Flag = TestFlag.NotTested; return Task.CompletedTask; }
-    }
-
     private sealed class FakeStore : Core.Data.ITestRecordStore
     {
         public readonly List<Core.Data.TestRecord> Rows = new();
@@ -36,15 +25,14 @@ public class Station1WorkflowTests
         public void Dispose() { }
     }
 
-    private static Station1Workflow NewWorkflow(FakeFlags flags, FakeStore store)
-        => new(flags, store, snGenerate: (_, s) => $"SN-{s:D4}");
+    private static Station1Workflow NewWorkflow(FakeStore store)
+        => new(store, snGenerate: (_, s) => $"SN-{s:D4}");
 
     [Fact]
     public async Task SnWriteFails_NotStored()
     {
-        var flags = new FakeFlags();
         var store = new FakeStore();
-        var wf = NewWorkflow(flags, store);
+        var wf = NewWorkflow(store);
 
         var r = await wf.RunAsync(_ => Task.FromResult(false), () => Task.FromResult<string?>(null),
             () => Task.CompletedTask, new FakePowerZ(5, 1),
@@ -58,7 +46,7 @@ public class Station1WorkflowTests
     public async Task SnReadMismatch_NotStored()
     {
         var store = new FakeStore();
-        var wf = NewWorkflow(new FakeFlags(), store);
+        var wf = NewWorkflow(store);
 
         var r = await wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-WRONG"),
             () => Task.CompletedTask, new FakePowerZ(5, 1),
@@ -69,11 +57,10 @@ public class Station1WorkflowTests
     }
 
     [Fact]
-    public async Task AllNormal_PassAndStoreAndSetFlag()
+    public async Task AllNormal_PassAndStore()
     {
-        var flags = new FakeFlags();
         var store = new FakeStore();
-        var wf = NewWorkflow(flags, store);
+        var wf = NewWorkflow(store);
         var pz = new FakePowerZ(5.0, 1.0);
 
         var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult("SN-0001"),
@@ -85,15 +72,13 @@ public class Station1WorkflowTests
         Assert.True(r.Passed);
         Assert.Single(store.Rows);
         Assert.Equal("PASS", store.Rows[0].Result);
-        Assert.Equal(TestFlag.Passed, flags.Flag);   // 成功置标志
     }
 
     [Fact]
     public async Task VoltageOutOfRange_FailWithAbnormalItem()
     {
-        var flags = new FakeFlags();
         var store = new FakeStore();
-        var wf = NewWorkflow(flags, store);
+        var wf = NewWorkflow(store);
         var pz = new FakePowerZ(3.0, 1.0);           // 电压过低
 
         var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult("SN-0001"),
@@ -106,6 +91,5 @@ public class Station1WorkflowTests
         Assert.NotEmpty(r.AbnormalItems);            // UI 红字显示
         Assert.Single(store.Rows);                   // SN 写成功了，仍入库（FAIL 记录）
         Assert.Equal("FAIL", store.Rows[0].Result);
-        Assert.Equal(TestFlag.NotTested, flags.Flag); // 失败不置标志
     }
 }
