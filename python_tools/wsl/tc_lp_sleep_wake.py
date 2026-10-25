@@ -82,10 +82,13 @@ class LPTest:
         return frames
 
     def send_wake(self):
-        """发一帧 CAN 唤醒（任意 250kbps 帧触发 WUP）。
-        用非 UDS ID 避免 UDS 栈干扰唤醒流程。"""
-        self.z.send_can(0x18FF0101, bytes([0xAA, 0x55, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]))
-        _log("发送唤醒帧 18FF0101 AA 55")
+        """发唤醒 burst：SIT1145 PNDM=0 纯 ID 匹配，必须用 UDS 请求 ID
+        0x18DA0D03 发 raw 3E 00，≥6 帧、间隔 250ms（AGENTS.md 唤醒 burst 约定）。
+        单帧或非 0x18DA0D03 的帧无法唤醒 Sleep 设备。"""
+        for i in range(8):
+            self.z.send_can(UDS_REQ_ID, bytes([0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]))
+            _log("[Tx] raw 3E 00 唤醒 (%d/8)" % (i + 1))
+            time.sleep(0.25)
 
     def read_did_2119(self, timeout_s=2.0):
         """读 DID 0x2119（SIT1145 LP 状态），返回 (flags, wup_cnt, last_sec) 或 None。
