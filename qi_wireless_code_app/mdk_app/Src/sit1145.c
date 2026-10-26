@@ -295,26 +295,6 @@ uint8_t sit1145_sleep_mode_set(void)
   return sit1145_set_mode(SIT1145_MC_SLEEP_MODE);
 }
 
-/* ---- 进 Sleep 诊断快照（供 E5 诊断帧读取） ---- */
-static uint8_t g_sleep_diag_step;      /* 失败步骤号 */
-static uint8_t g_sleep_diag_can_ctrl;  /* CAN Control 写入值 */
-static uint8_t g_sleep_diag_can_rb;    /* CAN Control 回读值 */
-static uint8_t g_sleep_diag_mode_rb;   /* Standby 回读 MODE 值 */
-static uint8_t g_sleep_diag_id_rb;     /* Sleep 后识别码回读值 */
-
-/**
- * @brief  获取进 Sleep 诊断快照（供诊断帧用）
- */
-void sit1145_get_sleep_diag(uint8_t *step, uint8_t *can_ctrl,
-                             uint8_t *can_rb, uint8_t *mode_rb, uint8_t *id_rb)
-{
-  *step     = g_sleep_diag_step;
-  *can_ctrl = g_sleep_diag_can_ctrl;
-  *can_rb   = g_sleep_diag_can_rb;
-  *mode_rb  = g_sleep_diag_mode_rb;
-  *id_rb    = g_sleep_diag_id_rb;
-}
-
 /**
  * @brief  配置 CAN 唤醒并进入 Sleep 模式（完整序列）
  * @note   对齐官方 FAE SIT1145_SleepMode_Set() 序列，适配本项目硬件：
@@ -335,13 +315,6 @@ void sit1145_get_sleep_diag(uint8_t *step, uint8_t *can_ctrl,
 uint8_t sit1145_sleep_enter(void)
 {
   uint8_t can_ctrl_val;
-
-  /* 清诊断快照 */
-  g_sleep_diag_step = 0U;
-  g_sleep_diag_can_ctrl = 0U;
-  g_sleep_diag_can_rb = 0U;
-  g_sleep_diag_mode_rb = 0U;
-  g_sleep_diag_id_rb = 0U;
 
   /* 1) 清事件标志（官方 SleepMode_Set 顺序：0x61 → 0x63 → 0x64） */
   sit1145_write_reg(SIT1145_REG_SYSTEM_EVENT_STATUS, 0xFFU);
@@ -380,50 +353,22 @@ uint8_t sit1145_sleep_enter(void)
   /* CAN Control 回读验证 + 重试 */
   {
     uint8_t attempt;
-    uint8_t ctrl_ok = 0U;
-    g_sleep_diag_can_ctrl = can_ctrl_val;
     for (attempt = 0U; attempt < 3U; attempt++)
     {
       sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
-      g_sleep_diag_can_rb = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
-      if (g_sleep_diag_can_rb == can_ctrl_val)
+      if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) == can_ctrl_val)
       {
-        ctrl_ok = 1U;
-        break;
+        /* 进 Sleep（SPI 断开，无法回读）——对齐 Test_LTS：
+         * 写 Sleep 后直接返回成功，不做入睡验证。
+         * 之前的识别码验证会把「可能已睡」误判为「没睡」并退回 Normal。 */
+        sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
+        return 1U;
       }
       sit1145_delay_ms(1U);
     }
-    if (ctrl_ok == 0U)
-    {
-      /* CAN Control 配置失败：不进 Sleep，调用方降级处理 */
-      g_sleep_diag_step = 3U;  /* step3: CAN Control 失败 */
-      return 0U;
-    }
   }
-
-  /* 4) 直接 Normal → Sleep（对齐官方 FAE SleepMode_Set 序列：
-   *    清事件 → WAKE_enable → EVENT_EN → CAN_Control(PNCOK=1 最后)
-   *    → Mode_control=0x01。官方代码直接写 Sleep，不经过 Standby。 */
-  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
-  sit1145_delay_ms(5U);
-
-  /* 5) 入睡验证：Sleep 下 SPI 失效。读识别码寄存器——
-   *    仍回 0x70/0x74 = 芯片没睡（请求被忽略 / 被立刻唤醒），
-   *    置失败让调用方恢复 CAN 并置 g_lp_sleep_fail（DID 0x2119 bit2）；
-   *    回 0xFF 等其它值 = SPI 已断 = 确认入睡。 */
-  {
-    uint8_t id = sit1145_read_reg(SIT1145_REG_IDENTIFICATION);
-    g_sleep_diag_id_rb = id;
-    if ((id == SIT1145_ID_AQ) || (id == SIT1145_ID_AQ_FD))
-    {
-      /* Sleep 写入被忽略：芯片没睡 */
-      g_sleep_diag_step = 5U;  /* step5: Sleep 写入被忽略 */
-      (void)sit1145_set_mode(SIT1145_MC_NORMAL_MODE);
-      return 0U;
-    }
-  }
-  g_sleep_diag_step = 0U;  /* step0: 成功进入 Sleep */
-  return 1U;
+  /* CAN Control 配置失败：不进 Sleep，调用方降级处理 */
+  return 0U;
 }
 
 /**
