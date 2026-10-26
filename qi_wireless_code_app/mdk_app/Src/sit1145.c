@@ -297,25 +297,19 @@ uint8_t sit1145_sleep_mode_set(void)
 
 /**
  * @brief  配置 CAN 唤醒并进入 Sleep 模式（完整序列）
- * @note   对齐官方 FAE SIT1145_SleepMode_Set() 序列，适配本项目硬件：
- *         - WAKE 引脚恒高不可用 → 不配 0x4C WAKE_enable，仅用 CAN 唤醒
- *         - 选择性唤醒（CPNC=1）：WUF 只匹配 ID=0x18DA0D03 + DLC=3 + 3E xx
- *         - 配置失败退化到标准 WUP（任意帧唤醒）
- *         序列：
- *         1) 清事件标志 0x61/0x63/0x64（W1C，对齐官方 SleepMode_Set）
- *         2) 配置 WUF 过滤 + 使能 CPNC（选择性唤醒）
- *         3) CAN Control：CFDC=1, CPNC=1, PNCOK=1（最后写 PNCOK 锁定）
- *         4) 进 Sleep：Normal → Standby（回读验证）→ Sleep（SPI 断开后
- *            用识别码寄存器读不到芯片 ID 作为入睡凭证；直接从 Normal 写
- *            Sleep 会被模式状态机忽略，是「测不到休眠」的根因）
+ * @note   对齐官方 FAE SIT1145_SleepMode_Set() 序列：
+ *         1) 清事件标志 0x61/0x63/0x64（W1C）
+ *         2) 配置 WUF 过滤（选择性唤醒 CPNC=1）或退化到标准 WUP
+ *         3) CAN Control：CPNC=1+PNCOK=1（wuf_enable 内部一次写入）
+ *            关键：写任何 PN 配置寄存器(0x20-0x2F)都会清 PNCOK，
+ *            所以 wuf_enable 之后不能再写 0x20-0x2F！
+ *         4) 进 Sleep：直接写 0x01（对齐 formal_LTS/Test_LTS）
  *         进入后 SPI 断开，唤醒由 CAN WUP 触发（芯片自动回 Standby），
  *         主循环通过 PA11/RXD 电平检测唤醒。
  * @retval 1=进入 Sleep（SPI 已断开，无法验证），0=进入前寄存器配置失败
  */
 uint8_t sit1145_sleep_enter(void)
 {
-  uint8_t can_ctrl_val;
-
   /* 1) 清事件标志（官方 SleepMode_Set 顺序：0x61 → 0x63 → 0x64） */
   sit1145_write_reg(SIT1145_REG_SYSTEM_EVENT_STATUS, 0xFFU);
   sit1145_write_reg(SIT1145_REG_TRX_EVENT_STATUS, 0xFFU);
@@ -323,36 +317,37 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT,
                     SIT1145_CW | SIT1145_WUF);
 
-  /* 2) 使能 CAN 唤醒（CWE=1）——WAKE 引脚恒高不可用，仅依赖 CAN WUP
-   *    对齐 formal_LTS(1.2.1)：标准 WUP，CPNC=0，无 WUF 选择性唤醒 */
-  sit1145_wake_enable();
-
-  /* 3) CAN Control：CFDC=1, PNCOK=0, CPNC=0, CMC=01（主动+UVLO）
-   *    对齐 formal_LTS(1.2.1)，标准 WUP 任意 250kbps 帧触发唤醒 */
-  can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
-               | SIT1145_CAN_NETW_INVALID
-               | SIT1145_SEL_WAKEUP_DIS
-               | SIT1145_CAN_MODE_NORMAL;
-
-  /* CAN Control 回读验证 + 重试 */
+  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03, PNDM=0 纯 ID 匹配） */
+  if (sit1145_wuf_config_uds() == 0U)
   {
-    uint8_t attempt;
-    for (attempt = 0U; attempt < 3U; attempt++)
+    /* WUF 配置失败：退化到标准 WUP（任意帧唤醒） */
+    uint8_t can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
+                         | SIT1145_CAN_NETW_INVALID
+                         | SIT1145_SEL_WAKEUP_DIS
+                         | SIT1145_CAN_MODE_NORMAL;
+    sit1145_wake_enable();
+    sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
+  }
+  else
+  {
+    /* 3) 使能选择性唤醒：wuf_enable 内部写 0x20(CPNC=1+PNCOK=1)
+     *    关键：wuf_enable 之后不能再写 0x20-0x2F，否则 PNCOK 被清零！ */
+    sit1145_wuf_enable();
+    /* 验证 CAN Control（只读，不写） */
     {
-      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
-      if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) == can_ctrl_val)
+      uint8_t rb = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+      if ((rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) == 0U)
       {
-        /* 进 Sleep（SPI 断开，无法回读）——对齐 Test_LTS：
-         * 写 Sleep 后直接返回成功，不做入睡验证。
-         * 之前的识别码验证会把「可能已睡」误判为「没睡」并退回 Normal。 */
-        sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
-        return 1U;
+        /* PNCOK 被清零：重试一次 */
+        sit1145_wuf_enable();
       }
-      sit1145_delay_ms(1U);
     }
   }
-  /* CAN Control 配置失败：不进 Sleep，调用方降级处理 */
-  return 0U;
+
+  /* 4) 进 Sleep（SPI 断开，无法回读）——对齐 Test_LTS/formal_LTS：
+   *    写 Sleep 后直接返回成功，不做入睡验证。 */
+  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
+  return 1U;
 }
 
 /**
@@ -685,33 +680,28 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
 
 /**
  * @brief  使能选择性唤醒（CPNC=1 + PNCOK=1 + CWE=1）
- * @note   在 sit1145_wuf_config() 之后调用
- *         先设 CPNC=1，再设 PNCOK=1（PNCOK 置1后配置寄存器锁定）
- *         最后使能 CWE
+ * @note   在 sit1145_wuf_config() 之后调用。
+ *         关键：写任何 PN 配置寄存器(0x20-0x2F)都会清 PNCOK，
+ *         所以 PNCOK=1 必须是最后一次 PN 配置寄存器写入！
+ *         调用后不要再写 0x20-0x2F，否则 PNCOK 被清零。
  */
 void sit1145_wuf_enable(void)
 {
   uint8_t can_ctrl;
 
-  /* 官方 SleepMode_Set 顺序：0x23 → 0x20(PNCOK=1 最后)。
-   * 关键：写任何 PN 配置寄存器(0x20-0x2F)都会清 PNCOK，
-   * 所以 PNCOK=1 必须是最后一次 PN 配置寄存器写入！ */
-
-  /* 1) 先写 Transceiver_event_enable (0x23) */
+  /* 1) 先写 Transceiver_event_enable (0x23)——非 PN 配置寄存器 */
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN,
                     SIT1145_CWE | SIT1145_CFE);
 
-  /* 2) 清残留事件 (0x24) */
+  /* 2) 清残留事件 (0x24)——非 PN 配置寄存器 */
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT, SIT1145_CW | SIT1145_WUF);
 
-  /* 3) 最后写 CAN Control (0x20)：CPNC=1 + PNCOK=1（锁定） */
-  can_ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
-  if (can_ctrl == 0xFFU)
-  {
-    return;  /* SPI 失败 */
-  }
-  can_ctrl |= (1U << SIT1145_CAN_CTRL_CPNC_POS);
-  can_ctrl |= (1U << SIT1145_CAN_CTRL_PNCOK_POS);
+  /* 3) 最后写 CAN Control (0x20)：CPNC=1 + PNCOK=1（一次写入，PNCOK 锁定）
+   *    直接构造完整值，不再读-改-写（读 0x20 无副作用，但写入后 PNCOK=1） */
+  can_ctrl = SIT1145_CAN_FD_TOLERANCE_EN    /* CFDC=1 */
+           | SIT1145_CAN_NETW_VALID          /* PNCOK=1 */
+           | SIT1145_SEL_WAKEUP_EN           /* CPNC=1 */
+           | SIT1145_CAN_MODE_NORMAL;        /* CMC=01 */
   sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl);
 }
 
