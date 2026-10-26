@@ -413,6 +413,18 @@ uint8_t sit1145_sleep_enter(void)
     return 0U;
   }
 
+  /* 4.5) CMC=00（离线模式）：规格书要求 CAN 收发器处于离线模式
+   *      才能进 Sleep。E5 诊断证实 CMC=01 时 Sleep 写入被忽略
+   *      （id_rb=0x74 芯片 ID 仍可读）。只改 CMC 位，保留其他配置。 */
+  {
+    uint8_t ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+    if (ctrl != 0xFFU)
+    {
+      ctrl &= (uint8_t)~0x03U;  /* CMC=00 */
+      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, ctrl);
+    }
+  }
+
   /* 5) Standby → Sleep（写后 SPI 断开，无法回读 MODE） */
   sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
   sit1145_delay_ms(5U);
