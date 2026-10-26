@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.24";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.25";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -578,11 +578,38 @@ static void can_lp_enter_sleep(void)
 
   /* ---- Sleep 模式 ----
    * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control（回读验证
-   * ×3）→ 进 Sleep。CAN Control 配置失败时不进 Sleep——CAN 唤醒不可靠，
+   * ×3）→ Normal→Standby→Sleep。失败时不进 Sleep——CAN 唤醒不可靠，
    * 保持 CAN 在线等下次空闲超时重试。 */
   if (sit1145_sleep_enter() == 0U)
   {
     g_lp_sleep_fail = 1U;
+
+    /* ---- E5 诊断帧：进 Sleep 失败详情 ----
+     * [0]=0xE5 [1]=step [2]=can_ctrl写 [3]=can_ctrl回读
+     * [4]=mode_rb [5]=id_rb [6]=bit0=g_lp_sleep_fail [7]=0xA5
+     * step: 0=成功 3=CAN Control 失败 4=Standby 回读失败 5=Sleep 被忽略 */
+    {
+      uint8_t step, can_ctrl, can_rb, mode_rb, id_rb;
+      uint8_t e5[8];
+      sit1145_get_sleep_diag(&step, &can_ctrl, &can_rb, &mode_rb, &id_rb);
+      e5[0] = 0xE5U;
+      e5[1] = step;
+      e5[2] = can_ctrl;
+      e5[3] = can_rb;
+      e5[4] = mode_rb;
+      e5[5] = id_rb;
+      e5[6] = (uint8_t)(g_lp_sleep_fail != 0U ? 0x01U : 0x00U);
+      e5[7] = 0xA5U;
+      if (can_driver_send(0x18FF270DU, e5, 8) == 0)
+      {
+        uint8_t handle;
+        if (can_driver_last_tx_handle(&handle) == 0)
+        {
+          (void)can_driver_wait_tx_frame(handle, 20U);
+        }
+      }
+    }
+
     /* 配置失败：恢复 CAN 在线，不进 Sleep。g_uds_last_ms 已过期，
      * 下次 poll 空闲判定会再次触发 can_lp_go_sleep 重试。 */
     can_driver_pins_active();

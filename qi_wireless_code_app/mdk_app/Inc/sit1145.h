@@ -808,6 +808,17 @@ void sit1145_wuf_clear(void);
  */
 uint8_t sit1145_clear_pn_error_counter(void);
 
+/**
+ * @brief  获取进 Sleep 诊断快照（供 E5 诊断帧用）
+ * @param  step: 失败步骤号（0=成功, 3=CAN Control 失败, 4=Standby 回读失败, 5=Sleep 被忽略）
+ * @param  can_ctrl: CAN Control 写入值
+ * @param  can_rb: CAN Control 回读值
+ * @param  mode_rb: Standby 回读 MODE 值
+ * @param  id_rb: Sleep 后识别码回读值
+ */
+void sit1145_get_sleep_diag(uint8_t *step, uint8_t *can_ctrl,
+                             uint8_t *can_rb, uint8_t *mode_rb, uint8_t *id_rb);
+
 #ifdef __cplusplus
 }
 #endif
