@@ -342,6 +342,17 @@ uint8_t sit1145_sleep_enter(void)
         sit1145_wuf_enable();
       }
     }
+    /* 3.5) 验证 WUF 配置（只读，不写）——诊断用 */
+    {
+      uint8_t fc = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
+      if (fc != 0x88U)  /* 期望 IDE=1, PNDM=0, DLC=8 */
+      {
+        /* frame_ctrl 被覆盖：重新写入 */
+        sit1145_write_reg(SIT1145_REG_FRAME_CTRL, 0x88U);
+        /* 重新使能（PNCOK 被清） */
+        sit1145_wuf_enable();
+      }
+    }
   }
 
   /* 4) 进 Sleep（SPI 断开，无法回读）——对齐 Test_LTS/formal_LTS：
