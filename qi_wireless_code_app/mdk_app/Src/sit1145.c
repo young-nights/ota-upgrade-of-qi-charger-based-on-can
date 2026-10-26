@@ -351,9 +351,9 @@ uint8_t sit1145_sleep_enter(void)
                     SIT1145_CW | SIT1145_WUF);
 
   /* 1.5) WAKE_enable (0x4C)：官方 SleepMode_Set 必需步骤。
-   *      虽然 WAKE 引脚恒高不可用，但写 0x4C 是模式状态机
-   *      进入 Sleep 的必要条件。WAKE_PIN_CHANGE = 上升沿+下降沿。 */
-  sit1145_wake_enable();
+   *      WAKE 引脚不使用（恒高），写 WAKE_PIN_CLOSE=0 显式禁用。
+   *      写 0x4C 寄存器本身可能是模式状态机进入 Sleep 的必要条件。 */
+  sit1145_write_reg(SIT1145_REG_WAKE_ENABLE, 0x00U);  /* WAKE_PIN_CLOSE */
 
   /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03, DLC=8, 匹配 3E xx） */
   if (sit1145_wuf_config_uds() == 0U)

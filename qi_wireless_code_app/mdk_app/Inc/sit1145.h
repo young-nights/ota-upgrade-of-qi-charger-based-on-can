@@ -93,6 +93,7 @@ extern "C" {
 #define SIT1145_REG_GLOBAL_EVENT_STATUS   0x60  /**< 全局事件状态（只读）：WPE/TRXE/SYSE */
 #define SIT1145_REG_SYSTEM_EVENT_STATUS   0x61  /**< 系统事件状态（只读）：PO/OTW/SPIF */
 #define SIT1145_REG_TRX_EVENT_STATUS      0x63  /**< 收发器事件状态（只读）：PNFDE/CBS/CF/CW */
+#define SIT1145_REG_WAKE_ENABLE           0x4C  /**< WAKE 引脚使能（读写）：WPRE/WPFE */
 #define SIT1145_REG_WAKE_PIN_EVENT_STATUS 0x64  /**< 唤醒引脚事件状态（只读）：WPS */
 
 /* ==========================================================================
