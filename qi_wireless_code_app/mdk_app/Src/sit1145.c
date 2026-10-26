@@ -291,9 +291,7 @@ uint8_t sit1145_normal_mode_set(void)
  */
 uint8_t sit1145_sleep_mode_set(void)
 {
-  /* Sleep 只能从 Standby 进入：先切 Standby 再 Sleep */
-  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_STANDBY_MODE);
-  sit1145_delay_ms(5U);
+  /* 对齐官方 FAE SleepMode_Set：直接写 Sleep */
   return sit1145_set_mode(SIT1145_MC_SLEEP_MODE);
 }
 
@@ -398,38 +396,13 @@ uint8_t sit1145_sleep_enter(void)
     }
   }
 
-  /* 4) Normal → Standby（模式状态机：Sleep 只能从 Standby 进入，
-   *    Normal 直写 0x01 会被芯片忽略——1.1.23 及之前「从未真正进
-   *    休眠」的根因）。Standby 下 SPI 仍可用，可回读验证。 */
-  sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_STANDBY_MODE);
-  sit1145_delay_ms(5U);  /* tMODE：等模式切换稳定后再回读/再切 */
-  g_sleep_diag_mode_rb = sit1145_read_reg(SIT1145_REG_MODE_CONTROL);
-  if ((g_sleep_diag_mode_rb & SIT1145_MC_MODE_MASK)
-      != SIT1145_MC_STANDBY_MODE)
-  {
-    /* Standby 都进不去：退回 Normal，保持总线可用 */
-    g_sleep_diag_step = 4U;  /* step4: Standby 回读失败 */
-    (void)sit1145_set_mode(SIT1145_MC_NORMAL_MODE);
-    return 0U;
-  }
-
-  /* 4.5) CMC=00（离线模式）：规格书要求 CAN 收发器处于离线模式
-   *      才能进 Sleep。E5 诊断证实 CMC=01 时 Sleep 写入被忽略
-   *      （id_rb=0x74 芯片 ID 仍可读）。只改 CMC 位，保留其他配置。 */
-  {
-    uint8_t ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
-    if (ctrl != 0xFFU)
-    {
-      ctrl &= (uint8_t)~0x03U;  /* CMC=00 */
-      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, ctrl);
-    }
-  }
-
-  /* 5) Standby → Sleep（写后 SPI 断开，无法回读 MODE） */
+  /* 4) 直接 Normal → Sleep（对齐官方 FAE SleepMode_Set 序列：
+   *    清事件 → WAKE_enable → EVENT_EN → CAN_Control(PNCOK=1 最后)
+   *    → Mode_control=0x01。官方代码直接写 Sleep，不经过 Standby。 */
   sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
   sit1145_delay_ms(5U);
 
-  /* 6) 入睡验证：Sleep 下 SPI 失效。读识别码寄存器——
+  /* 5) 入睡验证：Sleep 下 SPI 失效。读识别码寄存器——
    *    仍回 0x70/0x74 = 芯片没睡（请求被忽略 / 被立刻唤醒），
    *    置失败让调用方恢复 CAN 并置 g_lp_sleep_fail（DID 0x2119 bit2）；
    *    回 0xFF 等其它值 = SPI 已断 = 确认入睡。 */
