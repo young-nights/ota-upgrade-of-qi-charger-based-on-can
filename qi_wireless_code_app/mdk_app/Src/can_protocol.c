@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.25";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.26";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -584,6 +584,10 @@ static void can_lp_enter_sleep(void)
   {
     g_lp_sleep_fail = 1U;
 
+    /* 配置失败：先恢复 CAN 在线（E5 诊断帧需要在线才能发出） */
+    can_driver_pins_active();
+    can_driver_online();
+
     /* ---- E5 诊断帧：进 Sleep 失败详情 ----
      * [0]=0xE5 [1]=step [2]=can_ctrl写 [3]=can_ctrl回读
      * [4]=mode_rb [5]=id_rb [6]=bit0=g_lp_sleep_fail [7]=0xA5
@@ -610,10 +614,6 @@ static void can_lp_enter_sleep(void)
       }
     }
 
-    /* 配置失败：恢复 CAN 在线，不进 Sleep。g_uds_last_ms 已过期，
-     * 下次 poll 空闲判定会再次触发 can_lp_go_sleep 重试。 */
-    can_driver_pins_active();
-    can_driver_online();
     return;
   }
   can_driver_pins_sleep();
