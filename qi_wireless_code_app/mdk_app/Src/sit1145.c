@@ -317,7 +317,8 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT,
                     SIT1145_CW | SIT1145_WUF);
 
-  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03, PNDM=0 纯 ID 匹配） */
+  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03, PNDM=0 纯 ID 匹配）
+   *    每次 SPI 写入后加延时，确保收发器配置生效 */
   if (sit1145_wuf_config_uds() == 0U)
   {
     /* WUF 配置失败：退化到标准 WUP（任意帧唤醒） */
@@ -326,34 +327,63 @@ uint8_t sit1145_sleep_enter(void)
                          | SIT1145_SEL_WAKEUP_DIS
                          | SIT1145_CAN_MODE_NORMAL;
     sit1145_wake_enable();
+    sit1145_delay_ms(2U);
     sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
+    sit1145_delay_ms(2U);
   }
   else
   {
+    /* 2.5) 延时：等 WUF 寄存器配置生效 */
+    sit1145_delay_ms(2U);
+
     /* 3) 使能选择性唤醒：wuf_enable 内部写 0x20(CPNC=1+PNCOK=1)
      *    关键：wuf_enable 之后不能再写 0x20-0x2F，否则 PNCOK 被清零！ */
     sit1145_wuf_enable();
-    /* 验证 CAN Control（只读，不写） */
+    sit1145_delay_ms(2U);  /* 等 CAN Control 配置生效 */
+
+    /* 3.5) 验证配置（只读，不写）——最多重试 3 次 */
     {
-      uint8_t rb = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
-      if ((rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) == 0U)
+      uint8_t retry;
+      for (retry = 0U; retry < 3U; retry++)
       {
-        /* PNCOK 被清零：重试一次 */
-        sit1145_wuf_enable();
-      }
-    }
-    /* 3.5) 验证 WUF 配置（只读，不写）——诊断用 */
-    {
-      uint8_t fc = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
-      if (fc != 0x88U)  /* 期望 IDE=1, PNDM=0, DLC=8 */
-      {
-        /* frame_ctrl 被覆盖：重新写入 */
-        sit1145_write_reg(SIT1145_REG_FRAME_CTRL, 0x88U);
+        uint8_t rb   = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+        uint8_t fc   = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
+        uint8_t id0  = sit1145_read_reg(SIT1145_REG_ID_REG0);
+        uint8_t id3  = sit1145_read_reg(SIT1145_REG_ID_REG3);
+
+        /* 检查 PNCOK=1 + frame_ctrl=0x88 + ID=0x18DA0D03 */
+        uint8_t pncok_ok = (rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) != 0U;
+        uint8_t fc_ok    = (fc == 0x88U);
+        uint8_t id_ok    = (id0 == 0x03U) && (id3 == 0x18U);
+
+        if (pncok_ok && fc_ok && id_ok)
+        {
+          break;  /* 配置正确 */
+        }
+
+        /* 配置异常：重新写入 */
+        if (!fc_ok)
+        {
+          sit1145_write_reg(SIT1145_REG_FRAME_CTRL, 0x88U);
+          sit1145_delay_ms(1U);
+        }
+        if (!id_ok)
+        {
+          sit1145_write_reg(SIT1145_REG_ID_REG0, 0x03U);
+          sit1145_write_reg(SIT1145_REG_ID_REG1, 0x0DU);
+          sit1145_write_reg(SIT1145_REG_ID_REG2, 0xDAU);
+          sit1145_write_reg(SIT1145_REG_ID_REG3, 0x18U);
+          sit1145_delay_ms(1U);
+        }
         /* 重新使能（PNCOK 被清） */
         sit1145_wuf_enable();
+        sit1145_delay_ms(2U);
       }
     }
   }
+
+  /* 3.8) 最终延时：确保所有配置生效后再进 Sleep */
+  sit1145_delay_ms(5U);
 
   /* 4) 进 Sleep（SPI 断开，无法回读）——对齐 Test_LTS/formal_LTS：
    *    写 Sleep 后直接返回成功，不做入睡验证。 */
@@ -652,19 +682,22 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
   }
 
   /* 官方写入顺序：ID → 掩码 → 数据掩码 → 帧控制最后写
-   * （帧控制最后写，避免被后续寄存器写入影响） */
+   * （帧控制最后写，避免被后续寄存器写入影响）
+   * 每组写入后加延时，确保收发器配置生效 */
 
   /* 1) 写入 ID 寄存器 */
   sit1145_write_reg(SIT1145_REG_ID_REG0, id0);
   sit1145_write_reg(SIT1145_REG_ID_REG1, id1);
   sit1145_write_reg(SIT1145_REG_ID_REG2, id2);
   sit1145_write_reg(SIT1145_REG_ID_REG3, id3);
+  sit1145_delay_us();  /* tSPI：等 ID 配置生效 */
 
   /* 2) 写入 ID 掩码寄存器 */
   sit1145_write_reg(SIT1145_REG_MASK_REG0, m0);
   sit1145_write_reg(SIT1145_REG_MASK_REG1, m1);
   sit1145_write_reg(SIT1145_REG_MASK_REG2, m2);
   sit1145_write_reg(SIT1145_REG_MASK_REG3, m3);
+  sit1145_delay_us();  /* tSPI：等 Mask 配置生效 */
 
   /* 3) 写入数据掩码寄存器 */
   sit1145_write_reg(SIT1145_REG_DATA_MASK0, cfg->data_mask[0]);
@@ -675,9 +708,11 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
   sit1145_write_reg(SIT1145_REG_DATA_MASK5, cfg->data_mask[5]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK6, cfg->data_mask[6]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK7, cfg->data_mask[7]);
+  sit1145_delay_us();  /* tSPI：等 DataMask 配置生效 */
 
   /* 4) 帧控制寄存器最后写（官方顺序） */
   sit1145_write_reg(SIT1145_REG_FRAME_CTRL, frame_ctrl);
+  sit1145_delay_ms(1U);  /* tSPI：等 FrameCtrl 配置生效 */
 
   /* 回读验证：仅记录，不阻断。E2 诊断帧证明值已正确写入，
    * 回读比较失败可能是 SPI 时序问题，不应导致退化到标准 WUP。 */
@@ -714,6 +749,7 @@ void sit1145_wuf_enable(void)
            | SIT1145_SEL_WAKEUP_EN           /* CPNC=1 */
            | SIT1145_CAN_MODE_NORMAL;        /* CMC=01 */
   sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl);
+  sit1145_delay_ms(2U);  /* tSPI：等 CAN Control 配置生效 */
 }
 
 /**
