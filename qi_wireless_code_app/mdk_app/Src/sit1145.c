@@ -323,32 +323,16 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT,
                     SIT1145_CW | SIT1145_WUF);
 
-  /* 1.5) WAKE_enable (0x4C)：官方 SleepMode_Set 必需步骤。
-   *      WAKE 引脚不使用（恒高），写 WAKE_PIN_CLOSE=0 显式禁用。
-   *      写 0x4C 寄存器本身可能是模式状态机进入 Sleep 的必要条件。 */
-  sit1145_write_reg(SIT1145_REG_WAKE_ENABLE, 0x00U);  /* WAKE_PIN_CLOSE */
+  /* 2) 使能 CAN 唤醒（CWE=1）——WAKE 引脚恒高不可用，仅依赖 CAN WUP
+   *    对齐 formal_LTS(1.2.1)：标准 WUP，CPNC=0，无 WUF 选择性唤醒 */
+  sit1145_wake_enable();
 
-  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03, DLC=8, 匹配 3E xx） */
-  if (sit1145_wuf_config_uds() == 0U)
-  {
-    /* 配置失败：退化到标准 WUP（任意帧唤醒） */
-    sit1145_wake_enable();
-    can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
-                 | SIT1145_CAN_NETW_INVALID
-                 | SIT1145_SEL_WAKEUP_DIS
-                 | SIT1145_CAN_MODE_NORMAL;
-  }
-  else
-  {
-    /* 3) 使能选择性唤醒：CPNC=1 → PNCOK=1（最后写，锁定配置寄存器）
-     *    注意：can_ctrl_val 必须包含 PNCOK=1，否则 wuf_enable 设的 PNCOK
-     *    会被这次 CAN Control 写回清零，WUF 过滤器失效！ */
-    sit1145_wuf_enable();
-    can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
-                 | SIT1145_SEL_WAKEUP_EN
-                 | SIT1145_CAN_NETW_VALID
-                 | SIT1145_CAN_MODE_NORMAL;
-  }
+  /* 3) CAN Control：CFDC=1, PNCOK=0, CPNC=0, CMC=01（主动+UVLO）
+   *    对齐 formal_LTS(1.2.1)，标准 WUP 任意 250kbps 帧触发唤醒 */
+  can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
+               | SIT1145_CAN_NETW_INVALID
+               | SIT1145_SEL_WAKEUP_DIS
+               | SIT1145_CAN_MODE_NORMAL;
 
   /* CAN Control 回读验证 + 重试 */
   {
