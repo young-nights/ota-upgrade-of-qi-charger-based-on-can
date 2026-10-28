@@ -42,7 +42,9 @@ public sealed class SeedSigner
         foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
         {
             var dir = new DirectoryInfo(start);
-            for (int i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
+            // 深度 16：bin/Release/net8.0-windows/win-x64 到仓库根要 8 跳，
+            // 旧值 8 差一层够不着 docs/keys（Release 目录启动 SA 解锁找不到私钥）
+            for (int i = 0; i < 16 && dir is not null; i++, dir = dir.Parent)
             {
                 yield return Path.Combine(dir.FullName, "docs", "keys", "private.pem");
                 yield return Path.Combine(dir.FullName, "keys", "private.pem");
