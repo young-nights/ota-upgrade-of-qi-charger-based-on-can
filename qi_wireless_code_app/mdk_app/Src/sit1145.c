@@ -333,52 +333,62 @@ uint8_t sit1145_sleep_enter(void)
   }
   else
   {
-    /* 2.5) 延时：等 WUF 寄存器配置生效 */
-    sit1145_delay_ms(2U);
-
-    /* 3) 使能选择性唤醒：wuf_enable 内部写 0x20(CPNC=1+PNCOK=1)
-     *    关键：wuf_enable 之后不能再写 0x20-0x2F，否则 PNCOK 被清零！ */
-    sit1145_wuf_enable();
-    sit1145_delay_ms(2U);  /* 等 CAN Control 配置生效 */
-
-    /* 3.5) 验证配置（只读，不写）——最多重试 3 次 */
+    /* 3) WUF 配置 + 锁定 + 验证（官方顺序：ID→Mask→DM→FrameCtrl 最后写，
+     *    CAN Control PNCOK=1 最后锁）。PNCOK=1 后配置寄存器（0x20-0x2F）
+     *    锁定——锁定期补写会失效/清 PNCOK，验证失败必须「解锁→全量重配→
+     *    再锁定」，不能在锁定期直接补写个别寄存器。 */
+    uint8_t retry;
+    uint8_t wuf_ok = 0U;
+    for (retry = 0U; retry < 3U; retry++)
     {
-      uint8_t retry;
-      for (retry = 0U; retry < 3U; retry++)
+      uint8_t ctrl;
+
+      /* 解锁：PNCOK=0（只改该位，其余保持） */
+      ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+      if (ctrl != 0xFFU)
+      {
+        ctrl &= (uint8_t)~(1U << SIT1145_CAN_CTRL_PNCOK_POS);
+        sit1145_write_reg(SIT1145_REG_CAN_CONTROL, ctrl);
+        sit1145_delay_ms(2U);
+      }
+
+      /* 全量重配（内部顺序 ID→Mask→DM→FrameCtrl） */
+      (void)sit1145_wuf_config_uds();
+      sit1145_delay_ms(2U);
+
+      /* 锁定 + 使能（0x23/0x24/0x20，PNCOK=1 最后写） */
+      sit1145_wuf_enable();
+      sit1145_delay_ms(2U);
+
+      /* 只读验证：PNCOK=1 + frame_ctrl=0x88 + ID=0x18DA0D03 */
       {
         uint8_t rb   = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
         uint8_t fc   = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
         uint8_t id0  = sit1145_read_reg(SIT1145_REG_ID_REG0);
         uint8_t id3  = sit1145_read_reg(SIT1145_REG_ID_REG3);
+        uint8_t pncok_ok = (rb != 0xFFU) &&
+                           ((rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) != 0U);
 
-        /* 检查 PNCOK=1 + frame_ctrl=0x88 + ID=0x18DA0D03 */
-        uint8_t pncok_ok = (rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) != 0U;
-        uint8_t fc_ok    = (fc == 0x88U);
-        uint8_t id_ok    = (id0 == 0x03U) && (id3 == 0x18U);
-
-        if (pncok_ok && fc_ok && id_ok)
+        if (pncok_ok && (fc == 0x88U) && (id0 == 0x03U) && (id3 == 0x18U))
         {
+          wuf_ok = 1U;
           break;  /* 配置正确 */
         }
-
-        /* 配置异常：重新写入 */
-        if (!fc_ok)
-        {
-          sit1145_write_reg(SIT1145_REG_FRAME_CTRL, 0x88U);
-          sit1145_delay_ms(1U);
-        }
-        if (!id_ok)
-        {
-          sit1145_write_reg(SIT1145_REG_ID_REG0, 0x03U);
-          sit1145_write_reg(SIT1145_REG_ID_REG1, 0x0DU);
-          sit1145_write_reg(SIT1145_REG_ID_REG2, 0xDAU);
-          sit1145_write_reg(SIT1145_REG_ID_REG3, 0x18U);
-          sit1145_delay_ms(1U);
-        }
-        /* 重新使能（PNCOK 被清） */
-        sit1145_wuf_enable();
-        sit1145_delay_ms(2U);
       }
+    }
+
+    if (wuf_ok == 0U)
+    {
+      /* WUF 三轮都没配好：退化标准 WUP（任意帧唤醒），保证能醒——
+       * 宁可多醒，不可睡死。 */
+      uint8_t can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
+                           | SIT1145_CAN_NETW_INVALID
+                           | SIT1145_SEL_WAKEUP_DIS
+                           | SIT1145_CAN_MODE_NORMAL;
+      sit1145_wake_enable();
+      sit1145_delay_ms(2U);
+      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
+      sit1145_delay_ms(2U);
     }
   }
 
