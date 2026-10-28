@@ -381,8 +381,20 @@ public partial class MainWindow : Window
     }
 
     private async void OnSnRead(object sender, RoutedEventArgs e)
-        => await RunOpAsync("读 SN", TimeSpan.FromSeconds(15), async (uds, ct) =>
+        => await RunOpAsync("读 SN", TimeSpan.FromSeconds(20), async (uds, ct) =>
         {
+            // 真休眠=整板断电（fw 1.1.40）：单帧请求会唤醒设备但丢在重启窗口里，
+            // 先唤醒 burst + 等 UDS 就绪再读
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            if (!ready)
+            {
+                await UiAsync(() =>
+                {
+                    AppendResult("FAIL", "读 SN", readyErr);
+                    SetState("失败", Colors.Crimson, readyErr);
+                });
+                return false;
+            }
             var r = await Task.Run(() =>
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
             if (!r.Ok)
@@ -707,8 +719,21 @@ public partial class MainWindow : Window
 
     /// <summary>链路自检：3E 00 + 22 F195，把收发都打进日志，区分「无回包 / 协议不匹配」。</summary>
     private async void OnLinkProbe(object sender, RoutedEventArgs e)
-        => await RunOpAsync("链路自检", TimeSpan.FromSeconds(12), async (uds, ct) =>
+        => await RunOpAsync("链路自检", TimeSpan.FromSeconds(20), async (uds, ct) =>
         {
+            // 真休眠=整板断电时直接探测会误报「硬件/未上电」：先唤醒再自检
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            if (!ready)
+            {
+                await UiAsync(() =>
+                {
+                    AppendLog($"[自检] 唤醒/就绪失败: {readyErr}");
+                    AppendLog("[自检] 请查看上方 [CAN-TX]/[CAN-RX]：有 CAN-RX=协议/ID 问题；无 CAN-RX=硬件/盒子/设备未上电");
+                    AppendResult("FAIL", "链路自检", readyErr);
+                    SetState("失败", Colors.Crimson, readyErr);
+                });
+                return false;
+            }
             await Task.Run(() =>
             {
                 try
@@ -746,6 +771,17 @@ public partial class MainWindow : Window
     private async void OnQiStatusQuery(object sender, RoutedEventArgs e)
         => await RunOpAsync("Qi 状态查询", TimeSpan.FromSeconds(20), async (uds, ct) =>
         {
+            // 真休眠=整板断电：先唤醒 burst + 等 UDS 就绪再查
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            if (!ready)
+            {
+                await UiAsync(() =>
+                {
+                    AppendResult("FAIL", "Qi 状态查询", readyErr);
+                    SetState("失败", Colors.Crimson, readyErr);
+                });
+                return false;
+            }
             QiChargerStationTool.Core.Protocol.QiChipStatus st;
             try
             {
