@@ -94,6 +94,9 @@ extern "C" {
 #define SIT1145_REG_SYSTEM_EVENT_STATUS   0x61  /**< 系统事件状态（只读）：PO/OTW/SPIF */
 #define SIT1145_REG_TRX_EVENT_STATUS      0x63  /**< 收发器事件状态（只读）：PNFDE/CBS/CF/CW */
 #define SIT1145_REG_WAKE_ENABLE           0x4C  /**< WAKE 引脚使能（读写）：WPRE/WPFE */
+#define SIT1145_WAKE_PIN_FALLING          (1U << 0)  /**< bit0 WPFE：下降沿唤醒 */
+#define SIT1145_WAKE_PIN_RISING           (1U << 1)  /**< bit1 WPRE：上升沿唤醒 */
+#define SIT1145_WAKE_PIN_CHANGE           (SIT1145_WAKE_PIN_RISING | SIT1145_WAKE_PIN_FALLING)  /**< 双边沿（官方 SleepMode_Set 值） */
 #define SIT1145_REG_WAKE_PIN_EVENT_STATUS 0x64  /**< 唤醒引脚事件状态（只读）：WPS */
 
 /* ==========================================================================
