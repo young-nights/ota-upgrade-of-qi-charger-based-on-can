@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.39";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.40";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2675,6 +2675,27 @@ void can_protocol_init(void)
 
   /* load persistent Qi config from NVM (nvm_drv_init already called in main) */
   qi_nvm_load_config();
+
+  /* 唤醒启动探测：SIT1145 进 Sleep 后 INH 断电 = AT32 整板断电；CAN 唤醒
+   * （WUF 匹配）→ 重新供电冷启动。SIT1145 自身不断电，唤醒事件位锁存于
+   * 0x24/0x63，sit1145_init 步骤6.5 已快照（wakeup_clear 前）。有残留 =
+   * 本次上电是 CAN 唤醒：预置 g_lp_ever_sleep/g_lp_last_wake_src，enter_normal
+   * 首次执行时 wup_count 0→1、sleep_sec=0（RAM 断电清零，时长不可知），
+   * BOOTUP 标记即以 01 41 57 4B（WK）发出，与冷启动 01 41 00 区分。 */
+  {
+    uint8_t ev24 = sit1145_boot_wake_ev24();
+    uint8_t ev63 = sit1145_boot_wake_ev63();
+    /* 两路都有效才采信：0xFF 时 0xFF&0x03!=0 会假阳性误判唤醒 */
+    if ((ev24 != 0xFFU) && (ev63 != 0xFFU))
+    {
+      if (((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U) ||
+          ((ev63 & SIT1145_TRX_EVT_STA_CW) != 0U))
+      {
+        g_lp_ever_sleep    = 1U;
+        g_lp_last_wake_src = ((ev24 & (SIT1145_CW | SIT1145_WUF)) != 0U) ? 2U : 3U;
+      }
+    }
+  }
 
   /* 上电即 Normal，空闲 CAN_LP_IDLE_TIMEOUT_MS（UDS 无收发）后进 Sleep。
    * trial 与非 trial 同路径置 g_lp_need_online，由首次 can_protocol_poll

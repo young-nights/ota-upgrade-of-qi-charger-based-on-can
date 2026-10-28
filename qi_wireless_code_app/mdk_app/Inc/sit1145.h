@@ -454,6 +454,21 @@ typedef struct {
 uint8_t sit1145_init(void);
 
 /**
+ * @brief  读启动时刻 TRANSCEIVER_EVENT(0x24) 残留快照（wakeup_clear 前采集）
+ * @note   SIT1145 Sleep→INH 断电=整板断电；CAN 唤醒→冷启动，芯片自身
+ *         不断电、CW/WUF 事件位锁存保留。整板上电时寄存器复位=全 0。
+ *         上层据此区分「唤醒启动」与「冷启动」。
+ * @retval 0x24 原始值；SPI 未就绪/未采集返回 0xFF
+ */
+uint8_t sit1145_boot_wake_ev24(void);
+
+/**
+ * @brief  读启动时刻 TRX_EVENT_STATUS(0x63) 残留快照（wakeup_clear 前采集）
+ * @retval 0x63 原始值；SPI 未就绪/未采集返回 0xFF
+ */
+uint8_t sit1145_boot_wake_ev63(void);
+
+/**
  * @brief  通过 SPI 写 SIT1145 寄存器
  * @note   SPI 帧：CS↓ → [addr<<1|0] → [data] → CS↑
  * @param  addr: 寄存器地址（7 位）

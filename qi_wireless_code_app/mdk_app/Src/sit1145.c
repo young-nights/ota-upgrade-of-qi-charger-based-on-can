@@ -51,6 +51,13 @@
  */
 #define SIT1145_CS_DELAY_CYCLES     180U
 
+/* 唤醒残留事件快照（sit1145_init 步骤6.5 采集，wakeup_clear 前）。
+ * 供电拓扑：SIT1145 Sleep→INH 断电=AT32 整板断电；CAN 唤醒→冷启动。
+ * SIT1145 自身不断电，CW/WUF 事件位锁存保留——上层据此区分
+ * 「唤醒启动」与「冷启动」（整板上电寄存器复位=全 0）。 */
+static uint8_t s_boot_ev24 = 0xFFU;
+static uint8_t s_boot_ev63 = 0xFFU;
+
 /* ==========================================================================
  *  私有延时函数
  * ========================================================================== */
@@ -1284,6 +1291,14 @@ uint8_t sit1145_init(void)
     return 0;  /* SPI 通信失败或芯片型号不匹配 */
   }
 
+  /* ---- 步骤6.5：快照唤醒残留事件位 ----
+   * 硬件供电拓扑：SIT1145 进 Sleep → INH 断电 = AT32 整板断电；CAN 唤醒
+   * （WUF 匹配）→ 重新供电冷启动。SIT1145 自身不断电，唤醒事件位（CW/WUF）
+   * 锁存保留；步骤9 wakeup_clear 会清掉它们，必须先快照供上层区分
+   * 「唤醒启动」与「冷启动」（整板上电时寄存器复位=全 0，无残留）。 */
+  s_boot_ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
+  s_boot_ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
+
   /* ---- 步骤7：配置 CAN Control 寄存器（0x20）----
    *   bit6 CFDC=1：CAN FD 容忍使能（忽略 FD 帧，不报错）
    *   bit5 PNCOK=0：局部网络配置无效
@@ -1317,4 +1332,24 @@ uint8_t sit1145_init(void)
   sit1145_wakeup_clear();   /* 清除可能残留的 CW 标志 */
 
   return 1;  /* 初始化成功 */
+}
+
+/**
+ * @brief  读启动时刻的 TRANSCEIVER_EVENT(0x24) 残留快照
+ * @note   sit1145_init 步骤6.5 在 wakeup_clear 之前采集
+ * @retval 0x24 原始值；SPI 未就绪/未采集返回 0xFF
+ */
+uint8_t sit1145_boot_wake_ev24(void)
+{
+  return s_boot_ev24;
+}
+
+/**
+ * @brief  读启动时刻的 TRX_EVENT_STATUS(0x63) 残留快照
+ * @note   sit1145_init 步骤6.5 在 wakeup_clear 之前采集
+ * @retval 0x63 原始值；SPI 未就绪/未采集返回 0xFF
+ */
+uint8_t sit1145_boot_wake_ev63(void)
+{
+  return s_boot_ev63;
 }
