@@ -421,10 +421,8 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_delay_ms(2U);
   {
     uint8_t mc = sit1145_read_reg(SIT1145_REG_MODE_CONTROL);
-    g_sleep_diag_id_rb = mc;  /* 复用诊断字段：记录 Sleep 写后 MODE 回读 */
     if ((mc == SIT1145_MC_SLEEP_MODE) || (mc == 0xFFU))
     {
-      g_sleep_diag_step = 0U;
       return 1U;
     }
 
@@ -443,14 +441,11 @@ uint8_t sit1145_sleep_enter(void)
     sit1145_write_reg(SIT1145_REG_MODE_CONTROL, SIT1145_MC_SLEEP_MODE);
     sit1145_delay_ms(2U);
     mc = sit1145_read_reg(SIT1145_REG_MODE_CONTROL);
-    g_sleep_diag_id_rb = mc;
     if ((mc == SIT1145_MC_SLEEP_MODE) || (mc == 0xFFU))
     {
-      g_sleep_diag_step = 0U;
       return 1U;
     }
     /* 写入被忽略：芯片没睡 */
-    g_sleep_diag_step = 5U;
     return 0U;
   }
 }

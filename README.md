@@ -188,7 +188,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.38** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.39** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -198,6 +198,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-26 | **fix(sit1145): 清除 g_sleep_diag 残留引用修复编译错误**——1.1.31 删 E5 时诊断静态变量已移除，1.1.38 误引用导致 Keil 报 undeclared identifier；删除赋值（回读逻辑不变）。`SW_VERSION_STR` 1.1.38→1.1.39 |
 | 2026-10-26 | **fix(sit1145): 休眠序列对齐官方 FAE SleepMode_Set——补 0x4C WAKE_enable + MODE 回读验证（可诊断写入被忽略）**。对照仓库官方参考 `code/SIT1145.c` 逐行核对，发现三处偏离：①官方写 `WAKE_enable(0x4C)=双边沿`（回读验证），我们全工程从未写过 0x4C（`sit1145_wake_enable()` 名不副实，实际写的是 0x23）；②官方 CAN_Control=**0x71（CMC=01）**，1.1.37 误改 CMC=00 与官方相悖（1.1.27「CMC=01 阻止入睡」系读识别码 0x74 的误判——官方 Sleep 写后仍可回读 MODE）；③官方写 Sleep 后**回读 MODE 验证**，我们完全信任写入。修复：sleep_enter/sleep_mode_set 补 0x4C 双边沿写；写 MODE=Sleep 后回读三态判定（0x01/0xFF=接受；仍 0x07=被忽略→CMC=00 兜底再写再回读；仍失败 return 0 置 g_lp_sleep_fail）——10s 空闲触发本身已实测正常（SB+E0 帧齐全），卡点在 Sleep 写入被芯片忽略且此前无回读发现。`SW_VERSION_STR` 1.1.37→1.1.38 |
 | 2026-10-26 | **fix(sit1145): 补回进 Sleep 前 CMC=00 步——修复 Sleep 写入被芯片忽略（1.1.28 回归）**。E5 诊断证实 CMC=01（主动模式）时写 MODE=Sleep 被芯片静默忽略、从未真正入睡；1.1.27 已加 CMC=00 修复，但 1.1.28 回归官方序列时误删（提交说明称「保留 CMC=00」实际未保留）。修复：`sit1145_sleep_enter()` 步骤 3.9 与 `sit1145_sleep_mode_set()` 在写 MODE=Sleep 前 RMW CAN_CONTROL：`CMC=00` 离线 + 同笔写入带 `PNCOK=1`（写 0x20 会清 PNCOK，必须一笔写全保持锁定）。`SW_VERSION_STR` 1.1.36→1.1.37，README/.agent-notes 同步 |
 | 2026-10-26 | **fix(sit1145): WUF 配置锁定期竞态修复——解锁→全量重配→锁定→验证**。实测 E3 诊断帧 WUF ID 寄存器全 0（应为 03 0D DA 18）导致选择性唤醒永不匹配、睡死。根因：`wuf_enable()` 置 PNCOK=1 锁定配置寄存器后，3.5 步验证循环在锁定期补写 FRAME_CTRL/ID_REGx（无效/清 PNCOK），且补写顺序违反官方「FrameCtrl 最后写」；3 次重试全空后仍进 Sleep。修复：重试循环改为「PNCOK=0 解锁 → sit1145_wuf_config_uds 全量重配 → wuf_enable 锁定 → 只读验证（PNCOK+frame_ctrl=0x88+ID）」；3 轮失败退化标准 WUP（CPNC=0 任意帧唤醒）兜底，宁可多醒不可睡死。`SW_VERSION_STR` 1.1.35→1.1.36，README/.agent-notes 同步 |
