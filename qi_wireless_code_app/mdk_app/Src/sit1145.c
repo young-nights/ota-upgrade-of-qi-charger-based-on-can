@@ -291,6 +291,18 @@ uint8_t sit1145_normal_mode_set(void)
  */
 uint8_t sit1145_sleep_mode_set(void)
 {
+  /* CMC=00（离线模式）：CMC=01 时 Sleep 写入被芯片忽略（E5 诊断证实）。
+   * 一笔写入带 PNCOK=1（写 0x20 会清 PNCOK）。 */
+  {
+    uint8_t ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+    if (ctrl != 0xFFU)
+    {
+      ctrl &= (uint8_t)~SIT1145_CAN_CTRL_CMC_MASK;
+      ctrl |= SIT1145_CAN_NETW_VALID;
+      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, ctrl);
+      sit1145_delay_ms(2U);
+    }
+  }
   /* 对齐官方 FAE SleepMode_Set：直接写 Sleep */
   return sit1145_set_mode(SIT1145_MC_SLEEP_MODE);
 }
@@ -394,6 +406,22 @@ uint8_t sit1145_sleep_enter(void)
 
   /* 3.8) 最终延时：确保所有配置生效后再进 Sleep */
   sit1145_delay_ms(5U);
+
+  /* 3.9) CMC=00（离线模式）+ PNCOK 最后写：规格书要求 CAN 收发器处于
+   *      离线模式才能进 Sleep。E5 诊断证实 CMC=01 时 Sleep 写入被芯片
+   *      忽略（id_rb=0x74 芯片 ID 仍可读）——1.1.28 回归时此步误删，
+   *      导致从未真正入睡。写 0x20 会清 PNCOK，必须同一笔写入里带
+   *      PNCOK=1 保持锁定（否则 WUF 过滤器失效）。 */
+  {
+    uint8_t ctrl = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
+    if (ctrl != 0xFFU)
+    {
+      ctrl &= (uint8_t)~SIT1145_CAN_CTRL_CMC_MASK;  /* CMC=00 */
+      ctrl |= SIT1145_CAN_NETW_VALID;               /* PNCOK=1 */
+      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, ctrl);
+      sit1145_delay_ms(2U);
+    }
+  }
 
   /* 4) 进 Sleep（SPI 断开，无法回读）——对齐 Test_LTS/formal_LTS：
    *    写 Sleep 后直接返回成功，不做入睡验证。 */
