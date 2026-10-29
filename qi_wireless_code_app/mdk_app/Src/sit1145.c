@@ -331,7 +331,7 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT,
                     SIT1145_CW | SIT1145_WUF);
 
-  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03 + DLC=3 + 数据 02 3E 00 近似，
+  /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03 + DLC=8 + 数据 02 3E 00 近似，
    *    PNDM=1 ID+DLC+数据评估）
    *    每次 SPI 写入后加延时，确保收发器配置生效 */
   if (sit1145_wuf_config_uds() == 0U)
@@ -375,7 +375,7 @@ uint8_t sit1145_sleep_enter(void)
       sit1145_wuf_enable();
       sit1145_delay_ms(2U);
 
-      /* 只读验证：PNCOK=1 + frame_ctrl=0xC3(IDE|PNDM|DLC=3) + ID=0x18DA0D03 */
+      /* 只读验证：PNCOK=1 + frame_ctrl=0xC8(IDE|PNDM|DLC=8) + ID=0x18DA0D03 */
       {
         uint8_t rb   = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
         uint8_t fc   = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
@@ -384,7 +384,7 @@ uint8_t sit1145_sleep_enter(void)
         uint8_t pncok_ok = (rb != 0xFFU) &&
                            ((rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) != 0U);
 
-        if (pncok_ok && (fc == 0xC3U) && (id0 == 0x03U) && (id3 == 0x18U))
+        if (pncok_ok && (fc == 0xC8U) && (id0 == 0x03U) && (id3 == 0x18U))
         {
           wuf_ok = 1U;
           break;  /* 配置正确 */
@@ -820,14 +820,15 @@ void sit1145_wuf_enable(void)
 }
 
 /**
- * @brief  配置 UDS 唤醒过滤（ID=0x18DA0D03, DLC=3, 数据 02 3E 00 近似）
+ * @brief  配置 UDS 唤醒过滤（ID=0x18DA0D03, DLC=8, 数据 02 3E 00 近似）
  * @note   按规格书 REC V1.5 配置：
  *         ID=0x18DA0D03 扩展帧精确匹配（掩码全 0）
- *         PNDM=1：ID+DLC+数据场评估——DLC 不等于 3 的帧整帧不唤醒；
- *         DLC=3 时 DM5/DM6/DM7 对应数据字节 0/1/2（图 8 映射）。
+ *         PNDM=1：ID+DLC+数据场评估——DLC 不等于 8 的帧整帧不唤醒；
+ *         DLC=8 时 DM0~DM7 对应数据字节 0~7（图 8 映射）。
  *         数据匹配是 (rx & DM) != 0 任一命中（组位图，无期望值寄存器），
- *         做不到字节级严格：DM5=0x02|DM6=0x3E 命中 02 3E 00，
- *         但 02 10 00 等超集帧也会命中（已知近似限制）。
+ *         做不到字节级严格：DM0=0x02|DM1=0x3E 命中 02 3E 00 CC…，
+ *         但 02 10 00 CC… 等超集帧也会命中（已知近似限制）。
+ *         唤醒帧（2026-10-28 决策）：DLC=8 的 02 3E 00 CC CC CC CC CC。
  * @retval 1=配置成功，0=失败
  */
 uint8_t sit1145_wuf_config_uds(void)
@@ -835,23 +836,23 @@ uint8_t sit1145_wuf_config_uds(void)
   sit1145_wuf_cfg_t cfg;
 
   cfg.ide = 1U;           /* 扩展帧 */
-  cfg.dlc = 3U;           /* DLC=3 严格（PNDM=1 时 DLC 不匹配整帧不唤醒） */
+  cfg.dlc = 8U;           /* DLC=8 严格（PNDM=1 时 DLC 不匹配整帧不唤醒） */
   cfg.pndm = 1U;          /* 评估 ID+CRC+DLC+数据场（数据手册 REC V1.5 p16-17） */
   cfg.can_id = 0x18DA0D03U;
   cfg.can_id_mask = 0U;   /* ID 全精确匹配 */
-  /* DLC=3 用 DM5/DM6/DM7，对应数据字节 0/1/2（图 8）。
+  /* DLC=8 用 DM0~DM7，对应数据字节 0~7（图 8）。
    * 命中规则：(rx_data AND DM) != 0 任一位同 1 即唤醒。
-   * DM5=0x02：byte0 bit1（PCI=0x02 的 SF len 位）
-   * DM6=0x3E：byte1 bit1~5（SID 0x3E 位段）
-   * DM7=0x00：byte2 不检查 */
-  cfg.data_mask[0] = 0x00U;  /* DM0: DLC=3 不使用 */
-  cfg.data_mask[1] = 0x00U;  /* DM1: DLC=3 不使用 */
-  cfg.data_mask[2] = 0x00U;  /* DM2: DLC=3 不使用 */
-  cfg.data_mask[3] = 0x00U;  /* DM3: DLC=3 不使用 */
-  cfg.data_mask[4] = 0x00U;  /* DM4: DLC=3 不使用 */
-  cfg.data_mask[5] = 0x02U;  /* DM5: byte0 bit1 */
-  cfg.data_mask[6] = 0x3EU;  /* DM6: byte1 bit1~5 */
-  cfg.data_mask[7] = 0x00U;  /* DM7: byte2 不检查 */
+   * DM0=0x02：byte0 bit1（PCI=0x02 的 SF len 位）
+   * DM1=0x3E：byte1 bit1~5（SID 0x3E 位段）
+   * DM2~DM7=0x00：不检查（含 0xCC 填充段） */
+  cfg.data_mask[0] = 0x02U;  /* DM0: byte0 bit1 */
+  cfg.data_mask[1] = 0x3EU;  /* DM1: byte1 bit1~5 */
+  cfg.data_mask[2] = 0x00U;  /* DM2: byte2 不检查 */
+  cfg.data_mask[3] = 0x00U;  /* DM3 */
+  cfg.data_mask[4] = 0x00U;  /* DM4 */
+  cfg.data_mask[5] = 0x00U;  /* DM5 */
+  cfg.data_mask[6] = 0x00U;  /* DM6 */
+  cfg.data_mask[7] = 0x00U;  /* DM7 */
 
   return sit1145_wuf_config(&cfg);
 }

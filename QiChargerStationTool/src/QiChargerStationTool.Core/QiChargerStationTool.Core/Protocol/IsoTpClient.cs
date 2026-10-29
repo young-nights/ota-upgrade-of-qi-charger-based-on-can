@@ -84,9 +84,8 @@ public sealed class IsoTpClient
     }
 
     /// <summary>
-    /// 发 raw CAN 帧（不组 ISO-TP、不填充）：WUF 严格匹配（PNDM=1，CCU 词汇表
-    /// 2026-10-28）后唤醒帧须 DLC=3 的 02 3E 00 上线，Send 的 SF 会垫 0xCC 到
-    /// DLC=8 不再唤醒。CanFrame.Dlc=Data.Length，传 3 字节即 DLC=3。
+    /// 发 raw CAN 帧（不组 ISO-TP）：唤醒帧为 DLC=8 的 02 3E 00 CC CC CC CC CC
+    /// （2026-10-28 决策，与普通 UDS SF 同线格式；CanFrame.Dlc=Data.Length）。
     /// </summary>
     public void SendRaw(byte[] data)
     {

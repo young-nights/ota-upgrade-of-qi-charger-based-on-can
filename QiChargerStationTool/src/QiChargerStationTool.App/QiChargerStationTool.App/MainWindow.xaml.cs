@@ -561,12 +561,12 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 等 UDS 就绪：设备可能刚 BOOTUP 或在 Sleep，UDS 栈要几百 ms～几秒才起来。
-    /// 先发唤醒 burst（≥6 帧 raw DLC=3 的 02 3E 00），再轮询 22 F195，有正响应即就绪。
+    /// 先发唤醒 burst（≥6 帧 02 3E 00 CC…，DLC=8），再轮询 22 F195，有正响应即就绪。
     /// </summary>
     private static async Task<(bool Ok, string Error)> WaitUdsReadyAsync(
         UdsClient uds, CancellationToken ct, int waitSec = 8, Action<string>? log = null)
     {
-        // SIT1145 WUF 唤醒 burst：≥6 帧 raw CAN 02 3E 00（DLC=3），PNDM=1 严格匹配
+        // SIT1145 WUF 唤醒 burst：≥6 帧 02 3E 00 CC…（DLC=8），PNDM=1 严格匹配
         log?.Invoke("[就绪] 发送唤醒 burst (8 帧)…");
         for (int i = 0; i < 8; i++)
         {

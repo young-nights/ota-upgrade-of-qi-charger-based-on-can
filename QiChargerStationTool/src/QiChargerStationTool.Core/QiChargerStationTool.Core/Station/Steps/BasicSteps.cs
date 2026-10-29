@@ -8,7 +8,7 @@ public sealed class ConnectStep : ITestStep
     public string Name => "连接探测";
     public bool Critical => true;
 
-    /// <summary>SIT1145 WUF 唤醒需要 ≥6 帧 raw CAN burst（DLC=3 的 02 3E 00，PNDM=1 严格匹配）。</summary>
+    /// <summary>SIT1145 WUF 唤醒需要 ≥6 帧 CAN burst（02 3E 00 CC…，DLC=8，PNDM=1 严格匹配）。</summary>
     private const int WakeBurstCount = 8;
     private const int WakeBurstGapMs = 250;
 
@@ -16,8 +16,8 @@ public sealed class ConnectStep : ITestStep
     {
         try
         {
-            // 唤醒 burst：发 ≥6 帧 raw CAN 02 3E 00（DLC=3）到 0x18DA0D03，触发 SIT1145 WUF
-            ctx.Log($"发送唤醒 burst ({WakeBurstCount} 帧, DLC=3)…");
+            // 唤醒 burst：发 ≥6 帧 02 3E 00 CC…（DLC=8）到 0x18DA0D03，触发 SIT1145 WUF
+            ctx.Log($"发送唤醒 burst ({WakeBurstCount} 帧, DLC=8)…");
             for (int i = 0; i < WakeBurstCount; i++)
             {
                 ct.ThrowIfCancellationRequested();

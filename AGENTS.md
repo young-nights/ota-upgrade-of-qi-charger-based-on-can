@@ -138,8 +138,8 @@ dotnet test     # 14/14 Passed
 
 ### 唤醒 burst 约定（2026-10-28 修订）
 
-- SIT1145 WUF **严格匹配** ID=`0x18DA0D03` + **DLC=3** + 数据 `02 3E 00`（PNDM=1；数据位 DM5=0x02/DM6=0x3E 近似命中，超集帧如 `02 10 00` 会误唤醒）
-- 唤醒帧必须 **raw 3 字节 `02 3E 00`、不填充**——DLC=8 的 `02 3E 00 CC…` 填充帧**不再唤醒**
+- SIT1145 WUF **严格匹配** ID=`0x18DA0D03` + **DLC=8** + 数据 `02 3E 00` 前缀（PNDM=1；数据位 DM0=0x02/DM1=0x3E 近似命中，超集帧如 `02 10 00 CC…` 会误唤醒）
+- 唤醒帧 = **`02 3E 00 CC CC CC CC CC`（DLC=8，0xCC 填充）**——与普通 UDS SF 同线格式；**全链路统一 DLC=8**（其余 UDS 指令/应答同为 DLC=8+0xCC 填充），DLC=3 裸帧不再唤醒
 - `ConnectStep`（BasicSteps.cs）、`WaitUdsReadyAsync`（MainWindow.xaml.cs）为唤醒发送点（python_tools 旧脚本已删除）
 - 发 ≥6 帧（常用 8）、间隔 250ms（burst 对抗工具链无 ACK 丢帧）
-- 生命周期广播 0x18FF260D 字节 0 仅 4 值：`01` BOOTUP / `02` OPERATIONAL / `03` WAKEUP / `04` SLEEP，`[1..7]` 全零（CCU 词汇表）
+- 生命周期广播 0x18FF260D 字节 0 仅 4 值：`01` BOOTUP / `02` OPERATIONAL / `03` WAKEUP（保留不发） / `04` SLEEP，`[1..7]` 全零（CCU 词汇表）

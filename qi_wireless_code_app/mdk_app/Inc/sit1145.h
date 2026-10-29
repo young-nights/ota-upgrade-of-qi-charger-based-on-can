@@ -88,7 +88,7 @@ extern "C" {
 #define SIT1145_REG_DATA_MASK5            0x6D  /**< WUF 数据掩码寄存器5（读写） */
 #define SIT1145_REG_DATA_MASK6            0x6E  /**< WUF 数据掩码寄存器6（读写） */
 #define SIT1145_REG_DATA_MASK7            0x6F  /**< WUF 数据掩码寄存器7（读写） */
-/* DLC=3 用 DM5/DM6/DM7（图8），依次对应数据字节 0/1/2 */
+/* DLC=N 用 DM(8-N)~DM7（图8），依次对应数据字节 0~N-1 */
 #define SIT1145_REG_IDENTIFICATION        0x7E  /**< 芯片识别码（只读）：0x70=AQ，0x74=AQ-FD */
 #define SIT1145_REG_GLOBAL_EVENT_STATUS   0x60  /**< 全局事件状态（只读）：WPE/TRXE/SYSE */
 #define SIT1145_REG_SYSTEM_EVENT_STATUS   0x61  /**< 系统事件状态（只读）：PO/OTW/SPIF */
@@ -642,7 +642,7 @@ uint8_t sit1145_is_can_fault(void);
 uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg);
 
 /**
- * @brief  配置 UDS 唤醒过滤（ID=0x18DA0D03, DLC=3, 匹配 3E xx）
+ * @brief  配置 UDS 唤醒过滤（ID=0x18DA0D03, DLC=8, 匹配 3E xx）
  * @retval 1=配置成功，0=失败
  */
 uint8_t sit1145_wuf_config_uds(void);
