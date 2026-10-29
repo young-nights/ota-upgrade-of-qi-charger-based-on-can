@@ -20,15 +20,12 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PARENT = os.path.dirname(HERE)
-ZCANPRO_NONQI = os.path.join(PARENT, "zcanpro", "non-qi")
-if PARENT not in sys.path:
-    sys.path.insert(0, PARENT)
-if ZCANPRO_NONQI not in sys.path:
-    sys.path.insert(0, ZCANPRO_NONQI)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-from zcanpro_ext_ota_auto import (  # noqa: E402
+# XATO 打包/校验/ECDSA 公共实现（原 zcanpro_ext_ota_auto.py 子集，
+# 2026-10-28 随 zcanpro/ 删除收编至 packaging/xato_common.py）
+from xato_common import (  # noqa: E402
     APP_BASE,
     IMAGE_HEADER_SIZE,
     load_ec_private_key,
@@ -42,9 +39,8 @@ DEFAULT_BIN = os.path.join(REPO_ROOT, "qi_wireless_code_app", "mdk_project",
                            "Objects", "qi_wireless_code_app.bin")
 DEFAULT_KEY = os.path.join(REPO_ROOT, "docs", "keys", "private.pem")
 DEFAULT_OUT_NAME = "app_image.bin"
-# 版本串与 zcanpro_ext_ota_auto._extract_sw_version 同源：bin strings 扫描
-# QC_JYF_MCU1_FW_ 前缀（版本唯一真相源=固件 can_protocol.c SW_VERSION_STR）。
-# 同样取第一处命中，与 OTA 执行器版本闸门的提取语义保持一致。
+# 版本串提取：bin strings 扫描 QC_JYF_MCU1_FW_ 前缀
+# （版本唯一真相源=固件 can_protocol.c SW_VERSION_STR），取第一处命中。
 _FW_VER_RE = re.compile(rb"QC_JYF_MCU1_FW_(\d+)\.(\d+)\.(\d+)")
 
 
