@@ -172,7 +172,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.46** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.47** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -182,6 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-28 | **refactor(diag): E 诊断帧重排为连续序列 E0~E3**（原 E0/E2/E3/E4 缺 E1）。E0 全局快照不变；原 E2→E1（fc/MASK）、E3→E2（ID/DM0-1）、E4→E3（DM2-7），内容与格式不变、仅编号顺移。`SW_VERSION_STR` 1.1.46→1.1.47 |
 | 2026-10-28 | **feat(config): E 诊断帧宏开关 `CAN_LP_EFRAME_ENABLE`**（app_config.h，默认 1）。置 0 时 `can_lp_enter_sleep` 的 E0/E2/E3/E4 快照帧整段不编译（0x18FF270D，量产屏蔽用）；UDS 组包标记 AA55 不受控。`SW_VERSION_STR` 1.1.45→1.1.46 |
 | 2026-10-28 | **feat(lifecycle): BOOTUP 改由 APP 补发**（Boot 侧已回退）。announce 块在 CAN 上线+100ms 静默窗后发 `01` BOOTUP → `02` OPERATIONAL（FIFO 保序）；时点=APP 启动后 ~100-200ms（Boot 不发帧后「整机上电 100ms」不可达，以 APP 启动计）。`SW_VERSION_STR` 1.1.44→1.1.45 |
 | 2026-10-28 | **revert(bootloader): Boot 代码回退至 6110933 之前**（用户指令）。恢复 ABT 心跳帧（`safe_heartbeat`，500ms `01 41 42 54`）、移除 `boot_lifecycle_bootup()` 及 main.c 调用——**注意：0x01 BOOTUP 帧现无发送方**（APP 侧此前已移除），BOOTUP<100ms 要求暂不满足。`BOOTLOADER_VER_STR` 回 1.0.0；`SW_VERSION_STR` 1.1.43→1.1.44 |

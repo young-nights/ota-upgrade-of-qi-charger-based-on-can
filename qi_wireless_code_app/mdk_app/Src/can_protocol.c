@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.46";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.47";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -479,17 +479,17 @@ static void can_lp_enter_sleep(void)
     }
   }
 
-  /* ---- WUF 配置诊断帧（E2/E3）----
-   * E2: [0]=0xE2 [1]=wuf_ok [2]=frame_ctrl [3]=MASK0 [4]=MASK1 [5]=MASK2 [6]=MASK3 [7]=0xA5
+  /* ---- WUF 配置诊断帧（E1/E2/E3，E0~E3 连续序列 2026-10-28）----
+   * E1: [0]=0xE1 [1]=wuf_ok [2]=frame_ctrl [3]=MASK0 [4]=MASK1 [5]=MASK2 [6]=MASK3 [7]=0xA5
    *      frame_ctrl 期望 0xC8(IDE|PNDM|DLC=8)
-   * E3: [0]=0xE3 [1]=ID0 [2]=ID1 [3]=ID2 [4]=ID3 [5]=DM0 [6]=DM1 [7]=0xA5
-   *      DLC=8 有效数据掩码在 DM0~DM7（本帧读 DM0/DM1，DM2~7 见 E4） */
+   * E2: [0]=0xE2 [1]=ID0 [2]=ID1 [3]=ID2 [4]=ID3 [5]=DM0 [6]=DM1 [7]=0xA5
+   *      DLC=8 有效数据掩码在 DM0~DM7（本帧读 DM0/DM1，DM2~7 见 E3） */
   {
     uint8_t wuf_diag[8];
     uint8_t handle;
 
-    /* E2: 掩码寄存器回读（WUF 配置在 sit1145_sleep_enter 内做，这里只读） */
-    wuf_diag[0] = 0xE2U;
+    /* E1: 帧控/MASK 寄存器回读（WUF 配置在 sit1145_sleep_enter 内做，这里只读） */
+    wuf_diag[0] = 0xE1U;
     wuf_diag[1] = 0U;  /* wuf_ok 在 sit1145_sleep_enter 内确定，此处预设 0 */
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
     wuf_diag[3] = sit1145_read_reg(SIT1145_REG_MASK_REG0);
@@ -505,8 +505,8 @@ static void can_lp_enter_sleep(void)
       }
     }
 
-    /* E3: ID 寄存器 + 数据掩码 DM0-DM1 回读（DLC=8 有效位，DM2~7 见 E4） */
-    wuf_diag[0] = 0xE3U;
+    /* E2: ID 寄存器 + 数据掩码 DM0-DM1 回读（DLC=8 有效位，DM2~7 见 E3） */
+    wuf_diag[0] = 0xE2U;
     wuf_diag[1] = sit1145_read_reg(SIT1145_REG_ID_REG0);
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_ID_REG1);
     wuf_diag[3] = sit1145_read_reg(SIT1145_REG_ID_REG2);
@@ -522,8 +522,8 @@ static void can_lp_enter_sleep(void)
       }
     }
 
-    /* E4: 数据掩码 DM2-DM7 回读 */
-    wuf_diag[0] = 0xE4U;
+    /* E3: 数据掩码 DM2-DM7 回读 */
+    wuf_diag[0] = 0xE3U;
     wuf_diag[1] = sit1145_read_reg(SIT1145_REG_DATA_MASK2);
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_DATA_MASK3);
     wuf_diag[3] = sit1145_read_reg(SIT1145_REG_DATA_MASK4);
@@ -540,7 +540,7 @@ static void can_lp_enter_sleep(void)
     }
   }
 
-#endif /* CAN_LP_EFRAME_ENABLE（E0/E2/E3/E4 诊断帧，app_config.h 宏屏蔽） */
+#endif /* CAN_LP_EFRAME_ENABLE（E0~E3 诊断帧，app_config.h 宏屏蔽） */
 
   /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
    * clear every wake/event register -> enable wake detection -> switch mode.
