@@ -47,6 +47,21 @@ public sealed class IsoTpClient
                 _ => $"Boot Diag {Convert.ToHexString(d)}",
             };
         }
+        // 低功耗 E 诊断帧 0x18FF270D（入睡前配置快照，[7]=A5 结束标记；
+        // fw 1.1.47 起连续编号 E0~E3，E4 为旧编号兼容）
+        if (id == ProtoIds.LpDiagId && d.Length >= 8 && d[7] == 0xA5)
+        {
+            uint id29 = (uint)(d[4] << 24 | d[3] << 16 | d[2] << 8 | d[1]);
+            return d[0] switch
+            {
+                0xE0 => $"E0 快照 MODE={d[1]:X2} EV_EN={d[2]:X2} EV={d[3]:X2} CCTL={d[4]:X2} TRX={d[5]:X2} fl={d[6]:X2}",
+                0xE1 => $"E1 WUF fc={d[2]:X2}{(d[2] == 0xC8 ? "(OK)" : "")} MASK={d[3]:X2}{d[4]:X2}{d[5]:X2}{d[6]:X2}",
+                0xE2 => $"E2 WUF ID=0x{id29:X8} DM0/1={d[5]:X2}/{d[6]:X2}",
+                0xE3 => $"E3 WUF DM2-7={d[1]:X2} {d[2]:X2} {d[3]:X2} {d[4]:X2} {d[5]:X2} {d[6]:X2}",
+                0xE4 => $"E4 WUF DM2-7(legacy)={d[1]:X2} {d[2]:X2} {d[3]:X2} {d[4]:X2} {d[5]:X2} {d[6]:X2}",
+                _ => $"E{d[0] & 0x0F:X} {Convert.ToHexString(d)}",
+            };
+        }
         if (id == ProtoIds.LifecycleId && d.Length >= 1)
         {
             // CCU 词汇表（2026-10-28）：[0]=状态码（0x01 BOOTUP / 0x02 OPERATIONAL /
@@ -190,7 +205,9 @@ public sealed class IsoTpClient
                     uint nid = f.Id & 0x1FFFFFFF;
                     noiseIds[nid] = noiseIds.TryGetValue(nid, out var c) ? c + 1 : 1;
                     if (nid == ProtoIds.LifecycleId && f.Data.Length >= 3
-                        && f.Data[0] == 0x01 && f.Data[1] == 0x41 && f.Data[2] == 0x00)
+                        && f.Data[0] == 0x01
+                        && (f.Data[1] == 0x00  // 新格式 01 00×7（1.1.41+，[1..7] 全零）
+                            || (f.Data[1] == 0x41 && f.Data[2] == 0x00)))  // legacy 01 41 00
                         _sawBootup = true;
                     string diag = DecodeDiag(nid, f.Data);
                     if (noiseIds[nid] <= 3)
