@@ -39,7 +39,7 @@ extern "C" {
 /*  仅允许以下 4 值；[1..7] 全部清零                                         */
 /* ========================================================================== */
 
-#define LIFECYCLE_BOOTUP       0x01U   /*!< 上电/复位，开始启动（Bootloader 发） */
+#define LIFECYCLE_BOOTUP       0x01U   /*!< 上电/复位，开始启动（APP announce 发；Boot 侧已回退） */
 #define LIFECYCLE_OPERATIONAL  0x02U   /*!< 启动完成，可正常工作 */
 #define LIFECYCLE_WAKEUP       0x03U   /*!< 保留词汇位：固件不发送（不区分冷启动/唤醒启动） */
 #define LIFECYCLE_SLEEP        0x04U   /*!< 即将进入休眠 */
