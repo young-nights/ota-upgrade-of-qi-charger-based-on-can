@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.41";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.42";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.1";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -3190,13 +3190,10 @@ void can_protocol_poll(void)
   if ((g_can_awake != 0U) && (g_need_lifecycle_announce != 0U) &&
       ((int32_t)(now - g_announce_due_ms) >= 0))
   {
-    /* MF 期间由 lifecycle_post 入 pending FIFO 推迟补发，不再丢弃 */
+    /* MF 期间由 lifecycle_post 入 pending FIFO 推迟补发，不再丢弃。
+     * 不区分冷启动/唤醒启动（2026-10-28 决策）：统一 01 BOOTUP→02
+     * OPERATIONAL，WAKEUP(0x03) 保留词汇位但固件不发送。 */
     g_need_lifecycle_announce = 0U;
-    if (g_lp_woke_from_sleep != 0U)
-    {
-      /* 唤醒启动序列：03 WAKEUP → 02 OPERATIONAL（FIFO 保序） */
-      lifecycle_post(LIFECYCLE_WAKEUP);
-    }
     lifecycle_set_state(LIFECYCLE_OPERATIONAL);
   }
 

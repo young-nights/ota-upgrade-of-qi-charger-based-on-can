@@ -85,11 +85,11 @@ dotnet publish src/QiChargerStationTool.App -c Release -r win-x64 `
 6. **设置 Qi 功率** — 10 03 + SA + 2E 210D（档位码 0x01=5W / 0x02=10W / 0x03=15W）
 7. **充电启停** — 2E 21 01（可选）
 
-密钥：自动从仓库 `docs/keys/private.pem` 查找（向上探测 8 级目录）；产线也可拷到输出目录 `keys/private.pem`。
+密钥：自动从仓库 `docs/keys/private.pem` 查找（向上探测 16 级目录）；产线也可拷到输出目录 `keys/private.pem`。
 
 ### Qi 状态全量查询
 
-对照 `python_tools/zcanpro/qi/zcanpro_qi_read_status.py`，一次读取并解码：
+一次读取并解码（原对照脚本 zcanpro_qi_read_status.py 已删除 2026-10-28）：
 
 | DID | 含义 |
 |-----|------|

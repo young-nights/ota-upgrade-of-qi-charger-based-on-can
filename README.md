@@ -85,11 +85,8 @@ ota-upgrade-of-qi-charger-based-on-can/
 │   │   ├── merge_prod_bin.py               ← Boot + APP 合并产线镜像
 │   │   ├── verify_image.py                 ← 镜像完整性 + 签名校验
 │   │   └── sign_seed.py                    ← SecurityAccess seed 签名
-│   ├── zcanpro/non-qi/           ← 功能测试子目录（6 个脚本）
 │   ├── iap bin/                            ← Qi 芯片 IAP 固件 (log1.BIN / log2.BIN)
-│   ├── zcanpro_ext_ota_auto.py             ← 一键 OTA（APP 内擦写 + 重定位 + 重签）
-│   ├── zcanpro_qi_uart_bridge.py            ← Qi UART 透传桥
-│   └── 脚本使用说明.md
+│   └── 脚本使用说明.md                     ← （zcanpro/wsl 脚本已删除 2026-10-28）
 │
 ├── .gitattributes                          ← 换行符规范化 (LF 入库)
 ├── .gitignore
@@ -161,24 +158,11 @@ python merge_prod_bin.py
 | `verify_image.py` | 校验 XATO 镜像完整性 + 签名 |
 | `sign_seed.py` | SecurityAccess seed 签名生成 (ECDSA P-256) |
 
-### 4.2 OTA 与 Qi IAP（`python_tools/` 根目录）
+### 4.2 OTA / 功能测试脚本
 
-| 脚本 | 说明 |
-|------|------|
-| `zcanpro_ext_ota_auto.py` | 唯一 OTA 脚本：APP 内擦非活跃槽 + 下载 + 重定位 + 重签 |
-| `zcanpro_qi_uart_bridge.py` | Qi UART 透传桥 (抓取/发送) |
-
-### 4.3 功能测试（`python_tools/zcanpro/non-qi/`）
-
-| 脚本 | 功能 |
-|------|------|
-| `zcanpro_read_app_version.py` | 读取 APP 版本 (DID 0xF195) |
-| `zcanpro_sn_write.py` | 写入设备 SN |
-| `zcanpro_charge_start.py` | 启动充电 |
-| `zcanpro_qi_read_status.py` | 读取 Qi 芯片状态 |
-| `zcanpro_qi_read_version.py` | 读取 Qi 芯片版本 |
-| `zcanpro_qi_set_power.py` | 设置 Qi 充电功率 |
-| `zcanpro_qi_uart_bridge.py` | Qi UART 桥：`--listen` 抓取 0x2140 + 帧解析/状态位解码；`--send` 解锁后 0x2141 透传 |
+`python_tools/` 下的 zcanpro/ 与 wsl/ 主机脚本已于 2026-10-28 全部删除（废弃）。
+OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维修）与
+**ProductionStationTool**（产线）承担。
 
 ---
 
@@ -188,7 +172,7 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.41** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.42** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | **QC_JYF_BL_1.0.1** | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -198,6 +182,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-28 | **fix(lifecycle): 不区分冷启动/唤醒启动——WAKEUP(0x03) 保留词汇位但固件不发送**。启动序列统一 `01` BOOTUP（Bootloader）→`02` OPERATIONAL；announce 块去掉 WAKEUP 分支。帧格式约定澄清：仅唤醒帧为 DLC=3 裸 `02 3E 00`（WUF 严格匹配），其余 UDS 指令/应答一律 DLC=8、尾部 0xCC 填充（全链路一致）。`SW_VERSION_STR` 1.1.41→1.1.42 |
 | 2026-10-28 | **feat(protocol)!: CCU 词汇表落地——生命周期字节 0 重构 + WUF 唤醒过滤严格化（破坏性变更）**。①生命周期 0x18FF260D：byte0 仅 4 值 `01` BOOTUP/`02` OPERATIONAL/`03` WAKEUP/`04` SLEEP、[1..7] 全零；序列 冷启动 01→02、CAN 唤醒 01→03→02、休眠 04 确认送达后才睡（失败重试 1 次）；BOOTUP 由 Bootloader 上电 100ms 内发（boot_lifecycle_bootup）；OPERATIONAL 1s 周期（仅该态）、SLEEP 后停；MF UDS 期间 pending FIFO 推迟补发；修正「停在 BOOTUP 不发 OPERATIONAL」（can_lp_send_ident_bus 清 announce 标志短路）；ABT 心跳废弃、0x37 复位静默（删 SHUTDOWN 发送）。②WUF 严格化：`sit1145_wuf_config_uds` PNDM=0→1、DLC=8→3、DM5=0x02/DM6=0x3E/DM7=0x00、fc=0xC3；ID+DLC 严格、数据 (rx&DM)≠0 近似（超集帧误唤醒=硬件限制）；唤醒帧改 raw 3 字节 `02 3E 00`（DLC=8 填充帧不再唤醒）——C#/python 全部唤醒发送点同步（UdsClient.SendWake/IsoTpClient.SendRaw/各 wake_bus）。③主机解码 byte0 四值分类 + legacy `0x41` magic 兼容。`SW_VERSION_STR` 1.1.40→1.1.41，`BOOTLOADER_VER_STR` 1.0.0→1.0.1 |
 | 2026-10-26 | **feat(sit1145/can_protocol): 启动时区分「CAN 唤醒启动」与「冷启动」**。硬件供电拓扑确认：SIT1145 进 Sleep→INH 断电=AT32 整板断电，CAN 唤醒→重新供电冷启动——唤醒后 Boot 帧（A1/A2/A4+`01 41 00`）是正常唤醒签名；WK 标记 `01 41 57 4B` 因 RAM 断电清零永远发不出。实现：`sit1145_init` 步骤6.5 在 `wakeup_clear` 前快照残留事件位 0x24/0x63（SIT1145 自身不断电，CW/WUF 锁存保留；整板上电则寄存器复位=全 0），新增 `sit1145_boot_wake_ev24/ev63()` 访问；`can_protocol_init` 据此预置 `g_lp_ever_sleep`+`g_lp_last_wake_src`（ev24 CW/WUF→src=2，ev63 CW→src=3），`enter_normal` 首次执行 wup_count 0→1、sleep_sec=0，BOOTUP 标记以 `01 41 57 4B 01 src 00 00`（WK）发出，与冷启动 `01 41 00` 区分。`SW_VERSION_STR` 1.1.39→1.1.40 |
 | 2026-10-26 | **fix(sit1145): 清除 g_sleep_diag 残留引用修复编译错误**——1.1.31 删 E5 时诊断静态变量已移除，1.1.38 误引用导致 Keil 报 undeclared identifier；删除赋值（回读逻辑不变）。`SW_VERSION_STR` 1.1.38→1.1.39 |

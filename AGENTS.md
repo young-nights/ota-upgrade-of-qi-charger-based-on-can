@@ -72,9 +72,6 @@ CAN 总线：**250 kbps、Classical、29-bit 扩展帧**。终端电阻 120Ω。
 | AT-Link-Plus | Windows COM4 / BUSID **`3-2`**，**禁止 attach** |
 | 用户组 | `xuanxuan` 已在 `dialout`，开串口命令无需 `sg dialout` 包裹 |
 
-新增工具：`python_tools/wsl/zqwl_can_send.py`（单帧发送 + 窗口抓包，ISO-TP 首帧自动回 FC），
-与 `zqwl_can_listen.py` 互斥（同一串口只能一个进程打开）。
-
 ### 把盒子交给 WSL（Windows 管理员 PowerShell）
 
 ```powershell
@@ -96,56 +93,27 @@ ls -l /dev/ttyACM0
 
 USB 读空、盒子哑了：先 `detach` 再 `attach`，然后重新开监听。`usbipd list` 里 7-2 消失则是 USB 掉了，请用户重插盒子（不要拔 MCU 电源当 USB）。
 
-### 开监听（必须先于 MCU 上电）
+### 脚本已删除（2026-10-28）
 
-依赖：`pip install pyserial`（本机已装则跳过）。在 **WSL 仓库根**执行：
+`python_tools/wsl/` 与 `python_tools/zcanpro/` 全部脚本已删除（主机侧由
+QiChargerStationTool / ProductionStationTool 取代，唤醒/生命周期协议见
+`docs/19. CAN验证帧参考.md`）。ZQWL-CANFD 盒子硬件接入方式（上文 usbipd 表）
+仍有效；需要临时抓总线时用任意 ZQWL `5A…A5` 私有协议工具自行收帧，
+**不要**用 python-can slcan / SocketCAN，配置命令 `0x44` 禁止带系统复位，
+收包循环禁止 `sleep`，attach BUSID `7-4` 禁止，Boot 帧必须先开监听再上电。
 
-```bash
-cd /home/whites/embedded_item/ota-upgrade-of-qi-charger-based-on-can
-python3 "python_tools/wsl/zqwl_can_listen.py" --port /dev/ttyACM0 \
-  --log /tmp/can_boot_listen.log --event /tmp/can_boot_events.log
-```
-
-脚本会：读设备信息 → 配 CAN0 仲裁 250k → 滤波全收 → 打开 CAN0（**不要**发系统复位，`0x44` 的复位字节会把 USB 打掉）→ 忙等收帧（**禁止**在收包循环里 `sleep`，否则 M2/M4 会被盒子 FIFO 挤掉）。
-
-标准输出只打关注 ID；全量在 `/tmp/can_boot_listen.log`，解码后的 Boot/生命周期在 `/tmp/can_boot_events.log`。
-
-关注 ID：
-
-| ID | 含义 |
-|----|------|
-| `0x18FF480D` | Boot M1–M4 |
-| `0x18FF260D` | 生命周期 / Safe 心跳 `01 41 42 54 …` |
-| `0x18DA030D` | UDS 应答 |
-| `0x18DA0D03` | UDS 请求 |
-
-M1 载荷（metadata **v4**，已删除 `app_valid`）：`A1 [src] [magic_ok] [ver_ok] [crc_ok] CC CC CC`  
-src：`00` 主区 `0x0801C000` / `01` 备区 `0x0801C800` / `02` 默认重建。
-
-TC-B001 期望：
+TC-B001 期望（fw 1.1.41 生命周期词汇表）：
 
 ```
 A1 00 01 01 01 CC CC CC
 A2 00 FF CC CC CC CC CC
-A4 00 41 00 08 CC CC CC   # 跳 0x08004100
-01 41 00 00 …             # App BOOTUP，ID 0x18FF260D
+A4 00 31 00 08 CC CC CC   # 跳 0x08003100
+01 00 00 00 00 00 00 00   # BOOTUP（Bootloader 发，0x18FF260D）
+02 00 00 00 00 00 00 00   # OPERATIONAL（APP）
 ```
 
-### 代理操作顺序
-
-1. 确认 `/dev/ttyACM0` 在，再启动 `zqwl_can_listen.py`（后台常驻）。
-2. 日志出现 `CAN0 250kbps opened, listening` 后，让用户给 **充电器 MCU** 断电上电（**不要拔 CAN 盒子 USB**）。
-3. 读 `/tmp/can_boot_events.log` 判 M1/M2/M4；没有帧先查盒子是否还 Attached、脚本是否还活着。
-4. B002 改的是 **metadata**（`0x0801C000` / `0x0801C800` 的 MATO=`4D 41 54 4F`），不是 `0x08010000` 固件备份区。Keil 在 Windows 做，AT-Link 禁止 attach。
-5. 测完 `detach` 把 COM9 还给 Windows。
-
-### 不要做的
-
-- `interface="slcan"` / `gs_usb` / `can0` 对待这只 `3562:0101` 盒子
-- 配置命令 `0x44` 带系统复位
-- 收包循环 `time.sleep(0.01)`
-- attach BUSID `7-4`
-- MCU 已上电再开监听（Boot 标记只有几十毫秒）
+B002 改的是 **metadata**（`0x0801C000` / `0x0801C800` 的 MATO=`4D 41 54 4F`），
+不是 `0x08010000` 固件备份区。Keil 在 Windows 做，AT-Link 禁止 attach。
 
 ## QiChargerStationTool（C#/.NET 8 产线上位机）
 
@@ -172,6 +140,6 @@ dotnet test     # 14/14 Passed
 
 - SIT1145 WUF **严格匹配** ID=`0x18DA0D03` + **DLC=3** + 数据 `02 3E 00`（PNDM=1；数据位 DM5=0x02/DM6=0x3E 近似命中，超集帧如 `02 10 00` 会误唤醒）
 - 唤醒帧必须 **raw 3 字节 `02 3E 00`、不填充**——DLC=8 的 `02 3E 00 CC…` 填充帧**不再唤醒**
-- `ConnectStep`（BasicSteps.cs）、`WaitUdsReadyAsync`（MainWindow.xaml.cs）与 python_tools 各 wake_bus 均已改 DLC=3 裸帧
+- `ConnectStep`（BasicSteps.cs）、`WaitUdsReadyAsync`（MainWindow.xaml.cs）为唤醒发送点（python_tools 旧脚本已删除）
 - 发 ≥6 帧（常用 8）、间隔 250ms（burst 对抗工具链无 ACK 丢帧）
 - 生命周期广播 0x18FF260D 字节 0 仅 4 值：`01` BOOTUP / `02` OPERATIONAL / `03` WAKEUP / `04` SLEEP，`[1..7]` 全零（CCU 词汇表）
