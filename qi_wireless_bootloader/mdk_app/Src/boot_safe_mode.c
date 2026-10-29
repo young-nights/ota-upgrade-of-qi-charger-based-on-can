@@ -77,9 +77,20 @@ static void safe_send_sf(const uint8_t *uds, uint8_t n)
   (void)can_driver_send(CAN_ID_UDS_RESPONSE, sf, 8U);
 }
 
-/* ABT 心跳帧已废弃（CCU 词汇表 2026-10-28：0x18FF260D 仅 4 值全零载荷）；
- * fail_step 仍可经 UDS 22 2113 探测获取。safe-mode 500ms 节拍保留
- * （sit1145 Normal 重切），不再发任何 0x18FF260D 帧。 */
+static void safe_heartbeat(uint8_t cause, uint8_t step)
+{
+  uint8_t d[8];
+
+  d[0] = 0x01U;
+  d[1] = 0x41U;
+  d[2] = 0x42U; /* 'B' */
+  d[3] = 0x54U; /* 'T' */
+  d[4] = cause;
+  d[5] = step;
+  d[6] = 0xA5U;
+  d[7] = 0x00U;
+  (void)can_driver_send(CAN_ID_LIFECYCLE_BROADCAST, d, 8U);
+}
 
 #define BOOT_DIAG_TX_TIMEOUT_MS  10U
 #define BOOT_DIAG_TX_TRIES       3U
@@ -116,25 +127,6 @@ static int8_t boot_diag_wait_tx_done(void)
   } while ((timer_get_tick() - start) < BOOT_DIAG_TX_TIMEOUT_MS);
 
   return -1;
-}
-
-/**
- * @brief  发生命周期 BOOTUP 帧（0x18FF260D，[01 00 00 00 00 00 00 00]）
- * @note   CCU 要求整机上电后 100ms 内见 BOOTUP，由 Bootloader 发（APP 不发）。
- *         单次发送 + 等待 ≤10ms，不做重试（守 100ms 预算）。
- */
-void boot_lifecycle_bootup(void)
-{
-  uint8_t d[8];
-  uint8_t i;
-
-  for (i = 0U; i < 8U; i++)
-  {
-    d[i] = 0x00U;
-  }
-  d[0] = 0x01U;  /* LIFECYCLE_BOOTUP */
-  (void)can_driver_send(CAN_ID_LIFECYCLE_BROADCAST, d, 8U);
-  (void)boot_diag_wait_tx_done();
 }
 
 /**
@@ -312,17 +304,16 @@ void enter_safe_mode(uint8_t cause)
   uint8_t  step = g_verify_fail_step;
   uint32_t last_hb;
 
-  (void)cause;  /* ABT 心跳已废弃；cause 仅存签名兼容，step 走 22 2113 */
-
   /* Q2 metadata slimming (v3): write-only forensic slots removed.
-   * step stays observable live via CAN frames (M2/M3 markers,
-   * safe-mode probe response 22 2113). copy_fail_step written by
+   * cause/step stay observable live via CAN frames (M2/M3 markers,
+   * ABT heartbeat, safe-mode probe response). copy_fail_step written by
    * boot_copy_backup persists through this save. */
   (void)boot_metadata_save(&g_meta);
 
   can_driver_init();
   (void)sit1145_normal_mode_set();
   last_hb = timer_get_tick();
+  safe_heartbeat(cause, step);
 
   while (1)
   {
@@ -384,6 +375,7 @@ void enter_safe_mode(uint8_t cause)
     {
       last_hb = timer_get_tick();
       (void)sit1145_normal_mode_set();
+      safe_heartbeat(cause, step);
     }
   }
 }

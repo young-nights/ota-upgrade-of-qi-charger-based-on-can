@@ -31,8 +31,6 @@ int main(void)
   nvic_priority_group_config(NVIC_PRIORITY_GROUP_4);
   timer_drv_init();
   boot_diag_can_init();
-  /* 生命周期 BOOTUP(0x01) 上电 100ms 内必发（CCU 词汇表），metadata 之前 */
-  boot_lifecycle_bootup();
 
   /* step 2: metadata (primary -> backup -> defaults) + boot reason */
   boot_metadata_init(&g_meta);

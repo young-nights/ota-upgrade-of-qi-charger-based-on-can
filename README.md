@@ -172,8 +172,8 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.43** | `can_protocol.c` → `SW_VERSION_STR` |
-| Bootloader | **QC_JYF_BL_1.0.1** | `can_protocol.c` → `BOOTLOADER_VER_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.44** | `can_protocol.c` → `SW_VERSION_STR` |
+| Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
 查询方式：UDS `22 F195`（APP 版本）/ `22 F180`（Bootloader 版本）/ `22 F193`（硬件版本）。
@@ -182,6 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-28 | **revert(bootloader): Boot 代码回退至 6110933 之前**（用户指令）。恢复 ABT 心跳帧（`safe_heartbeat`，500ms `01 41 42 54`）、移除 `boot_lifecycle_bootup()` 及 main.c 调用——**注意：0x01 BOOTUP 帧现无发送方**（APP 侧此前已移除），BOOTUP<100ms 要求暂不满足。`BOOTLOADER_VER_STR` 回 1.0.0；`SW_VERSION_STR` 1.1.43→1.1.44 |
 | 2026-10-28 | **fix(wuf)!: 唤醒帧改 DLC=8——全链路统一 DLC=8 + 0xCC 填充**。唤醒帧 = `02 3E 00 CC CC CC CC CC`（与普通 UDS SF 同线格式）；WUF 过滤改严格 DLC=8（PNDM=1，fc=0xC8，DM0=0x02/DM1=0x3E），DLC=3 裸帧不再唤醒。C# SendWake/注释、AGENTS/docs/19/16/10 同步。`SW_VERSION_STR` 1.1.42→1.1.43 |
 | 2026-10-28 | **fix(lifecycle): 不区分冷启动/唤醒启动——WAKEUP(0x03) 保留词汇位但固件不发送**。启动序列统一 `01` BOOTUP（Bootloader）→`02` OPERATIONAL；announce 块去掉 WAKEUP 分支。帧格式约定澄清：仅唤醒帧为 DLC=3 裸 `02 3E 00`（WUF 严格匹配），其余 UDS 指令/应答一律 DLC=8、尾部 0xCC 填充（全链路一致）。`SW_VERSION_STR` 1.1.41→1.1.42 |
 | 2026-10-28 | **feat(protocol)!: CCU 词汇表落地——生命周期字节 0 重构 + WUF 唤醒过滤严格化（破坏性变更）**。①生命周期 0x18FF260D：byte0 仅 4 值 `01` BOOTUP/`02` OPERATIONAL/`03` WAKEUP/`04` SLEEP、[1..7] 全零；序列 冷启动 01→02、CAN 唤醒 01→03→02、休眠 04 确认送达后才睡（失败重试 1 次）；BOOTUP 由 Bootloader 上电 100ms 内发（boot_lifecycle_bootup）；OPERATIONAL 1s 周期（仅该态）、SLEEP 后停；MF UDS 期间 pending FIFO 推迟补发；修正「停在 BOOTUP 不发 OPERATIONAL」（can_lp_send_ident_bus 清 announce 标志短路）；ABT 心跳废弃、0x37 复位静默（删 SHUTDOWN 发送）。②WUF 严格化：`sit1145_wuf_config_uds` PNDM=0→1、DLC=8→3、DM5=0x02/DM6=0x3E/DM7=0x00、fc=0xC3；ID+DLC 严格、数据 (rx&DM)≠0 近似（超集帧误唤醒=硬件限制）；唤醒帧改 raw 3 字节 `02 3E 00`（DLC=8 填充帧不再唤醒）——C#/python 全部唤醒发送点同步（UdsClient.SendWake/IsoTpClient.SendRaw/各 wake_bus）。③主机解码 byte0 四值分类 + legacy `0x41` magic 兼容。`SW_VERSION_STR` 1.1.40→1.1.41，`BOOTLOADER_VER_STR` 1.0.0→1.0.1 |
