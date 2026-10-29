@@ -45,9 +45,9 @@ def wake_and_probe():
     if dev:
         for i in range(8):
             dev.send_can(0x18DA0D03,
-                         bytes([0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]),
+                         bytes([0x02, 0x3E, 0x00]),
                          ext=True)
-            log("[Tx] raw 3E 00 (%d/8)" % (i + 1))
+            log("[Tx] raw 3E 00 (DLC=3) (%d/8)" % (i + 1))
             time.sleep(0.25)
         t0 = time.time()
         while time.time() - t0 < 0.5:
@@ -55,11 +55,11 @@ def wake_and_probe():
                 pass
             time.sleep(0.02)
     else:
-        log("shim._dev 为 None，用 UDS 库唤醒")
+        log("shim._dev 为 None，用 _raw_send 发 DLC=3 唤醒帧")
         for i in range(8):
             try:
-                ext.uds_try(BUS, 0x3E, [0x00], suppress=1)
-                log("[Tx] UDS 3E 00 (%d/8)" % (i + 1))
+                ext._raw_send(BUS, 0x18DA0D03, [0x02, 0x3E, 0x00])
+                log("[Tx] raw 3E 00 (DLC=3) (%d/8)" % (i + 1))
             except Exception:
                 pass
             time.sleep(0.25)
@@ -108,14 +108,14 @@ def do_charge_disable():
 def read_version():
     """3E 00 唤醒 burst + 22 F195 读版本。"""
     log("---- 读版本号 ----")
-    # 唤醒 burst
+    # 唤醒 burst（DLC=3 裸帧，WUF 严格匹配）
     dev = getattr(shim, '_dev', None)
     if dev:
         for i in range(8):
             dev.send_can(0x18DA0D03,
-                         bytes([0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]),
+                         bytes([0x02, 0x3E, 0x00]),
                          ext=True)
-            log("[Tx] raw 3E 00 (%d/8)" % (i + 1))
+            log("[Tx] raw 3E 00 (DLC=3) (%d/8)" % (i + 1))
             time.sleep(0.25)
         t0 = time.time()
         while time.time() - t0 < 0.5:
@@ -125,7 +125,7 @@ def read_version():
     else:
         for i in range(8):
             try:
-                ext.uds_try(BUS, 0x3E, [0x00], suppress=1)
+                ext._raw_send(BUS, 0x18DA0D03, [0x02, 0x3E, 0x00])
             except Exception:
                 pass
             time.sleep(0.25)

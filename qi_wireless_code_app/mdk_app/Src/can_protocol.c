@@ -55,8 +55,8 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.40";  /*!< 运行版本唯一真相源 */
-static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.41";  /*!< 运行版本唯一真相源 */
+static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.1";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
 /* same public key as Bootloader boot_verify.c */
@@ -248,25 +248,24 @@ static void can_lp_mark_uds(void)
   g_uds_last_ms = timer_get_tick();
 }
 
-static uint8_t g_lp_ident_sent;
-
 /* 定义在 g_tx_pend 附近；lifecycle/ident 门禁在前，需前置声明 */
 static uint8_t uds_mf_busy(void);
+static void proto_flush_pending_tx(void);
 
 /**
- * @brief  send one lifecycle marker frame on 0x18FF260D
+ * @brief  send one lifecycle frame on 0x18FF260D（[0]=state，[1..7]=0）
  * @note   Completion is confirmed by handle (can_driver_wait_tx_frame),
  *         not by can_driver_wait_tx_idle: right after enqueue the
  *         controller may not have picked the frame up yet, so tstat still
  *         reads IDLE/TRANSMITTED from the previous frame and wait_tx_idle
  *         returns instantly. The caller then takes the CAN offline before
  *         the frame ever reaches the bus (root cause of the missing SB
- *         marker on Sleep entry).
+ *         marker on Sleep entry). 仅 SLEEP 专径使用（WAKEUP/OPERATIONAL
+ *         走 lifecycle_post 的 pending FIFO）。
  * @retval 1 = frame enqueued and confirmed transmitted, 0 = send rejected
  *         or completion wait failed/aborted
  */
-static uint8_t can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
-                                uint8_t b4, uint8_t b5, uint8_t b6, uint8_t b7)
+static uint8_t can_lp_tx_marker(uint8_t state)
 {
   uint8_t d[8];
   uint8_t handle;
@@ -278,14 +277,7 @@ static uint8_t can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
   }
 
   memset(d, 0, sizeof(d));
-  d[0] = b0;
-  d[1] = 0x41U;
-  d[2] = b2;
-  d[3] = b3;
-  d[4] = b4;
-  d[5] = b5;
-  d[6] = b6;
-  d[7] = b7;
+  d[0] = state;
   if (can_driver_send(CAN_ID_LIFECYCLE_BROADCAST, d, 8) != 0)
   {
     return 0U;
@@ -301,23 +293,6 @@ static uint8_t can_lp_tx_marker(uint8_t b0, uint8_t b2, uint8_t b3,
   return 1U;
 }
 
-/** 识别帧打到 0x18FF260D。harvest 结束只能走这条，避免抢在 50 01 前面占 UDS ID */
-static void can_lp_send_ident_bus(void)
-{
-  if (g_lp_woke_from_sleep != 0U)
-  {
-    can_lp_tx_marker(LIFECYCLE_BOOTUP, 0x57U, 0x4BU, g_lp_wup_count,
-                     g_lp_last_wake_src,
-                     (uint8_t)(g_lp_last_sleep_sec & 0xFFU),
-                     (uint8_t)((g_lp_last_sleep_sec >> 8) & 0xFFU));
-  }
-  else
-  {
-    can_lp_tx_marker(LIFECYCLE_BOOTUP, 0U, 0U, 0U, 0U, 0U, 0U);
-  }
-  g_need_lifecycle_announce = 0U;
-}
-
 /** 50 01 之后再发：18FF260D + UDS 响应 ID 上的 ISO-TP SF（01 41 …） */
 static void can_lp_send_ident(void)
 {
@@ -331,8 +306,7 @@ static void can_lp_send_ident(void)
     return;
   }
 
-  can_lp_send_ident_bus();
-
+  /* 仅发 UDS 侧识别帧（0x18DA030D）；0x18FF260D 生命周期帧归 lifecycle 模块 */
   for (i = 0U; i < 8U; i++)
   {
     uds[i] = 0xCCU;
@@ -359,7 +333,6 @@ static void can_lp_send_ident(void)
 
   (void)can_driver_send(CAN_PROTO_UDS_RESPONSE, uds, 8);
   (void)can_driver_wait_tx_idle(20U);
-  g_lp_ident_sent = 1U;
 }
 
 static void can_lp_enter_normal(void)
@@ -437,12 +410,11 @@ static void can_lp_enter_normal(void)
   can_driver_online();
   g_can_awake = 1U;
   can_lp_mark_uds();
-  g_lp_ident_sent = 0U;
   g_need_lifecycle_announce = 1U;
   g_announce_due_ms = timer_get_tick() + CAN_LP_ANNOUNCE_DELAY_MS;
 
   /* Sleep 下第一帧只当 WUP，MCU 收不到。主机 CAN 控制器会无 ACK 重发，
-   * 这里空转收 RX，赶在重发窗口内 ACK 并回 50 01；quiet 期内禁止 BOOTUP。
+   * 这里空转收 RX，赶在重发窗口内 ACK 并回 50 01；quiet 期内不发生命周期帧。
    * trial 上电不是 WUP，且 SysTick 未跑时 harvest 会死等，跳过。 */
   if (g_lp_ever_sleep != 0U)
   {
@@ -452,12 +424,8 @@ static void can_lp_enter_normal(void)
       can_driver_poll();
     }
   }
-
-  if (g_lp_ident_sent == 0U)
-  {
-    /* 10 01 若还在重发路上，UDS ID 必须留给 50 01 */
-    can_lp_send_ident_bus();
-  }
+  /* BOOTUP 由 Bootloader 发（上电 100ms 内）；WAKEUP/OPERATIONAL 由
+   * announce 块（can_protocol_poll）按 03→02 顺序发，此处不发帧。 */
 }
 
 /* 低功耗进入函数：受 CAN_LP_SLEEP_ENABLE 总开关控制（can_protocol.h）。
@@ -512,7 +480,9 @@ static void can_lp_enter_sleep(void)
 
   /* ---- WUF 配置诊断帧（E2/E3）----
    * E2: [0]=0xE2 [1]=wuf_ok [2]=frame_ctrl [3]=MASK0 [4]=MASK1 [5]=MASK2 [6]=MASK3 [7]=0xA5
-   * E3: [0]=0xE3 [1]=ID0 [2]=ID1 [3]=ID2 [4]=ID3 [5]=DM0 [6]=DM1 [7]=0xA5 */
+   *      frame_ctrl 期望 0xC3(IDE|PNDM|DLC=3)
+   * E3: [0]=0xE3 [1]=ID0 [2]=ID1 [3]=ID2 [4]=ID3 [5]=DM0 [6]=DM1 [7]=0xA5
+   *      DLC=3 有效数据掩码在 DM5/DM6/DM7（E4 回读） */
   {
     uint8_t wuf_diag[8];
     uint8_t handle;
@@ -534,7 +504,7 @@ static void can_lp_enter_sleep(void)
       }
     }
 
-    /* E3: ID 寄存器 + 数据掩码 DM0-DM1 回读 */
+    /* E3: ID 寄存器 + 数据掩码 DM0-DM1 回读（DLC=3 有效位见 E4 的 DM5/6/7） */
     wuf_diag[0] = 0xE3U;
     wuf_diag[1] = sit1145_read_reg(SIT1145_REG_ID_REG0);
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_ID_REG1);
@@ -607,16 +577,30 @@ static void can_lp_go_sleep(void)
 {
   if (g_can_awake != 0U)
   {
+    uint32_t t0;
+
     session_reset_to_default();
-    /* SB marker (06 41 53 42) must be confirmed on the wire before CAN goes
-     * offline, otherwise the bus never shows SB ahead of the silence. Send
-     * is handle-confirmed; retry once if enqueue/completion fails. */
-    if (can_lp_tx_marker(LIFECYCLE_SHUTDOWN, 0x53U, 0x42U,
-                         g_lp_wup_count, 0U, 0U, 0U) == 0U)
+
+    /* SLEEP(0x04) 帧必须确认送达后再入睡（CCU 要求）：先有界等 MF UDS
+     * 清空（上限 2.5s，覆盖 N_Cr/CTS 超时），超时不再等——主机哑巴不能
+     * 导致永不休眠。 */
+    t0 = timer_get_tick();
+    while ((uds_mf_busy() != 0U) &&
+           ((timer_get_tick() - t0) < 2500U))
+    {
+      isotp_poll();
+      proto_flush_pending_tx();
+      can_driver_poll();
+    }
+
+    /* SLEEP 取代一切未发状态帧（最坏丢 1 条 1s 周期 OPERATIONAL） */
+    lifecycle_pending_drop();
+
+    /* 发送 handle 确认；失败重试 1 次，再失败仍入睡 */
+    if (can_lp_tx_marker(LIFECYCLE_SLEEP) == 0U)
     {
       (void)can_driver_wait_tx_idle(20U);
-      (void)can_lp_tx_marker(LIFECYCLE_SHUTDOWN, 0x53U, 0x42U,
-                             g_lp_wup_count, 0U, 0U, 0U);
+      (void)can_lp_tx_marker(LIFECYCLE_SLEEP);
     }
   }
   can_lp_enter_sleep();
@@ -3204,21 +3188,14 @@ void can_protocol_poll(void)
   }
 
   if ((g_can_awake != 0U) && (g_need_lifecycle_announce != 0U) &&
-      ((int32_t)(now - g_announce_due_ms) >= 0) &&
-      (g_uds_mf_pending == 0U))  /* UDS 多帧应答待发时抑制 lifecycle，保证入队 */
+      ((int32_t)(now - g_announce_due_ms) >= 0))
   {
+    /* MF 期间由 lifecycle_post 入 pending FIFO 推迟补发，不再丢弃 */
     g_need_lifecycle_announce = 0U;
     if (g_lp_woke_from_sleep != 0U)
     {
-      /* 01 41 57 4B cnt src secL secH — 与上电 BOOTUP 01 41 00 区分 */
-      can_lp_tx_marker(LIFECYCLE_BOOTUP, 0x57U, 0x4BU, g_lp_wup_count,
-                       g_lp_last_wake_src,
-                       (uint8_t)(g_lp_last_sleep_sec & 0xFFU),
-                       (uint8_t)((g_lp_last_sleep_sec >> 8) & 0xFFU));
-    }
-    else
-    {
-      lifecycle_set_state(LIFECYCLE_BOOTUP);
+      /* 唤醒启动序列：03 WAKEUP → 02 OPERATIONAL（FIFO 保序） */
+      lifecycle_post(LIFECYCLE_WAKEUP);
     }
     lifecycle_set_state(LIFECYCLE_OPERATIONAL);
   }

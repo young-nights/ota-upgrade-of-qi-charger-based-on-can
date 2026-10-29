@@ -185,10 +185,16 @@ SLOT_B_BASE = BACKUP_BASE
 SLOT_SIZE = APP_SIZE
 MAX_TD_DATA = 254
 
-# SIT1145 Standby 唤醒标识帧：固件唤醒后约 100ms（CAN_LP_ANNOUNCE_DELAY_MS）
-# 在 0x18FF260D 主动发 01 41 57 4B cnt src secL secH（can_protocol.c can_lp_send_ident_bus），
-# 与上电 BOOTUP 01 41 00 ... 区分。收到它 = 唤醒收敛的正证据。
+# 生命周期帧 0x18FF260D（CCU 词汇表 2026-10-28）：byte0 分类，[1..7] 全零。
+#   0x01 BOOTUP（Bootloader 发，上电 100ms 内）/ 0x02 OPERATIONAL（1s 周期）
+#   0x03 WAKEUP（本次启动由 CAN 唤醒引起）/ 0x04 SLEEP（即将休眠）
+# 唤醒收敛的正证据 = 出现 0x03 WAKEUP（BOOTUP 后接 WAKEUP→OPERATIONAL）。
 LIFE_ANNOUNCE_ID = 0x18FF260D
+LIFE_BOOTUP = 0x01
+LIFE_OPERATIONAL = 0x02
+LIFE_WAKEUP = 0x03
+LIFE_SLEEP = 0x04
+# legacy（旧固件 [1]=0x41 + magic，兼容旧日志）
 LIFE_ANNOUNCE_MAGIC = (0x01, 0x41, 0x57, 0x4B)  # 01 'A' 'W' 'K'
 LIFE_BOOTUP_MAGIC = (0x01, 0x41, 0x00)  # 01 'A' 00 — 上电/Boot 跳转标识帧
 PROBE_ROUNDS = 3
@@ -204,9 +210,9 @@ PROBE_ROUNDS = 3
 #   3E（sub bit7 suppress 位为 0）→ 同 ID ISO-TP 单帧
 #               02 7E <子功能低 7 位>；suppress 位为 1 不应答
 #   其他 22 DID → NRC 7F 22 11（ISO-TP 单帧）
-# 心跳: 每 500ms 在 0x18FF260D (LIFE_ANNOUNCE_ID) 发
-#           01 41 42 54 cause fail_step A5 00（'ABT' 标记帧），并同周期
-#           重切 SIT1145 收发器 Normal（boot_safe_mode.c enter_safe_mode）
+# 心跳: ABT 标记帧（01 41 42 54）已废弃（CCU 词汇表 2026-10-28）；
+#           safe-mode 仅每 500ms 重切 SIT1145 Normal（boot_safe_mode.c），
+#           fail_step 只经 22 2113 应答获取
 # 主机侧解析: 本文件 _safe_mode_step —— 双格式兼容：历史裸帧
 #           62 21 13 FE <fail_step> + 现行 ISO-TP SF
 #           05 62 21 13 FE <fail_step>
@@ -818,16 +824,31 @@ def send_security_key(bus_id, sig, seed=None, priv=None):
 
 
 def _lifecycle_check(cid, dat):
-    """判断 0x18FF260D 上的帧类型：awk/bootup/shutdown/None。"""
-    if cid != LIFE_ANNOUNCE_ID or len(dat) < 3:
+    """判断 0x18FF260D 上的帧类型：awk/bootup/shutdown/None。
+
+    CCU 词汇表（2026-10-28）按 byte0 分类（[1..7]=0）：0x01=bootup
+    0x02=operational 0x03=wake 0x04=sleep；legacy（[1]=0x41 'A' + magic）
+    兼容旧日志。返回字符串沿用历史命名保调用方兼容。
+    注意：legacy WK/ABT 的 byte0 也是 0x01，必须先按 [1]==0x41 分流。"""
+    if cid != LIFE_ANNOUNCE_ID or len(dat) < 1:
         return None
-    if len(dat) >= 4 and tuple(dat[:4]) == LIFE_ANNOUNCE_MAGIC:
-        return "awk"          # 01 41 57 4B — 从 Standby 唤醒
-    if dat[0] == 0x01 and dat[1] == 0x41 and dat[2] == 0x00:
-        return "bootup"       # 01 41 00 — 上电/Boot 跳转
-    if dat[0] == 0x06 and dat[1] == 0x41:
-        return "shutdown"     # 06 41 53 42 — 进入 Standby
-    return None
+    if len(dat) >= 2 and dat[1] == 0x41:
+        # legacy（旧固件 [1]='A' + 'WK'/'SB'/'ABT' magic）
+        if len(dat) >= 4 and tuple(dat[:4]) == LIFE_ANNOUNCE_MAGIC:
+            return "awk"          # 01 41 57 4B — 从 Sleep 唤醒
+        if dat[0] == 0x01 and len(dat) >= 3 and dat[2] == 0x00:
+            return "bootup"       # 01 41 00 — 上电/Boot 跳转
+        if dat[0] == 0x06:
+            return "shutdown"     # 06 41 53 42 — 进入 Sleep（旧格式）
+        return None
+    # CCU 词汇表（[1]=0x00）
+    if dat[0] == LIFE_WAKEUP:
+        return "awk"              # 0x03 — 本次启动由 CAN 唤醒引起
+    if dat[0] == LIFE_BOOTUP:
+        return "bootup"           # 0x01 — 上电/复位启动（Bootloader 发）
+    if dat[0] == LIFE_SLEEP:
+        return "shutdown"         # 0x04 — 即将休眠
+    return None                   # 0x02 operational 1s 周期帧不作事件
 
 
 def _listen_lifecycle(bus_id, listen_s=1.0):
@@ -1250,6 +1271,8 @@ def _raw_send(bus_id, can_id, data):
         "is_extern": 1,
         "eff": 1,
         "id_type": 1,
+        # DLC 显式按数据长度（唤醒帧须 DLC=3 上线；缓冲垫 8 不影响线长）
+        "dlc": len(data),
         "data": list(data) + [0xCC] * (8 - len(data)),
     }
     for name in ("transmit", "send"):
@@ -1501,19 +1524,20 @@ def _raw_probe_safe_mode(bus_id, sniff_s=2.0):
 
 
 def wake_bus(bus_id, listen_s=2.0):
-    """SIT1145 空闲 180s 进 Standby：首帧只当 WUP，MCU 收不到内容，
-    所以唤醒帧必须连发、且发完要等固件收敛再探测。
+    """SIT1145 空闲进 Sleep：WUF 严格匹配 ID=0x18DA0D03 + DLC=3 + 数据
+    02 3E 00（PNDM=1，数据位近似），唤醒帧必须 raw 3 字节、不填充。
+    首帧只当 WUP，MCU 收不到内容，所以要连发、且发完要等固件收敛再探测。
 
     步骤：
-    1. 连发 3 帧 3E 00（间隔 200ms）打破静默；
+    1. 连发 3 帧 raw 02 3E 00（DLC=3，间隔 200ms）打破静默；
     2. 释放 UDS 通道后原始收帧监听 1~2s（zcanpro_read_app_version.py
        验证过：UDS 占用时 raw receive 不可靠，先 uds_deinit）；
-    3. 收到 0x18FF260D 上的 01 41 57 4B 唤醒标识帧 = 唤醒成功，返回 True；
-       超时未见标识帧返回 False（不能当作已唤醒）。"""
+    3. 收到 0x18FF260D 上的 0x03 WAKEUP 帧 = 唤醒成功，返回 True；
+       超时未见返回 False（不能当作已唤醒）。"""
     if stopTask:
         raise RuntimeError("用户停止脚本")
     for _ in range(3):
-        uds_try(bus_id, SID_TP, [0x00], suppress=1)
+        _raw_send(bus_id, UDS_REQ_ID, [0x02, 0x3E, 0x00])
         time.sleep(0.2)
     try:
         zcanpro.uds_deinit()
@@ -1525,8 +1549,9 @@ def wake_bus(bus_id, listen_s=2.0):
             if stopTask:
                 raise RuntimeError("用户停止脚本")
             for cid, dat in _recv_frames(bus_id):
-                if cid == LIFE_ANNOUNCE_ID and tuple(dat[:4]) == LIFE_ANNOUNCE_MAGIC:
-                    _log("收到唤醒标识帧 0x%08X %s，总线已唤醒" % (cid, _hex(dat[:8])))
+                if cid == LIFE_ANNOUNCE_ID and (dat[0] == LIFE_WAKEUP or
+                                                tuple(dat[:4]) == LIFE_ANNOUNCE_MAGIC):
+                    _log("收到 WAKEUP 唤醒帧 0x%08X %s，总线已唤醒" % (cid, _hex(dat[:8])))
                     return True
             time.sleep(0.02)
         _log("监听 %.1fs 未见 0x%08X 唤醒标识帧" % (listen_s, LIFE_ANNOUNCE_ID))

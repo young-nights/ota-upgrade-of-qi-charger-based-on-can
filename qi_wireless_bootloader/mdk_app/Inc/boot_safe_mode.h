@@ -43,6 +43,9 @@ void enter_safe_mode(uint8_t cause);
 
 /** @brief 诊断用 CAN 提前初始化（main.c step2，timer 之后/metadata 之前） */
 void boot_diag_can_init(void);
+/** @brief 生命周期 BOOTUP 帧（0x18FF260D [01 00×7]）——上电 100ms 内必发，
+ *    can_init 之后立即调用（CCU 词汇表 2026-10-28：byte0 四值、[1..7] 清零） */
+void boot_lifecycle_bootup(void);
 /** @brief M1：metadata 读完记录后（meta=ota_metadata_t*） */
 void boot_diag_m1(const void *meta);
 /** @brief M2：backup copy decision point (result + detail) */

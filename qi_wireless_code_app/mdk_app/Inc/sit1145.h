@@ -335,13 +335,13 @@ extern "C" {
  */
 #define SIT1145_WAKE_EVT_WPF        (1U << 0)
 /* ==========================================================================
- *  WUF 帧控制寄存器位定义（0x21，读写）
+ *  WUF 帧控制寄存器位定义（0x2F，读写）
  *  配置唤醒帧的格式和过滤行为
  * ==========================================================================
  */
 
 /**
- * @brief IDE 位（bit6）：Identifier Extension
+ * @brief IDE 位（bit7）：Identifier Extension
  * @note  0 = 标准帧（11 位 ID），1 = 扩展帧（29 位 ID）
  */
 #define SIT1145_WUF_IDE             (1U << 7)  /* bit7: 1=扩展帧 */
@@ -350,13 +350,13 @@ extern "C" {
  * @brief DLC 位（bit[3:0]）：Data Length Code
  * @note  期望的数据长度（0~8）
  *        DLC=0 时不检查数据掩码，ID 匹配即唤醒
- *        DLC≠0 时需数据字段也匹配
+ *        PNDM=1 时 DLC 必须与帧一致才唤醒（DLC 不匹配整帧不唤醒）
  */
 #define SIT1145_WUF_DLC_MASK        0x0FU
 
 /**
- * @brief PNDM 位（bit7）：Partial Networking Data Mask
- * @note  0 = 仅评估 ID + CRC（忽略数据字段）
+ * @brief PNDM 位（bit6）：Partial Networking Data Mask
+ * @note  0 = 仅评估 ID + CRC（忽略 DLC 与数据字段）
  *        1 = 评估 ID + CRC + DLC + 数据字段（默认）
  */
 #define SIT1145_WUF_PNDM            (1U << 6)  /* bit6: 1=评估数据字段 */
@@ -372,11 +372,12 @@ extern "C" {
  */
 typedef struct {
   uint8_t  ide;           /**< 0=标准帧(11位ID)，1=扩展帧(29位ID) */
-  uint8_t  dlc;           /**< 期望数据长度 0~8，0=不检查数据 */
-  uint8_t  pndm;          /**< 0=忽略数据字段，1=评估数据字段 */
+  uint8_t  dlc;           /**< 期望数据长度 0~8；PNDM=1 时 DLC 不匹配整帧不唤醒 */
+  uint8_t  pndm;          /**< 0=忽略 DLC/数据字段，1=评估 DLC+数据字段 */
   uint32_t can_id;        /**< CAN ID 值 */
   uint32_t can_id_mask;   /**< ID 掩码（1=无关位，0=必须匹配） */
-  uint8_t  data_mask[8];  /**< 数据掩码（1=检查该位，0=忽略） */
+  uint8_t  data_mask[8];  /**< 数据掩码：(rx&DM)!=0 任一命中即唤醒（组位图），
+                               0=该字节不参与；DLC=N 只用 DM(8-N)~DM7 对应 byte0~N-1 */
 } sit1145_wuf_cfg_t;
 
 /* ==========================================================================

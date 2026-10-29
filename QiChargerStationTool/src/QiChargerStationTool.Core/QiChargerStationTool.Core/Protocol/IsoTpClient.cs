@@ -47,32 +47,30 @@ public sealed class IsoTpClient
                 _ => $"Boot Diag {Convert.ToHexString(d)}",
             };
         }
-        if (id == ProtoIds.LifecycleId && d.Length >= 2)
+        if (id == ProtoIds.LifecycleId && d.Length >= 1)
         {
-            // 帧格式 lifecycle.c：[0]=状态码 [1]=0x41 'A' [2..7]=参数
-            // 状态码见 docs/3：0x01=BOOTUP 0x02=OPERATIONAL 0x04=SHUTDOWN
+            // CCU 词汇表（2026-10-28）：[0]=状态码（0x01 BOOTUP / 0x02 OPERATIONAL /
+            // 0x03 WAKEUP / 0x04 SLEEP），[1..7] 清零。
+            // legacy（[1]=0x41 'A' + ASCII magic）兼容旧固件日志。
             byte state = d[0];
+            if (d.Length >= 2 && d[1] == 0x41)
+            {
+                if (d.Length >= 4 && d[2] == 0x57 && d[3] == 0x4B)
+                    return $"生命周期 [WAKEUP 唤醒-legacy] {Convert.ToHexString(d.AsSpan(0, Math.Min(8, d.Length)).ToArray())}";
+                if (d.Length >= 4 && d[2] == 0x42 && d[3] == 0x54)
+                    return $"生命周期 [ABT Boot安全模式心跳-legacy] cause={(d.Length > 4 ? d[4] : (byte)0):X2} fail_step={(d.Length > 5 ? d[5] : (byte)0):X2}（卡在 Boot，APP 未运行）";
+                if (d.Length >= 4 && d[2] == 0x53 && d[3] == 0x42)
+                    return $"生命周期 [SLEEP 待机-legacy]";
+                return $"生命周期 [legacy STATE=0x{state:X2}] {Convert.ToHexString(d.AsSpan(0, Math.Min(4, d.Length)).ToArray())}";
+            }
             string tag = state switch
             {
-                0x01 => "BOOTUP",
-                0x02 => "OPERATIONAL",
-                0x03 => "OPERATIONAL",
-                0x04 => "SHUTDOWN",
-                0x06 => "SHUTDOWN",
+                0x01 => "BOOTUP 上电/复位",
+                0x02 => "OPERATIONAL 运行中",
+                0x03 => "WAKEUP CAN唤醒启动",
+                0x04 => "SLEEP 即将休眠",
                 _ => $"STATE=0x{state:X2}",
             };
-            // 参数区 0x41 后的 ASCII 标记：00=上电 / 57 4B='WK' 唤醒 / 42 54='ABT' / 53 42='SB'
-            if (d.Length >= 4 && d[1] == 0x41)
-            {
-                if (d[2] == 0x57 && d[3] == 0x4B)
-                    return $"生命周期 [{tag}-WK 唤醒] {Convert.ToHexString(d.AsSpan(0, Math.Min(8, d.Length)).ToArray())}";
-                if (d[2] == 0x42 && d[3] == 0x54)
-                    return $"生命周期 [ABT Boot安全模式心跳] cause={(d.Length > 4 ? d[4] : (byte)0):X2} fail_step={(d.Length > 5 ? d[5] : (byte)0):X2}（卡在 Boot，APP 未运行）";
-                if (d[2] == 0x53 && d[3] == 0x42)
-                    return $"生命周期 [{tag}-SB 待机]";
-                if (d[2] == 0x00)
-                    return $"生命周期 [{tag} 上电/复位标识]";
-            }
             return $"生命周期 [{tag}] {Convert.ToHexString(d.AsSpan(0, Math.Min(4, d.Length)).ToArray())}";
         }
         return "";
@@ -83,6 +81,19 @@ public sealed class IsoTpClient
     {
         while (_tp.TryReceive(out var f, 0))
             _rxq.Enqueue(f);
+    }
+
+    /// <summary>
+    /// 发 raw CAN 帧（不组 ISO-TP、不填充）：WUF 严格匹配（PNDM=1，CCU 词汇表
+    /// 2026-10-28）后唤醒帧须 DLC=3 的 02 3E 00 上线，Send 的 SF 会垫 0xCC 到
+    /// DLC=8 不再唤醒。CanFrame.Dlc=Data.Length，传 3 字节即 DLC=3。
+    /// </summary>
+    public void SendRaw(byte[] data)
+    {
+        Pump();
+        if (data.Length == 0) throw new ArgumentException("empty frame");
+        _tp.Send(new CanFrame(_txId, data));
+        Log($"[TX] raw {Hex(data)}");
     }
 
     public void Send(byte[] uds, bool quiet = false)

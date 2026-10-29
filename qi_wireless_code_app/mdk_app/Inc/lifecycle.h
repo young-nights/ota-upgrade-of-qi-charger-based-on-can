@@ -35,42 +35,66 @@ extern "C" {
 #include "at32f422_426.h"
 
 /* ========================================================================== */
-/*  Lifecycle state definitions (per 通用CAN协议规范 section 10)              */
+/*  Lifecycle state definitions (0x18FF260D byte0，CCU 词汇表 2026-10-28)     */
+/*  仅允许以下 4 值；[1..7] 全部清零                                         */
 /* ========================================================================== */
 
-#define LIFECYCLE_BOOTUP       0x01U   /*!< powered on or reset */
-#define LIFECYCLE_INIT         0x02U   /*!< initializing HW/SW */
-#define LIFECYCLE_OPERATIONAL  0x03U   /*!< ready for normal operation */
-#define LIFECYCLE_DEGRADED     0x04U   /*!< operating with degraded capability */
-#define LIFECYCLE_FAULT        0x05U   /*!< critical fault present */
-#define LIFECYCLE_SHUTDOWN     0x06U   /*!< preparing for power-off */
+#define LIFECYCLE_BOOTUP       0x01U   /*!< 上电/复位，开始启动（Bootloader 发） */
+#define LIFECYCLE_OPERATIONAL  0x02U   /*!< 启动完成，可正常工作 */
+#define LIFECYCLE_WAKEUP       0x03U   /*!< 本次启动由 CAN 唤醒引起 */
+#define LIFECYCLE_SLEEP        0x04U   /*!< 即将进入休眠 */
 
 /* ========================================================================== */
 /*  Exported functions                                                       */
 /* ========================================================================== */
 
 /**
- * @brief  initialize lifecycle module and send BOOTUP broadcast
+ * @brief  initialize lifecycle module
  * @note   must be called after can_driver_init().
- *         sends the BOOTUP broadcast immediately.
+ *         BOOTUP 由 Bootloader 在上电 100ms 内发送，APP 不发 BOOTUP。
  * @param  none
  * @retval none
  */
 void lifecycle_init(void);
 
 /**
- * @brief  set lifecycle state and send immediate broadcast
+ * @brief  set lifecycle state and post immediate broadcast
  * @note   call this whenever the device state changes.
- *         for OPERATIONAL and DEGRADED, also enables periodic broadcast.
- * @param  state: new lifecycle state (LIFECYCLE_BOOTUP .. LIFECYCLE_SHUTDOWN)
+ *         OPERATIONAL enables 1s periodic broadcast.
+ * @param  state: new lifecycle state (LIFECYCLE_BOOTUP .. LIFECYCLE_SLEEP)
  * @retval none
  */
 void lifecycle_set_state(uint8_t state);
 
 /**
+ * @brief  post one state frame (send now, or queue while MF UDS busy)
+ * @note   MF 期间不丢弃，入 pending FIFO，lifecycle_flush 补发。
+ *         队尾同值去重；LIFECYCLE_SLEEP 不入队（走 can_lp_go_sleep 专径）。
+ * @param  state: lifecycle state value
+ * @retval none
+ */
+void lifecycle_post(uint8_t state);
+
+/**
+ * @brief  flush pending state frames (call every main-loop turn)
+ * @note   仅在 !uds_mf_busy() 时按 FIFO 顺序补发；成功才出队。
+ * @param  none
+ * @retval none
+ */
+void lifecycle_flush(void);
+
+/**
+ * @brief  drop all pending state frames (only before SLEEP entry)
+ * @param  none
+ * @retval none
+ */
+void lifecycle_pending_drop(void);
+
+/**
  * @brief  poll lifecycle for periodic broadcast
  * @note   must be called from the main loop.
- *         sends periodic broadcast every 1000ms when in OPERATIONAL or DEGRADED.
+ *         sends periodic broadcast every 1000ms in OPERATIONAL state.
+ *         周期帧不得刷新空闲休眠计时。
  * @param  none
  * @retval none
  */

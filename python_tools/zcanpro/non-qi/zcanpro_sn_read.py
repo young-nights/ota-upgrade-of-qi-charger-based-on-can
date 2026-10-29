@@ -302,16 +302,28 @@ def _recv_frames(bus_id):
 
 def _lifecycle_check(cid, dat):
     """0x18FF260D 生命周期帧分类：awk / bootup / abt / shutdown / None。
-    ABT（01 41 42 54）只有 Boot safe mode 发；AWK/BOOTUP 只有 APP 发。"""
-    if cid != LIFE_ANNOUNCE_ID or len(dat) < 3:
+
+    CCU 词汇表（2026-10-28）按 byte0 分类（[1..7]=0）：0x01=bootup
+    0x02=operational 0x03=wake 0x04=sleep；legacy（[1]=0x41 'A'+magic）
+    兼容旧固件。ABT 已废弃（新固件不发），保留 legacy 分支兼容旧日志。
+    注意：legacy WK/ABT 的 byte0 也是 0x01，必须先按 [1]==0x41 分流。"""
+    if cid != LIFE_ANNOUNCE_ID or len(dat) < 1:
         return None
-    if len(dat) >= 4 and tuple(dat[:4]) == LIFE_ANNOUNCE_MAGIC:
+    if len(dat) >= 2 and dat[1] == 0x41:
+        if len(dat) >= 4 and tuple(dat[:4]) == LIFE_ANNOUNCE_MAGIC:
+            return "awk"
+        if len(dat) >= 4 and tuple(dat[:4]) == LIFE_ABT_MAGIC:
+            return "abt"
+        if dat[0] == 0x01 and len(dat) >= 3 and dat[2] == 0x00:
+            return "bootup"
+        if dat[0] == 0x06:
+            return "shutdown"
+        return None
+    if dat[0] == 0x03:
         return "awk"
-    if len(dat) >= 4 and tuple(dat[:4]) == LIFE_ABT_MAGIC:
-        return "abt"
-    if dat[0] == 0x01 and dat[1] == 0x41 and dat[2] == 0x00:
+    if dat[0] == 0x01:
         return "bootup"
-    if dat[0] == 0x06 and dat[1] == 0x41:
+    if dat[0] == 0x04:
         return "shutdown"
     return None
 
@@ -346,6 +358,35 @@ def _listen_lifecycle(bus_id, listen_s=LIFE_LISTEN_S):
     return found, all_frames
 
 
+def _wake_raw_send(bus_id):
+    """发一帧 raw 唤醒帧：ID=0x18DA0D03、DLC=3、数据 02 3E 00（不填充）。
+    WUF 严格匹配（PNDM=1，CCU 词汇表 2026-10-28）后 DLC=8 填充帧不再唤醒，
+    必须显式 dlc=3 上线。"""
+    cid = UDS_REQ_ID | 0x80000000
+    frame = {
+        "can_id": cid, "id": cid,
+        "is_canfd": 0, "canfd_brs": 0,
+        "is_extend": 1, "is_extended": 1, "extend": 1,
+        "extern_flag": 1, "is_extern": 1, "eff": 1, "id_type": 1,
+        "dlc": 3,
+        "data": [0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC],
+    }
+    for name in ("transmit", "send"):
+        fn = getattr(zcanpro, name, None)
+        if fn is None:
+            continue
+        try:
+            fn(bus_id, [frame])
+            return True
+        except Exception:
+            try:
+                fn(bus_id, frame)
+                return True
+            except Exception:
+                continue
+    return False
+
+
 def wake_bus(bus_id, listen_s=LIFE_LISTEN_S):
     """Standby 唤醒收敛：（3E 00 ×3 + 0.2s）×3 后释放 UDS 通道
     监听生命周期帧。返回 (证据列表, 全部收帧)。证据 (类型,data)：
@@ -355,7 +396,7 @@ def wake_bus(bus_id, listen_s=LIFE_LISTEN_S):
         raise RuntimeError("用户停止脚本")
     for _b in range(WAKE_BURST_ROUNDS):
         for _i in range(WAKE_BURST_COUNT):
-            uds_try(bus_id, SID_TP, [0x00], suppress=1)
+            _wake_raw_send(bus_id)
             time.sleep(WAKE_BURST_GAP_S)
     return _listen_lifecycle(bus_id, listen_s=listen_s)
 

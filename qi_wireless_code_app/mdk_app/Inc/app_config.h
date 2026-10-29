@@ -45,8 +45,10 @@
 
 /**
  * @brief  生命周期周期广播间隔（ms），LIFECYCLE_PERIODIC_ENABLE=1 时生效
+ * @note   仅 OPERATIONAL 态周期广播（SRS §11 默认 1Hz）；
+ *         周期帧不刷新空闲休眠计时，SLEEP 后停止
  */
-#define LIFECYCLE_PERIODIC_INTERVAL_MS  10000U
+#define LIFECYCLE_PERIODIC_INTERVAL_MS  1000U
 
 /* ==========================================================================
  *  低功耗（SIT1145 Sleep；MCU 不进 Stop，主循环等唤醒）

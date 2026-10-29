@@ -134,6 +134,12 @@ public sealed class UdsClient
 
     public void KeepAlive() => RequestSuppress(ProtoIds.SidTp, new byte[] { 0x80 });
 
+    /// <summary>
+    /// 发一帧 raw 唤醒帧：ID=UdsReqId、DLC=3、数据 02 3E 00（不填充）。
+    /// WUF 严格匹配（PNDM=1，CCU 词汇表 2026-10-28）后 DLC=8 填充帧不再唤醒。
+    /// </summary>
+    public void SendWake() => _tp.SendRaw(new byte[] { 0x02, 0x3E, 0x00 });
+
     /// <summary>读软件版本；失败返回 (false, 错误信息)。</summary>
     public (bool Ok, string Version, string Error) TryReadSwVersion(CancellationToken ct = default)
     {

@@ -561,17 +561,17 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 等 UDS 就绪：设备可能刚 BOOTUP 或在 Sleep，UDS 栈要几百 ms～几秒才起来。
-    /// 先发唤醒 burst（≥6 帧 3E 00 raw CAN），再轮询 22 F195，有正响应即就绪。
+    /// 先发唤醒 burst（≥6 帧 raw DLC=3 的 02 3E 00），再轮询 22 F195，有正响应即就绪。
     /// </summary>
     private static async Task<(bool Ok, string Error)> WaitUdsReadyAsync(
         UdsClient uds, CancellationToken ct, int waitSec = 8, Action<string>? log = null)
     {
-        // SIT1145 WUF 唤醒 burst：≥6 帧 raw CAN 3E 00，PNDM=0 纯 ID 匹配
+        // SIT1145 WUF 唤醒 burst：≥6 帧 raw CAN 02 3E 00（DLC=3），PNDM=1 严格匹配
         log?.Invoke("[就绪] 发送唤醒 burst (8 帧)…");
         for (int i = 0; i < 8; i++)
         {
             if (ct.IsCancellationRequested) return (false, "已取消");
-            uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
+            uds.SendWake();
             await Task.Delay(250, ct);
         }
 
@@ -596,8 +596,8 @@ public partial class MainWindow : Window
                 return (true, "");
             }
             // 无应答时再发 2 帧唤醒
-            uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
-            uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
+            uds.SendWake();
+            uds.SendWake();
             log?.Invoke($"[就绪] 第 {n} 次探测无应答，0.5s 后重试…");
             await Task.Delay(500, ct);
         }
@@ -738,7 +738,7 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
+                    uds.SendWake();
                     AppendLog("[自检] 已发 3E 00");
                 }
                 catch (Exception ex)

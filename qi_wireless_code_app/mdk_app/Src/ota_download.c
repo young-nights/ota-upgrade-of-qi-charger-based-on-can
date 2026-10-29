@@ -713,7 +713,6 @@ void ota_dl_poll(void)
   uint8_t resp[1];
   uint8_t h_before;
   uint8_t h_after;
-  uint8_t h_bc0;
   uint8_t have_prev;
   uint32_t t0;
 
@@ -776,8 +775,7 @@ void ota_dl_poll(void)
    * queued, and an immediate reset would kill the frame (the "51 01
    * lost" race recorded in can_driver.c). So (1) confirm enqueue via
    * last_tx_handle before/after the send and wait THIS frame out by
-   * handle for 0x77, (2) same handle-precise wait for the SHUTDOWN
-   * broadcast, (3) drain all TX buffers + 3ms insurance delay before
+   * handle for 0x77, (2) drain all TX buffers + 3ms insurance delay before
    * NVIC_SystemReset(). */
   have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
   can_proto_send_response(resp, 1);
@@ -787,13 +785,8 @@ void ota_dl_poll(void)
     (void)can_driver_wait_tx_frame(h_after, 50U);
   }
 
-  have_prev = (can_driver_last_tx_handle(&h_bc0) == 0) ? 1U : 0U;
-  lifecycle_set_state(LIFECYCLE_SHUTDOWN);
-  if ((can_driver_last_tx_handle(&h_after) == 0) &&
-      ((have_prev == 0U) || (h_after != h_bc0)))
-  {
-    (void)can_driver_wait_tx_frame(h_after, 50U);
-  }
+  /* CCU 词汇表（2026-10-28）：0x37 复位前不再发 SHUTDOWN 预告帧（静默复位），
+   * 复位后 Bootloader 的 BOOTUP(0x01)→APP 的 OPERATIONAL(0x02) 完成回归。 */
 
   /* drain every queued frame off the wire, then a short insurance
    * delay covering TX-complete edge windows (bus transfer tail,

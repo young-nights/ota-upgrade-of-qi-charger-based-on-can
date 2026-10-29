@@ -29,9 +29,14 @@ UDS_RESP_ID  = 0x18DA030D
 LIFE_ID      = 0x18FF260D
 LP_DIAG_ID   = 0x18FF270D   # 低功耗诊断帧
 
-# 唤醒标识帧：01 41 57 4B = "AWK"
+# 生命周期帧（0x18FF260D）byte0 分类（CCU 词汇表 2026-10-28，[1..7] 全零）：
+# 0x01 BOOTUP / 0x02 OPERATIONAL / 0x03 WAKEUP / 0x04 SLEEP
+LIFE_BOOTUP = 0x01
+LIFE_OPERATIONAL = 0x02
+LIFE_WAKEUP = 0x03
+LIFE_SLEEP = 0x04
+# legacy（旧固件 [1]=0x41 + 'WK'/'SB' magic，兼容旧日志）
 WK_MAGIC = bytes([0x01, 0x41, 0x57, 0x4B])
-# 生命周期 shutdown 标记：06 41 53 42 = "ASB" (A+SB)
 SB_MAGIC = bytes([0x06, 0x41, 0x53, 0x42])
 
 # DID 0x2119 读请求（SIT1145 LP 状态）
@@ -82,12 +87,12 @@ class LPTest:
         return frames
 
     def send_wake(self):
-        """发唤醒 burst：SIT1145 PNDM=0 纯 ID 匹配，必须用 UDS 请求 ID
-        0x18DA0D03 发 raw 3E 00，≥6 帧、间隔 250ms（AGENTS.md 唤醒 burst 约定）。
-        单帧或非 0x18DA0D03 的帧无法唤醒 Sleep 设备。"""
+        """发唤醒 burst：SIT1145 WUF 严格匹配 ID=0x18DA0D03 + DLC=3 + 数据 02 3E 00
+        （PNDM=1，数据位 DM5=0x02/DM6=0x3E 近似），必须 raw 3 字节帧、不填充。
+        ≥6 帧、间隔 250ms（AGENTS.md 唤醒 burst 约定）。DLC=8 填充帧不再唤醒。"""
         for i in range(8):
-            self.z.send_can(UDS_REQ_ID, bytes([0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC]))
-            _log("[Tx] raw 3E 00 唤醒 (%d/8)" % (i + 1))
+            self.z.send_can(UDS_REQ_ID, bytes([0x02, 0x3E, 0x00]))
+            _log("[Tx] raw 3E 00 唤醒 (DLC=3) (%d/8)" % (i + 1))
             time.sleep(0.25)
 
     def read_did_2119(self, timeout_s=2.0):
@@ -124,8 +129,8 @@ class LPTest:
         t0 = time.time()
         while (time.time() - t0) < timeout_s:
             for cid, d in self.pump_frames():
-                if cid == LIFE_ID and len(d) >= 4 and bytes(d[:4]) == WK_MAGIC:
-                    _log("收到 WK 唤醒帧: %s" % _hex(d))
+                if cid == LIFE_ID and len(d) >= 1 and (d[0] == LIFE_WAKEUP or bytes(d[:4]) == WK_MAGIC):
+                    _log("收到 WAKEUP 唤醒帧: %s" % _hex(d))
                     return "WK"
                 if cid == UDS_RESP_ID:
                     _log("收到 UDS 响应: %s" % _hex(d))

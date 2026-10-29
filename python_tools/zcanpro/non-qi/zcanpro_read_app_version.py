@@ -153,6 +153,8 @@ def _make_frame(can_id, data):
         "is_extern": 1,
         "eff": 1,
         "id_type": 1,
+        # DLC 显式按数据长度（唤醒帧须 DLC=3 上线；缓冲垫 8 不影响线长）
+        "dlc": len(data),
         "data": _pad8(data),
     }
 
@@ -433,6 +435,7 @@ def _sniff(bus_id, seconds):
                     saw_app = True
             if cid == 0x18FF260D:
                 saw_life = True
+                # legacy：旧固件 ABT 心跳（01 41 42 54）携带 fail_step；新固件已废弃
                 if len(dat) >= 4 and dat[2] == 0x42 and dat[3] == 0x54:
                     saw_boot = dat[5] if len(dat) > 5 else 0
         time.sleep(0.02)
@@ -442,7 +445,8 @@ def _sniff(bus_id, seconds):
 
 def _sniff_wk_evidence(bus_id, seconds=1.5):
     """唤醒证据嗅探（可选，不拦截主流程）：0x18FF260D 上的
-    01 41 57 4B（AWK 唤醒标识帧）= 唤醒成功。超时/异常只记日志。
+    0x03 WAKEUP 帧 = 唤醒成功（CCU 词汇表；legacy 01 41 57 4B 兼容旧固件）。
+    超时/异常只记日志。
     前提：已 _uds_init()（deinit 后 receive 恒空，见 P1）。"""
     try:
         t_end = time.time() + float(seconds)
@@ -450,11 +454,12 @@ def _sniff_wk_evidence(bus_id, seconds=1.5):
             if stopTask:
                 break
             for cid, dat in can_recv(bus_id):
-                if cid == 0x18FF260D and len(dat) >= 4 and list(dat[:4]) == [0x01, 0x41, 0x57, 0x4B]:
-                    _log("[唤醒证据] 收到 AWK 帧 0x%08X %s（Standby 已打破）" % (cid, _hex(dat[:8])))
+                if cid == 0x18FF260D and (dat[0] == 0x03 or
+                                          list(dat[:4]) == [0x01, 0x41, 0x57, 0x4B]):
+                    _log("[唤醒证据] 收到 WAKEUP 帧 0x%08X %s（Sleep 已打破）" % (cid, _hex(dat[:8])))
                     return True
             time.sleep(0.02)
-        _log("[唤醒证据] %.1fs 内未见 AWK 帧（不拦截，继续 3E 00 探测）" % seconds)
+        _log("[唤醒证据] %.1fs 内未见 WAKEUP 帧（不拦截，继续 3E 00 探测）" % seconds)
     except Exception as e:
         _log("[唤醒证据] sniff 异常（忽略）: %s" % e)
     return False

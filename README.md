@@ -188,8 +188,8 @@ python merge_prod_bin.py
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.40** | `can_protocol.c` → `SW_VERSION_STR` |
-| Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.41** | `can_protocol.c` → `SW_VERSION_STR` |
+| Bootloader | **QC_JYF_BL_1.0.1** | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
 查询方式：UDS `22 F195`（APP 版本）/ `22 F180`（Bootloader 版本）/ `22 F193`（硬件版本）。
@@ -198,6 +198,7 @@ python merge_prod_bin.py
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-10-28 | **feat(protocol)!: CCU 词汇表落地——生命周期字节 0 重构 + WUF 唤醒过滤严格化（破坏性变更）**。①生命周期 0x18FF260D：byte0 仅 4 值 `01` BOOTUP/`02` OPERATIONAL/`03` WAKEUP/`04` SLEEP、[1..7] 全零；序列 冷启动 01→02、CAN 唤醒 01→03→02、休眠 04 确认送达后才睡（失败重试 1 次）；BOOTUP 由 Bootloader 上电 100ms 内发（boot_lifecycle_bootup）；OPERATIONAL 1s 周期（仅该态）、SLEEP 后停；MF UDS 期间 pending FIFO 推迟补发；修正「停在 BOOTUP 不发 OPERATIONAL」（can_lp_send_ident_bus 清 announce 标志短路）；ABT 心跳废弃、0x37 复位静默（删 SHUTDOWN 发送）。②WUF 严格化：`sit1145_wuf_config_uds` PNDM=0→1、DLC=8→3、DM5=0x02/DM6=0x3E/DM7=0x00、fc=0xC3；ID+DLC 严格、数据 (rx&DM)≠0 近似（超集帧误唤醒=硬件限制）；唤醒帧改 raw 3 字节 `02 3E 00`（DLC=8 填充帧不再唤醒）——C#/python 全部唤醒发送点同步（UdsClient.SendWake/IsoTpClient.SendRaw/各 wake_bus）。③主机解码 byte0 四值分类 + legacy `0x41` magic 兼容。`SW_VERSION_STR` 1.1.40→1.1.41，`BOOTLOADER_VER_STR` 1.0.0→1.0.1 |
 | 2026-10-26 | **feat(sit1145/can_protocol): 启动时区分「CAN 唤醒启动」与「冷启动」**。硬件供电拓扑确认：SIT1145 进 Sleep→INH 断电=AT32 整板断电，CAN 唤醒→重新供电冷启动——唤醒后 Boot 帧（A1/A2/A4+`01 41 00`）是正常唤醒签名；WK 标记 `01 41 57 4B` 因 RAM 断电清零永远发不出。实现：`sit1145_init` 步骤6.5 在 `wakeup_clear` 前快照残留事件位 0x24/0x63（SIT1145 自身不断电，CW/WUF 锁存保留；整板上电则寄存器复位=全 0），新增 `sit1145_boot_wake_ev24/ev63()` 访问；`can_protocol_init` 据此预置 `g_lp_ever_sleep`+`g_lp_last_wake_src`（ev24 CW/WUF→src=2，ev63 CW→src=3），`enter_normal` 首次执行 wup_count 0→1、sleep_sec=0，BOOTUP 标记以 `01 41 57 4B 01 src 00 00`（WK）发出，与冷启动 `01 41 00` 区分。`SW_VERSION_STR` 1.1.39→1.1.40 |
 | 2026-10-26 | **fix(sit1145): 清除 g_sleep_diag 残留引用修复编译错误**——1.1.31 删 E5 时诊断静态变量已移除，1.1.38 误引用导致 Keil 报 undeclared identifier；删除赋值（回读逻辑不变）。`SW_VERSION_STR` 1.1.38→1.1.39 |
 | 2026-10-26 | **fix(sit1145): 休眠序列对齐官方 FAE SleepMode_Set——补 0x4C WAKE_enable + MODE 回读验证（可诊断写入被忽略）**。对照仓库官方参考 `code/SIT1145.c` 逐行核对，发现三处偏离：①官方写 `WAKE_enable(0x4C)=双边沿`（回读验证），我们全工程从未写过 0x4C（`sit1145_wake_enable()` 名不副实，实际写的是 0x23）；②官方 CAN_Control=**0x71（CMC=01）**，1.1.37 误改 CMC=00 与官方相悖（1.1.27「CMC=01 阻止入睡」系读识别码 0x74 的误判——官方 Sleep 写后仍可回读 MODE）；③官方写 Sleep 后**回读 MODE 验证**，我们完全信任写入。修复：sleep_enter/sleep_mode_set 补 0x4C 双边沿写；写 MODE=Sleep 后回读三态判定（0x01/0xFF=接受；仍 0x07=被忽略→CMC=00 兜底再写再回读；仍失败 return 0 置 g_lp_sleep_fail）——10s 空闲触发本身已实测正常（SB+E0 帧齐全），卡点在 Sleep 写入被芯片忽略且此前无回读发现。`SW_VERSION_STR` 1.1.37→1.1.38 |
