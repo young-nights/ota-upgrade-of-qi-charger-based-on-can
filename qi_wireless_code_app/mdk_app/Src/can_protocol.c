@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.45";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.46";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -437,6 +437,7 @@ static void can_lp_enter_normal(void)
 #if !defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)
 static void can_lp_enter_sleep(void)
 {
+#if !defined(CAN_LP_EFRAME_ENABLE) || (CAN_LP_EFRAME_ENABLE != 0U)
   /* ---- 诊断帧：进低功耗前把 SIT1145 寄存器快照发到总线 ----
    * CAN ID 0x18FF270D，8B payload:
    *   [0] 0xE0 标记
@@ -538,6 +539,8 @@ static void can_lp_enter_sleep(void)
       }
     }
   }
+
+#endif /* CAN_LP_EFRAME_ENABLE（E0/E2/E3/E4 诊断帧，app_config.h 宏屏蔽） */
 
   /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
    * clear every wake/event register -> enable wake detection -> switch mode.
