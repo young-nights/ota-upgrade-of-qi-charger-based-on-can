@@ -7,8 +7,14 @@ namespace ProductionStationTool.App.Utilities;
 /// <summary>串口设备信息（按 USB VID:PID / 描述识别，避免 CAN/PowerZ 搞混）。</summary>
 public sealed record PortInfo(string Name, string VidPid, string Description)
 {
-    /// <summary>下拉框显示：COM7  [3562:0101]</summary>
-    public string Label => string.IsNullOrEmpty(VidPid) ? Name : $"{Name}  [{VidPid}]";
+    /// <summary>下拉空选项（未选择）。</summary>
+    public static readonly PortInfo Empty = new(string.Empty, string.Empty, string.Empty);
+
+    public bool IsEmpty => Name.Length == 0;
+
+    /// <summary>下拉框显示：COM7  [3562:0101]；空选项显示 —</summary>
+    public string Label => IsEmpty ? "—"
+        : string.IsNullOrEmpty(VidPid) ? Name : $"{Name}  [{VidPid}]";
 }
 
 /// <summary>
