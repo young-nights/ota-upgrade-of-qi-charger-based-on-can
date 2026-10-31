@@ -5,10 +5,9 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="12"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="12"/>
-            <RowDefinition Height="150"/>
+            <RowDefinition Height="*" MinHeight="220"/>
+            <RowDefinition Height="6"/>
+            <RowDefinition Height="150" MinHeight="80"/>
         </Grid.RowDefinitions>
 
         <!-- ① 串口接入区 -->
@@ -17,7 +16,7 @@
         </Border>
 
         <!-- ② 流程区 + ③ 数据展示区 -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="320"/>
                 <ColumnDefinition Width="12"/>
@@ -134,8 +133,15 @@
             </Border>
         </Grid>
 
+        <!-- 拖拽分隔条：上拉扩大日志区，上部区域等比缩小 -->
+        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch"
+                      VerticalAlignment="Center" ResizeDirection="Rows"
+                      ResizeBehavior="PreviousAndNext"
+                      Background="#E2E8F0" ShowsPreview="True"
+                      ToolTip="上下拖动：调整日志区与上方区域的高度"/>
+
         <!-- ④ 日志区 -->
-        <Border Grid.Row="4" Style="{StaticResource Card}">
+        <Border Grid.Row="3" Style="{StaticResource Card}">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="运行日志" Style="{StaticResource SectionTitle}"
                            Margin="0,0,0,8"/>
