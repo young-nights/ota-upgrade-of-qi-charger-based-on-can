@@ -45,44 +45,69 @@ public static class PortDetector
     private static readonly Regex VidPidRx =
         new(@"VID_([0-9A-F]{4}).*PID_([0-9A-F]{4})", RegexOptions.IgnoreCase);
 
-    /// <summary>枚举全部串口及其 VID:PID / 描述。</summary>
+    /// <summary>
+    /// 枚举全部串口及其 VID:PID / 描述。
+    /// 多来源合并（Win32_PnPEntity + Win32_SerialPort + GetPortNames），
+    /// 按 COM 名去重（优先带 VID 信息的条目）——单一 WMI 类在部分
+    /// 驱动/系统上会漏口。
+    /// </summary>
     public static List<PortInfo> ListPorts()
     {
-        var result = new List<PortInfo>();
+        var byName = new Dictionary<string, PortInfo>(StringComparer.OrdinalIgnoreCase);
+
+        void add(string name, string desc, string pnp)
+        {
+            var com = ComRx.Match(name);
+            if (!com.Success)
+                return;
+            var vp = VidPidRx.Match(pnp);
+            var vidPid = vp.Success
+                ? $"{vp.Groups[1].Value.ToUpperInvariant()}:{vp.Groups[2].Value.ToUpperInvariant()}"
+                : string.Empty;
+            var info = new PortInfo(com.Value, vidPid, desc);
+            if (byName.TryGetValue(info.Name, out var old))
+            {
+                // 保留有 VID 信息的条目
+                if (old.VidPid.Length == 0 && info.VidPid.Length > 0)
+                    byName[info.Name] = info;
+            }
+            else
+            {
+                byName[info.Name] = info;
+            }
+        }
+
         try
         {
-            // 注意：中文 Windows 上 USB 串口名形如「USB 串行设备 (COM7)」，
-            // 不以 COM 开头——必须用 '%COM%' 包含匹配（'COM%' 只匹配以 COM
-            // 开头的旧式命名，会漏掉全部 USB CDC 串口）。
+            // 中文 Windows 的 USB 串口名为「USB 串行设备 (COM7)」不以 COM
+            // 开头——必须 '%COM%' 包含匹配。
             using var searcher = new ManagementObjectSearcher(
                 "SELECT Name, Description, PNPDeviceID FROM Win32_PnPEntity WHERE Name LIKE '%COM%'");
             foreach (var o in searcher.Get())
-            {
-                var name = (string)(o["Name"] ?? string.Empty);
-                var desc = (string)(o["Description"] ?? string.Empty);
-                var pnp = (string)(o["PNPDeviceID"] ?? string.Empty);
-                var com = ComRx.Match(name);
-                if (!com.Success)
-                    continue;
-                var vp = VidPidRx.Match(pnp);
-                var vidPid = vp.Success
-                    ? $"{vp.Groups[1].Value.ToUpperInvariant()}:{vp.Groups[2].Value.ToUpperInvariant()}"
-                    : string.Empty;
-                result.Add(new PortInfo(com.Value, vidPid, desc));
-            }
+                add((string)(o["Name"] ?? string.Empty),
+                    (string)(o["Description"] ?? string.Empty),
+                    (string)(o["PNPDeviceID"] ?? string.Empty));
         }
-        catch
-        {
-            // WMI 不可用：回退无 VID 的端口名列表
-        }
+        catch { /* WMI 不可用则继续下一来源 */ }
 
-        if (result.Count == 0)
+        try
         {
-            // WMI 查询空/异常兜底：GetPortNames 至少能列出端口（无 VID 信息）
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT DeviceID, Name, PNPDeviceID FROM Win32_SerialPort");
+            foreach (var o in searcher.Get())
+                add((string)(o["DeviceID"] ?? string.Empty) + " " + (string)(o["Name"] ?? string.Empty),
+                    (string)(o["Name"] ?? string.Empty),
+                    (string)(o["PNPDeviceID"] ?? string.Empty));
+        }
+        catch { /* 忽略 */ }
+
+        if (byName.Count == 0)
+        {
             foreach (var n in SerialPort.GetPortNames())
-                result.Add(new PortInfo(n, string.Empty, string.Empty));
+                add(n, string.Empty, string.Empty);
         }
 
+        var result = new List<PortInfo>(byName.Values);
         result.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
         return result;
     }

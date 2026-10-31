@@ -74,10 +74,16 @@ public partial class ConnectionPanel : UserControl
         var all = new List<PortInfo> { PortInfo.Empty };
         all.AddRange(ports);
 
+        // PowerZ 候选 = 普通串口（CAN 盒子设备整个不进列表）
+        var pzList = new List<PortInfo> { PortInfo.Empty };
+        foreach (var p in ports)
+            if (!PortDetector.IsCanDevice(p))
+                pzList.Add(p);
+
         ComboCanPort.DisplayMemberPath = nameof(PortInfo.Label);
         ComboPowerZPort.DisplayMemberPath = nameof(PortInfo.Label);
         ComboCanPort.ItemsSource = all;
-        ComboPowerZPort.ItemsSource = all;
+        ComboPowerZPort.ItemsSource = pzList;
 
         _syncing = true;
         try
@@ -94,7 +100,7 @@ public partial class ConnectionPanel : UserControl
                                          && p.Name != canName
                                          && !PortDetector.IsCanDevice(p));
             var pzName = pzHit ?? pzKeep?.Name ?? string.Empty;
-            ComboPowerZPort.SelectedItem = all.Find(p => p.Name == pzName);
+            ComboPowerZPort.SelectedItem = pzList.Find(p => p.Name == pzName);
         }
         finally
         {
