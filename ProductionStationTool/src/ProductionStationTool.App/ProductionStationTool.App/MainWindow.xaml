@@ -92,12 +92,15 @@
                         <Button x:Name="BtnStart" Content="开始测试" Width="150" Height="52"
                                 FontSize="20" FontWeight="SemiBold"
                                 Style="{StaticResource PrimaryButton}"
+                                IsEnabled="False"
+                                ToolTip="CAN 与 PowerZ 串口接入后可点"
                                 Click="BtnStart_Click"/>
                         <Button x:Name="BtnNext" Content="下一个" Width="140" Height="52"
                                 FontSize="18" Margin="12,0,0,0"
                                 Style="{StaticResource GhostButton}"
+                                IsEnabled="False"
                                 Click="BtnNext_Click"
-                                ToolTip="切换下一台产品：刷新上位机状态，串口保持连接"/>
+                                ToolTip="完整跑通一次流程后可点：切换下一台，刷新状态，串口保持连接"/>
                     </StackPanel>
                 </Grid>
             </Border>

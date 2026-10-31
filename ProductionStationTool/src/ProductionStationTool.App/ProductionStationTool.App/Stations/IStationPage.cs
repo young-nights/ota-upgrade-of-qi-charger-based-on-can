@@ -20,4 +20,26 @@ public interface IStationPage
     /// **串口连接保持不动**，便于产线连续测试。
     /// </summary>
     void ResetForNext();
+
+    /// <summary>
+    /// 「开始测试」可用性：默认放行（未细化的工位）。
+    /// 工位 1 实现为「CAN+PowerZ 串口已接入」。
+    /// </summary>
+    bool CanStartTest => true;
+
+    /// <summary>
+    /// 「下一个」可用性：默认放行（未细化的工位）。
+    /// 工位 1 实现为「完整跑通一次流程后」为 true。
+    /// </summary>
+    bool CanGoNext => true;
+
+    /// <summary>
+    /// 可用性变化通知（串口接入/断开、测试开始/结束、切换下一台），
+    /// 外壳收到后刷新「开始测试」「下一个」按钮。默认空实现。
+    /// </summary>
+    event Action? AvailabilityChanged
+    {
+        add { }
+        remove { }
+    }
 }

@@ -16,8 +16,27 @@ public partial class Station1Control : UserControl, IStationPage
     private static readonly Brush DangerBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
 
+    /// <summary>CAN + PowerZ 串口均已接入（点「连接」成功、未点「断开」）。</summary>
+    private bool _connected;
+
+    /// <summary>测试流程正在执行。</summary>
+    private bool _running;
+
+    /// <summary>本台产品已完整跑通一次流程（PASS/FAIL 均算跑通）。</summary>
+    private bool _flowCompleted;
+
     public int StationNo => 1;
     public string Title => "工位1 — SN + 电流电压";
+
+    /// <summary>串口未接入时禁止开始测试。</summary>
+    public bool CanStartTest => _connected && !_running;
+
+    /// <summary>未跑完或正在跑时禁止「下一个」；完整跑通后允许。</summary>
+    public bool CanGoNext => _flowCompleted && !_running;
+
+    public event Action? AvailabilityChanged;
+
+    private void RaiseAvailability() => AvailabilityChanged?.Invoke();
 
     public Station1Control()
     {
@@ -32,18 +51,34 @@ public partial class Station1Control : UserControl, IStationPage
 
         ConnPanel.ConnectRequested += (can, pz) =>
         {
+            _connected = true;
             ConnPanel.SetStatus($"已连接 CAN:{can} PowerZ:{pz}", true);
             LogPanel.Append($"串口连接：CAN={can}，PowerZ={pz}");
+            RaiseAvailability();
         };
         ConnPanel.DisconnectRequested += () =>
         {
+            _connected = false;
             ConnPanel.SetStatus("未连接", false);
             LogPanel.Append("串口已断开");
+            RaiseAvailability();
         };
     }
 
     public Task StartAsync(CancellationToken ct = default)
     {
+        if (_running)
+            return Task.CompletedTask;
+
+        if (!_connected)
+        {
+            LogPanel.Append("串口未接入（CAN/PowerZ），无法开始测试");
+            return Task.CompletedTask;
+        }
+
+        _running = true;
+        RaiseAvailability();
+
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
         LogPanel.Append("开始工位 1 测试流程（骨架演示）");
@@ -60,12 +95,17 @@ public partial class Station1Control : UserControl, IStationPage
         TxtResult.Foreground = MutedBrush;
         BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
         LogPanel.Append("流程骨架就绪——待接入 CAN/PowerZ 后执行完整测试");
+
+        _running = false;
+        _flowCompleted = true;  // 完整跑通一次（演示流程跑完即置位）
+        RaiseAvailability();
         return Task.CompletedTask;
     }
 
     /// <summary>切换下一台：数据展示区/流程/日志复位，串口连接保持。</summary>
     public void ResetForNext()
     {
+        _flowCompleted = false;
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
         TxtSn.Text = "—";
@@ -77,6 +117,7 @@ public partial class Station1Control : UserControl, IStationPage
         BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
         LogPanel.Clear();
         LogPanel.Append("已切换下一台，串口保持连接，等待开始测试");
+        RaiseAvailability();
     }
 
     /// <summary>把一次测试结果显示到数据展示区（异常项红字）。</summary>
