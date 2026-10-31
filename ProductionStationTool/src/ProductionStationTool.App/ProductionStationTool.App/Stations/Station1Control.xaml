@@ -133,11 +133,11 @@
             </Border>
         </Grid>
 
-        <!-- 拖拽分隔条：上拉扩大日志区，上部区域等比缩小 -->
+        <!-- 拖拽分隔条：上拉扩大日志区，上部区域同步缩小（实时拖动，无预览框） -->
         <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch"
                       VerticalAlignment="Center" ResizeDirection="Rows"
                       ResizeBehavior="PreviousAndNext"
-                      Background="#E2E8F0" ShowsPreview="True"
+                      Background="#E2E8F0" ShowsPreview="False" Cursor="SizeNS"
                       ToolTip="上下拖动：调整日志区与上方区域的高度"/>
 
         <!-- ④ 日志区 -->

@@ -105,8 +105,10 @@
                 </Grid>
             </Border>
 
-            <!-- 工位页面宿主 -->
-            <ContentControl x:Name="PageHost" Grid.Row="2"/>
+            <!-- 工位页面宿主（Stretch 约束高度，分隔条才能让上下区同步缩放） -->
+            <ContentControl x:Name="PageHost" Grid.Row="2"
+                            HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Stretch"/>
         </Grid>
 
         <!-- 状态栏 -->
