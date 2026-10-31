@@ -67,15 +67,17 @@ public partial class ConnectionPanel : UserControl
     public void RefreshPorts()
     {
         var ports = PortDetector.ListPorts();
+        var hid = PortDetector.ListPowerZDevices();   // PowerZ = HID 设备（0483:5750）
         var canSel = (ComboCanPort.SelectedItem as PortInfo)?.Name ?? string.Empty;
         var pzSel = (ComboPowerZPort.SelectedItem as PortInfo)?.Name ?? string.Empty;
 
-        // 顶部留一个空选项「—」（未选择）
+        // CAN 候选：串口列表（HID 设备无 COM 口，不进 CAN 下拉）
         var all = new List<PortInfo> { PortInfo.Empty };
         all.AddRange(ports);
 
-        // PowerZ 候选 = 普通串口（CAN 盒子设备整个不进列表）
+        // PowerZ 候选：HID 设备 + 普通串口（CAN 盒子设备不进列表）
         var pzList = new List<PortInfo> { PortInfo.Empty };
+        pzList.AddRange(hid);
         foreach (var p in ports)
             if (!PortDetector.IsCanDevice(p))
                 pzList.Add(p);
@@ -94,11 +96,11 @@ public partial class ConnectionPanel : UserControl
                           ?? (ports.Exists(p => p.Name == canSel) ? canSel : string.Empty);
             ComboCanPort.SelectedItem = all.Find(p => p.Name == canName);
 
-            // PowerZ：VID 命中 → 排除 CAN 盒子设备与 CAN 选中口 → 保留原选择 → 空
-            var pzHit = PortDetector.FindPowerZPort(ports, canName);
-            var pzKeep = ports.Find(p => p.Name == pzSel
-                                         && p.Name != canName
-                                         && !PortDetector.IsCanDevice(p));
+            // PowerZ：HID VID 精确命中（含在 pzList 里）→ 保留原选择 → 空
+            var pzHit = PortDetector.FindPowerZPort(pzList, canName);
+            var pzKeep = pzList.Find(p => p.Name == pzSel
+                                          && p.Name != canName
+                                          && !PortDetector.IsCanDevice(p));
             var pzName = pzHit ?? pzKeep?.Name ?? string.Empty;
             ComboPowerZPort.SelectedItem = pzList.Find(p => p.Name == pzName);
         }

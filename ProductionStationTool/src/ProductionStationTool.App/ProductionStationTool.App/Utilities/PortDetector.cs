@@ -35,11 +35,12 @@ public static class PortDetector
     private static readonly string[] CanKeywords = { "ZQWL", "ZQWL-CANFD", "CANFD" };
 
     /// <summary>
-    /// PowerZ 的 VID/PID——未确认前留空：不按 VID 精确匹配，
-    /// 只用「排除 CAN 口」策略；确认后填入即可精确匹配。
+    /// PowerZ 的 VID/PID（STMicroelectronics 定制固件，0483:5750）。
+    /// 注意：PowerZ 在 Windows 上枚举为 **HID 设备**（「USB 输入设备」），
+    /// 不是 COM 口——串口枚举看不见它，必须走 HID 设备枚举。
     /// </summary>
-    public const string PowerZVid = "";
-    public const string PowerZPid = "";
+    public const string PowerZVid = "0483";
+    public const string PowerZPid = "5750";
 
     private static readonly Regex ComRx = new(@"COM\d+", RegexOptions.IgnoreCase);
     private static readonly Regex VidPidRx =
@@ -109,6 +110,28 @@ public static class PortDetector
 
         var result = new List<PortInfo>(byName.Values);
         result.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
+        return result;
+    }
+
+    /// <summary>
+    /// 枚举 PowerZ HID 设备（VID:PID 0483:5750，Windows 上显示「USB 输入设备」）。
+    /// 返回的 PortInfo.Name 固定为 PowerZ(HID)——HID 无 COM 口名。
+    /// </summary>
+    public static List<PortInfo> ListPowerZDevices()
+    {
+        var result = new List<PortInfo>();
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                $"SELECT Name, Description, PNPDeviceID FROM Win32_PnPEntity " +
+                $"WHERE PNPDeviceID LIKE 'USB\\\\VID_{PowerZVid}&PID_{PowerZPid}%'");
+            foreach (var o in searcher.Get())
+            {
+                var desc = (string)(o["Description"] ?? string.Empty);
+                result.Add(new PortInfo("PowerZ(HID)", $"{PowerZVid}:{PowerZPid}", desc));
+            }
+        }
+        catch { /* WMI 不可用则无 HID 识别 */ }
         return result;
     }
 
