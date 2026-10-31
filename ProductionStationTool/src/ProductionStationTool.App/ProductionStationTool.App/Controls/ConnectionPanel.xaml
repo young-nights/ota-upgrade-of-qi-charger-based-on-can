@@ -9,7 +9,7 @@
                 <TextBlock Text="CAN 盒子串口" Style="{StaticResource FieldLabel}"/>
                 <StackPanel Orientation="Horizontal">
                     <ComboBox x:Name="ComboCanPort" Style="{StaticResource FieldCombo}"
-                              Width="130" MinWidth="130" Height="32"/>
+                              Width="180" MinWidth="180" Height="32"/>
                     <Button x:Name="BtnRefresh" Content="刷新" Style="{StaticResource GhostButton}"
                             Margin="8,0,0,0" Height="32" Click="BtnRefresh_Click"/>
                 </StackPanel>
@@ -18,7 +18,7 @@
             <StackPanel Margin="0,0,24,0">
                 <TextBlock Text="PowerZ 串口" Style="{StaticResource FieldLabel}"/>
                 <ComboBox x:Name="ComboPowerZPort" Style="{StaticResource FieldCombo}"
-                          Width="130" MinWidth="130" Height="32"/>
+                          Width="180" MinWidth="180" Height="32"/>
             </StackPanel>
 
             <StackPanel Margin="0,0,24,0">
