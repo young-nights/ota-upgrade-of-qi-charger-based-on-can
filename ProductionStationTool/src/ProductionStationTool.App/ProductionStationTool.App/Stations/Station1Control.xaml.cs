@@ -1,6 +1,7 @@
 using System.Windows.Controls;
 using System.Windows.Media;
 using ProductionStationTool.App.Controls;
+using ProductionStationTool.Core.Sn;
 using ProductionStationTool.Core.Station;
 
 namespace ProductionStationTool.App.Stations;
@@ -81,25 +82,47 @@ public partial class Station1Control : UserControl, IStationPage
 
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
-        LogPanel.Append("开始工位 1 测试流程（骨架演示）");
+        LogPanel.Append("开始工位 1 测试流程（协议占位：仅 SN 生成为真实逻辑）");
 
-        // 占位演示：按步骤点亮流程区；接入 CAN/PowerZ 后替换为 Station1Workflow
-        for (var i = 0; i < FlowPanel.Steps.Count; i++)
+        // ① 连接设备：入口已校验串口已接入
+        FlowPanel.Mark(0, StepStatus.Running);
+        FlowPanel.Mark(0, StepStatus.Passed);
+
+        // ② 生成 SN 码：真实生成（Core.SnGenerator），显示到数据展示区
+        FlowPanel.Mark(1, StepStatus.Running);
+        var sn = SnGenerator.Generate(DateTime.Now, NextSnSequence(), "01");
+        TxtSn.Text = sn;
+        LogPanel.Append($"生成 SN：{sn}");
+        FlowPanel.Mark(1, StepStatus.Passed);
+
+        // ③~⑥ 写入 SN 回读 / 开启充电 / PowerZ 采样 / 判限入库：
+        // CAN/UDS 与 PowerZ HID 协议均未接入，无设备可测 → 诚实标 FAIL，
+        // 不再假绿（未接电时写入 SN 不可能通过）。
+        for (var i = 2; i < FlowPanel.Steps.Count; i++)
         {
             FlowPanel.Mark(i, StepStatus.Running);
-            LogPanel.Append($"步骤 {i + 1} 进行中…");
-            FlowPanel.Mark(i, StepStatus.Passed);
+            LogPanel.Append($"步骤 {i + 1}「{FlowPanel.Steps[i].Name}」：协议未接入，未真实执行");
+            FlowPanel.Mark(i, StepStatus.Failed);
+            ListAbnormal.Items.Add($"步骤 {i + 1}「{FlowPanel.Steps[i].Name}」未真实执行（协议未接入）");
         }
 
-        TxtResult.Text = "待测试";
-        TxtResult.Foreground = MutedBrush;
-        BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
-        LogPanel.Append("流程骨架就绪——待接入 CAN/PowerZ 后执行完整测试");
+        SetResultBadge(false);
+        LogPanel.Append("流程结束：SN 已生成，其余步骤待接入协议后重测");
 
         _running = false;
-        _flowCompleted = true;  // 完整跑通一次（演示流程跑完即置位）
+        _flowCompleted = true;  // 完整跑通一次（PASS/FAIL 均算），允许点「下一个」
         RaiseAvailability();
         return Task.CompletedTask;
+    }
+
+    /// <summary>当日流水号（演示用递增；正式接入 SQLite 后取库存水号）。</summary>
+    private static int _snSequence;
+
+    private static int NextSnSequence()
+    {
+        if (_snSequence >= 9999)
+            _snSequence = 0;
+        return ++_snSequence;
     }
 
     /// <summary>切换下一台：数据展示区/流程/日志复位，串口连接保持。</summary>
