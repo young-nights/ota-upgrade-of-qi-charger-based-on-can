@@ -4,23 +4,29 @@ using System.Text.RegularExpressions;
 
 namespace ProductionStationTool.App.Utilities;
 
-/// <summary>串口设备信息（按 USB VID:PID 识别，避免 CAN/PowerZ 搞混）。</summary>
-public sealed record PortInfo(string Name, string VidPid)
+/// <summary>串口设备信息（按 USB VID:PID / 描述识别，避免 CAN/PowerZ 搞混）。</summary>
+public sealed record PortInfo(string Name, string VidPid, string Description)
 {
     /// <summary>下拉框显示：COM7  [3562:0101]</summary>
     public string Label => string.IsNullOrEmpty(VidPid) ? Name : $"{Name}  [{VidPid}]";
 }
 
 /// <summary>
-/// 串口枚举与按 VID:PID 的设备识别。
-/// Windows WMI（Win32_PnPEntity）取 PNPDeviceID 解析 VID/PID；
-/// WMI 不可用时回退 GetPortNames（无 VID 信息）。
+/// 串口枚举与 CAN 设备识别（分层匹配，通用化）：
+/// ① VID:PID=3562:0101 精确命中 ZQWL-CANFD；
+/// ② 设备描述/名称含 "ZQWL" 关键词（固件版本差异的兜底）；
+/// ③ 都未命中返回 null——由操作员在下拉人工选择。
+/// WMI（Win32_PnPEntity）取 PNPDeviceID；不可用时回退 GetPortNames。
+/// 注意：盒子若 usbipd 挂在 WSL，Windows 侧不可见（先 detach）。
 /// </summary>
 public static class PortDetector
 {
     /// <summary>ZQWL-CANFD（AGENTS.md 硬件表：VID:PID 3562:0101）。</summary>
     public const string CanVid = "3562";
     public const string CanPid = "0101";
+
+    /// <summary>CAN 描述关键词兜底匹配（层②）。</summary>
+    private static readonly string[] CanKeywords = { "ZQWL", "ZQWL-CANFD", "CANFD" };
 
     /// <summary>
     /// PowerZ 的 VID/PID——未确认前留空：不按 VID 精确匹配，
@@ -33,17 +39,18 @@ public static class PortDetector
     private static readonly Regex VidPidRx =
         new(@"VID_([0-9A-F]{4}).*PID_([0-9A-F]{4})", RegexOptions.IgnoreCase);
 
-    /// <summary>枚举全部串口及其 VID:PID。</summary>
+    /// <summary>枚举全部串口及其 VID:PID / 描述。</summary>
     public static List<PortInfo> ListPorts()
     {
         var result = new List<PortInfo>();
         try
         {
             using var searcher = new ManagementObjectSearcher(
-                "SELECT Name, PNPDeviceID FROM Win32_PnPEntity WHERE Name LIKE 'COM%'");
+                "SELECT Name, Description, PNPDeviceID FROM Win32_PnPEntity WHERE Name LIKE 'COM%'");
             foreach (var o in searcher.Get())
             {
                 var name = (string)(o["Name"] ?? string.Empty);
+                var desc = (string)(o["Description"] ?? string.Empty);
                 var pnp = (string)(o["PNPDeviceID"] ?? string.Empty);
                 var com = ComRx.Match(name);
                 if (!com.Success)
@@ -52,27 +59,36 @@ public static class PortDetector
                 var vidPid = vp.Success
                     ? $"{vp.Groups[1].Value.ToUpperInvariant()}:{vp.Groups[2].Value.ToUpperInvariant()}"
                     : string.Empty;
-                result.Add(new PortInfo(com.Value, vidPid));
+                result.Add(new PortInfo(com.Value, vidPid, desc));
             }
         }
         catch
         {
             // WMI 不可用：回退无 VID 的端口名列表
             foreach (var n in SerialPort.GetPortNames())
-                result.Add(new PortInfo(n, string.Empty));
+                result.Add(new PortInfo(n, string.Empty, string.Empty));
         }
 
         result.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
         return result;
     }
 
-    /// <summary>按 VID:PID 找 ZQWL-CANFD 串口名；找不到返回 null。</summary>
+    /// <summary>找 CAN（ZQWL）串口名：层①VID 精确 → 层②描述关键词 → null。</summary>
     public static string? FindCanPort(IReadOnlyList<PortInfo> ports)
     {
         var want = $"{CanVid}:{CanPid}";
         foreach (var p in ports)
             if (string.Equals(p.VidPid, want, StringComparison.OrdinalIgnoreCase))
                 return p.Name;
+
+        foreach (var p in ports)
+        {
+            var hay = $"{p.Description} {p.Label}";
+            foreach (var kw in CanKeywords)
+                if (hay.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                    return p.Name;
+        }
+
         return null;
     }
 
