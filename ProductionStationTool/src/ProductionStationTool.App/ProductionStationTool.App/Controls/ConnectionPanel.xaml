@@ -7,12 +7,8 @@
 
             <StackPanel Margin="0,0,24,0">
                 <TextBlock Text="CAN 盒子串口" Style="{StaticResource FieldLabel}"/>
-                <StackPanel Orientation="Horizontal">
-                    <ComboBox x:Name="ComboCanPort" Style="{StaticResource FieldCombo}"
-                              Width="180" MinWidth="180" Height="32"/>
-                    <Button x:Name="BtnRefresh" Content="刷新" Style="{StaticResource GhostButton}"
-                            Margin="8,0,0,0" Height="32" Click="BtnRefresh_Click"/>
-                </StackPanel>
+                <ComboBox x:Name="ComboCanPort" Style="{StaticResource FieldCombo}"
+                          Width="180" MinWidth="180" Height="32"/>
             </StackPanel>
 
             <StackPanel Margin="0,0,24,0">
@@ -26,6 +22,9 @@
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="BtnConnect" Content="连接" Style="{StaticResource PrimaryButton}"
                             Height="32" Click="BtnConnect_Click"/>
+                    <Button x:Name="BtnRefresh" Content="刷新" Style="{StaticResource GhostButton}"
+                            Margin="8,0,0,0" Height="32" Click="BtnRefresh_Click"
+                            ToolTip="刷新 CAN 与 PowerZ 两个串口列表并自动识别"/>
                     <Button x:Name="BtnDisconnect" Content="断开" Style="{StaticResource GhostButton}"
                             Margin="8,0,0,0" Height="32" Click="BtnDisconnect_Click"/>
                 </StackPanel>
