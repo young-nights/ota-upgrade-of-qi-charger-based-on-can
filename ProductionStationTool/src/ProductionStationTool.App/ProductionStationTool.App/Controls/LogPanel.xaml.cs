@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Controls;
 
 namespace ProductionStationTool.App.Controls;
@@ -17,4 +18,6 @@ public partial class LogPanel : UserControl
     }
 
     public void Clear() => TxtLog.Clear();
+
+    private void BtnClear_Click(object sender, RoutedEventArgs e) => Clear();
 }

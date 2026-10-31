@@ -45,8 +45,11 @@ public static class PortDetector
         var result = new List<PortInfo>();
         try
         {
+            // 注意：中文 Windows 上 USB 串口名形如「USB 串行设备 (COM7)」，
+            // 不以 COM 开头——必须用 '%COM%' 包含匹配（'COM%' 只匹配以 COM
+            // 开头的旧式命名，会漏掉全部 USB CDC 串口）。
             using var searcher = new ManagementObjectSearcher(
-                "SELECT Name, Description, PNPDeviceID FROM Win32_PnPEntity WHERE Name LIKE 'COM%'");
+                "SELECT Name, Description, PNPDeviceID FROM Win32_PnPEntity WHERE Name LIKE '%COM%'");
             foreach (var o in searcher.Get())
             {
                 var name = (string)(o["Name"] ?? string.Empty);
@@ -65,6 +68,11 @@ public static class PortDetector
         catch
         {
             // WMI 不可用：回退无 VID 的端口名列表
+        }
+
+        if (result.Count == 0)
+        {
+            // WMI 查询空/异常兜底：GetPortNames 至少能列出端口（无 VID 信息）
             foreach (var n in SerialPort.GetPortNames())
                 result.Add(new PortInfo(n, string.Empty, string.Empty));
         }
