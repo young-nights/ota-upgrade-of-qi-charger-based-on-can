@@ -87,26 +87,32 @@ public static class PortDetector
         return result;
     }
 
+    /// <summary>是否 CAN 盒子设备（VID=3562:0101 或描述含 ZQWL/CANFD 关键词）。</summary>
+    public static bool IsCanDevice(PortInfo p)
+    {
+        if (string.Equals(p.VidPid, $"{CanVid}:{CanPid}", StringComparison.OrdinalIgnoreCase))
+            return true;
+        var hay = $"{p.Description} {p.Label}";
+        foreach (var kw in CanKeywords)
+            if (hay.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
     /// <summary>找 CAN（ZQWL）串口名：层①VID 精确 → 层②描述关键词 → null。</summary>
     public static string? FindCanPort(IReadOnlyList<PortInfo> ports)
     {
-        var want = $"{CanVid}:{CanPid}";
         foreach (var p in ports)
-            if (string.Equals(p.VidPid, want, StringComparison.OrdinalIgnoreCase))
+            if (IsCanDevice(p))
                 return p.Name;
-
-        foreach (var p in ports)
-        {
-            var hay = $"{p.Description} {p.Label}";
-            foreach (var kw in CanKeywords)
-                if (hay.Contains(kw, StringComparison.OrdinalIgnoreCase))
-                    return p.Name;
-        }
-
         return null;
     }
 
-    /// <summary>找 PowerZ 串口名：VID 已知则精确匹配；否则排除 CAN 口取其余第一个。</summary>
+    /// <summary>
+    /// 找 PowerZ 串口名：VID 已知则精确匹配；否则取「普通串口」——
+    /// 排除一切 CAN 盒子设备（VID/关键词身份，不管 CAN 下拉当前选什么）
+    /// 与 CAN 下拉当前选中的口。
+    /// </summary>
     public static string? FindPowerZPort(IReadOnlyList<PortInfo> ports, string? canPort)
     {
         if (PowerZVid.Length > 0)
@@ -118,7 +124,7 @@ public static class PortDetector
         }
 
         foreach (var p in ports)
-            if (p.Name != canPort)
+            if (p.Name != canPort && !IsCanDevice(p))
                 return p.Name;
         return null;
     }

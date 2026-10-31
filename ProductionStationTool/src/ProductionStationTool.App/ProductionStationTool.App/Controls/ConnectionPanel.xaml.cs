@@ -35,7 +35,11 @@ public partial class ConnectionPanel : UserControl
         ComboPowerZPort.SelectionChanged += Combo_SelectionChanged;
     }
 
-    /// <summary>两下拉互斥：选了同一串口时清空 PowerZ（CAN 优先）。</summary>
+    /// <summary>
+    /// 两下拉互斥 + 设备身份约束：
+    /// ① 选到与对方相同串口时清空 PowerZ（CAN 优先）；
+    /// ② PowerZ 不允许选 CAN 盒子设备（VID/关键词身份识别，自动清空）。
+    /// </summary>
     private void Combo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_syncing)
@@ -44,7 +48,13 @@ public partial class ConnectionPanel : UserControl
         try
         {
             var can = (ComboCanPort.SelectedItem as PortInfo)?.Name ?? string.Empty;
-            var pz = (ComboPowerZPort.SelectedItem as PortInfo)?.Name ?? string.Empty;
+            var pzSel = ComboPowerZPort.SelectedItem as PortInfo;
+            var pz = pzSel?.Name ?? string.Empty;
+            if (pzSel is { IsEmpty: false } && PortDetector.IsCanDevice(pzSel))
+            {
+                ComboPowerZPort.SelectedItem = PortInfo.Empty;
+                return;
+            }
             if (can.Length > 0 && can == pz)
                 ComboPowerZPort.SelectedItem = PortInfo.Empty;
         }
@@ -78,10 +88,12 @@ public partial class ConnectionPanel : UserControl
                           ?? (ports.Exists(p => p.Name == canSel) ? canSel : string.Empty);
             ComboCanPort.SelectedItem = all.Find(p => p.Name == canName);
 
-            // PowerZ：VID 命中 → 排除 CAN 口取第一个 → 保留原选择（不与 CAN 冲突）→ 空
+            // PowerZ：VID 命中 → 排除 CAN 盒子设备与 CAN 选中口 → 保留原选择 → 空
             var pzHit = PortDetector.FindPowerZPort(ports, canName);
-            var pzName = pzHit
-                         ?? (ports.Exists(p => p.Name == pzSel && p.Name != canName) ? pzSel : string.Empty);
+            var pzKeep = ports.Find(p => p.Name == pzSel
+                                         && p.Name != canName
+                                         && !PortDetector.IsCanDevice(p));
+            var pzName = pzHit ?? pzKeep?.Name ?? string.Empty;
             ComboPowerZPort.SelectedItem = all.Find(p => p.Name == pzName);
         }
         finally
