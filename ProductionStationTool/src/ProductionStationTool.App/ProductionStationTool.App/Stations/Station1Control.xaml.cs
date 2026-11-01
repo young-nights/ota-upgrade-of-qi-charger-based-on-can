@@ -236,7 +236,7 @@ public partial class Station1Control : UserControl, IStationPage
         if (completed && writeOk)
         {
             FlowPanel.Mark(5, StepStatus.Passed);
-            LogPanel.Append($"步骤 6：已入库（{result?.Passed == true ? "PASS" : "FAIL"}）");
+            LogPanel.Append($"步骤 6：已入库（{(result?.Passed == true ? "PASS" : "FAIL")}）");
         }
         else
         {
