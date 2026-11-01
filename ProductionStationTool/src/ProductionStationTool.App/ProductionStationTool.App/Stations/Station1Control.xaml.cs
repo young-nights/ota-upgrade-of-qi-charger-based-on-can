@@ -3,6 +3,7 @@ using System.Windows.Media;
 using ProductionStationTool.App.Controls;
 using ProductionStationTool.Core.Sn;
 using ProductionStationTool.Core.Station;
+using ProductionStationTool.PowerZ;
 
 namespace ProductionStationTool.App.Stations;
 
@@ -66,15 +67,15 @@ public partial class Station1Control : UserControl, IStationPage
         };
     }
 
-    public Task StartAsync(CancellationToken ct = default)
+    public async Task StartAsync(CancellationToken ct = default)
     {
         if (_running)
-            return Task.CompletedTask;
+            return;
 
         if (!_connected)
         {
             LogPanel.Append("串口未接入（CAN/PowerZ），无法开始测试");
-            return Task.CompletedTask;
+            return;
         }
 
         _running = true;
@@ -82,7 +83,7 @@ public partial class Station1Control : UserControl, IStationPage
 
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
-        LogPanel.Append("开始工位 1 测试流程（协议占位：仅 SN 生成为真实逻辑）");
+        LogPanel.Append("开始工位 1 测试流程（SN 生成与 PowerZ 采样为真实逻辑）");
 
         // ① 连接设备：入口已校验串口已接入
         FlowPanel.Mark(0, StepStatus.Running);
@@ -95,24 +96,98 @@ public partial class Station1Control : UserControl, IStationPage
         LogPanel.Append($"生成 SN：{sn}");
         FlowPanel.Mark(1, StepStatus.Passed);
 
-        // ③~⑥ 写入 SN 回读 / 开启充电 / PowerZ 采样 / 判限入库：
-        // CAN/UDS 与 PowerZ HID 协议均未接入，无设备可测 → 诚实标 FAIL，
-        // 不再假绿（未接电时写入 SN 不可能通过）。
-        for (var i = 2; i < FlowPanel.Steps.Count; i++)
+        // ③ 写入 SN 并回读：CAN/UDS 协议未接入
+        FlowPanel.Mark(2, StepStatus.Running);
+        LogPanel.Append("步骤 3「写入 SN 并回读」：CAN/UDS 协议未接入，未真实执行");
+        FlowPanel.Mark(2, StepStatus.Failed);
+        ListAbnormal.Items.Add("步骤 3「写入 SN 并回读」未真实执行（CAN/UDS 协议未接入）");
+
+        // ④ 开启无线充电：CAN/UDS 协议未接入
+        FlowPanel.Mark(3, StepStatus.Running);
+        LogPanel.Append("步骤 4「开启无线充电」：CAN/UDS 协议未接入，未真实执行");
+        FlowPanel.Mark(3, StepStatus.Failed);
+        ListAbnormal.Items.Add("步骤 4「开启无线充电」未真实执行（CAN/UDS 协议未接入）");
+
+        // ⑤ PowerZ 采样电流/电压：真实采样（HID KM003C 协议）
+        FlowPanel.Mark(4, StepStatus.Running);
+        LogPanel.Append("步骤 5「PowerZ 采样电流/电压」：打开 HID 采样…");
+        var sample = await SamplePowerZAsync(ct);
+        if (sample is { } s)
         {
-            FlowPanel.Mark(i, StepStatus.Running);
-            LogPanel.Append($"步骤 {i + 1}「{FlowPanel.Steps[i].Name}」：协议未接入，未真实执行");
-            FlowPanel.Mark(i, StepStatus.Failed);
-            ListAbnormal.Items.Add($"步骤 {i + 1}「{FlowPanel.Steps[i].Name}」未真实执行（协议未接入）");
+            TxtVoltage.Text = $"{s.Voltage:F3}";
+            TxtCurrent.Text = $"{s.Current:F3}";
+            var fails = DefaultPowerLimits.Judge(s.Voltage, s.Current);
+            if (fails.Count == 0)
+            {
+                TxtPowerJudge.Text = "正常";
+                TxtPowerJudge.Foreground = SuccessBrush;
+                LogPanel.Append($"步骤 5：采样成功 {s}，判限正常");
+                FlowPanel.Mark(4, StepStatus.Passed);
+            }
+            else
+            {
+                TxtPowerJudge.Text = "异常";
+                TxtPowerJudge.Foreground = DangerBrush;
+                foreach (var f in fails)
+                    ListAbnormal.Items.Add(f);
+                LogPanel.Append($"步骤 5：采样成功 {s}，判限异常");
+                FlowPanel.Mark(4, StepStatus.Failed);
+            }
+        }
+        else
+        {
+            TxtVoltage.Text = "—";
+            TxtCurrent.Text = "—";
+            TxtPowerJudge.Text = "—";
+            FlowPanel.Mark(4, StepStatus.Failed);
+            ListAbnormal.Items.Add("步骤 5「PowerZ 采样」失败：HID 无采样（设备未接/协议不符）");
+            LogPanel.Append("步骤 5「PowerZ 采样」：无采样（PowerZ 未接或协议不符，见上方日志）");
         }
 
+        // ⑥ 判限并入库：判限已在步骤 5 执行；入库（SQLite）未接入
+        FlowPanel.Mark(5, StepStatus.Running);
+        LogPanel.Append("步骤 6「判限并入库」：判限已在步骤 5 执行；入库（SQLite）未接入，未真实执行");
+        FlowPanel.Mark(5, StepStatus.Failed);
+        ListAbnormal.Items.Add("步骤 6「判限并入库」未真实执行（入库未接入）");
+
         SetResultBadge(false);
-        LogPanel.Append("流程结束：SN 已生成，其余步骤待接入协议后重测");
+        LogPanel.Append("流程结束：SN 生成与 PowerZ 采样为真实执行，其余待接入协议");
 
         _running = false;
         _flowCompleted = true;  // 完整跑通一次（PASS/FAIL 均算），允许点「下一个」
         RaiseAvailability();
-        return Task.CompletedTask;
+    }
+
+    /// <summary>占位判限阈值（5V 档）；页面阈值配置接入后替换。</summary>
+    private static readonly PowerLimits DefaultPowerLimits = new()
+    {
+        VoltageMin = 4.75,
+        VoltageMax = 5.25,
+        CurrentMin = 0.0,
+        CurrentMax = 3.0,
+    };
+
+    /// <summary>PowerZ HID 采样：取首个样本（3s 超时）；协议不符时日志含原始报文。</summary>
+    private async Task<PowerSample?> SamplePowerZAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var pz = new HidPowerZSource();
+            var tcs = new TaskCompletionSource<PowerSample>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            pz.SampleReceived += s => tcs.TrySetResult(s);
+            pz.Log += m => Dispatcher.Invoke(() => LogPanel.Append(m));
+            await pz.StartAsync(ct);
+            var finished = await Task.WhenAny(tcs.Task, Task.Delay(3000, ct));
+            PowerSample? result = finished == tcs.Task ? await tcs.Task : null;
+            await pz.StopAsync(ct);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            LogPanel.Append($"[PowerZ] 打开失败: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>当日流水号（演示用递增；正式接入 SQLite 后取库存水号）。</summary>

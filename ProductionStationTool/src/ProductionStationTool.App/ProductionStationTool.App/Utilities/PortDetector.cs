@@ -38,9 +38,17 @@ public static class PortDetector
     /// PowerZ 的 VID/PID（STMicroelectronics 定制固件，0483:5750）。
     /// 注意：PowerZ 在 Windows 上枚举为 **HID 设备**（「USB 输入设备」），
     /// 不是 COM 口——串口枚举看不见它，必须走 HID 设备枚举。
+    /// 兼容 ChargerLAB KM003C(5FC9:0063)/KM002C(5FC9:0061)。
     /// </summary>
     public const string PowerZVid = "0483";
     public const string PowerZPid = "5750";
+
+    private static readonly (string Vid, string Pid)[] PowerZIds =
+    {
+        ("0483", "5750"),   // 用户实机（ST 方案）
+        ("5FC9", "0063"),   // KM003C
+        ("5FC9", "0061"),   // KM002C
+    };
 
     private static readonly Regex ComRx = new(@"COM\d+", RegexOptions.IgnoreCase);
     private static readonly Regex VidPidRx =
@@ -122,13 +130,16 @@ public static class PortDetector
         var result = new List<PortInfo>();
         try
         {
-            using var searcher = new ManagementObjectSearcher(
-                $"SELECT Name, Description, PNPDeviceID FROM Win32_PnPEntity " +
-                $"WHERE PNPDeviceID LIKE 'USB\\\\VID_{PowerZVid}&PID_{PowerZPid}%'");
-            foreach (var o in searcher.Get())
+            foreach (var (vid, pid) in PowerZIds)
             {
-                var desc = (string)(o["Description"] ?? string.Empty);
-                result.Add(new PortInfo("PowerZ(HID)", $"{PowerZVid}:{PowerZPid}", desc));
+                using var searcher = new ManagementObjectSearcher(
+                    $"SELECT Name, Description, PNPDeviceID FROM Win32_PnPEntity " +
+                    $"WHERE PNPDeviceID LIKE 'USB\\\\VID_{vid}&PID_{pid}%'");
+                foreach (var o in searcher.Get())
+                {
+                    var desc = (string)(o["Description"] ?? string.Empty);
+                    result.Add(new PortInfo("PowerZ(HID)", $"{vid}:{pid}", desc));
+                }
             }
         }
         catch { /* WMI 不可用则无 HID 识别 */ }
