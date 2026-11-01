@@ -727,8 +727,10 @@ public partial class MainWindow : Window
                     var payload = new byte[1 + n];
                     payload[0] = (byte)(seq & 0xFF);
                     Buffer.BlockCopy(img, off, payload, 1, n);
-                    if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidTd, payload,
-                            timeoutMs: 8000, waitPendingMs: 30_000), ct), $"36 块 {blk + 1}"))
+                    // 直接调用（整个 body 已在 Task.Run 线程池里），去掉每块一次
+                    // Task.Run 的调度开销
+                    if (!await MustStep(uds.TryRequest(ProtoIds.SidTd, payload,
+                            timeoutMs: 8000, waitPendingMs: 30_000), $"36 块 {blk + 1}"))
                         return false;
                     off += n;
                     blk++;

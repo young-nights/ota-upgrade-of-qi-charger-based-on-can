@@ -167,7 +167,7 @@ public sealed class IsoTpClient
             // last CF: resend once (host→ECU multi-frame reliability)
             if (offset + chunk >= total)
             {
-                Thread.Sleep(10);
+                Thread.Sleep(1);
                 _tp.Send(new CanFrame(_txId, cf));
             }
             offset += chunk;
@@ -270,7 +270,7 @@ public sealed class IsoTpClient
                     Log($"[RX] FC {Hex(f.Data)}");
                 }
             }
-            Thread.Sleep(2);
+            Thread.Sleep(1);
         }
 
         string noise = string.Join(", ",
@@ -314,7 +314,7 @@ public sealed class IsoTpClient
                     continue;
                 if ((f.Data[0] & 0xF0) == 0x30) return f;
             }
-            Thread.Sleep(2);
+            Thread.Sleep(1);
         }
         return null;
     }

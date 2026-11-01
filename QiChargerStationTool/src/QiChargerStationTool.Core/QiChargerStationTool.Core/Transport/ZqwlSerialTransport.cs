@@ -65,6 +65,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
     public void Open()
     {
         if (_port is null) throw new ObjectDisposedException(nameof(ZqwlSerialTransport));
+        TimerResolution.Enter();   // 1ms 节拍：Thread.Sleep(1) 才是真 1ms，否则 15ms
         try
         {
             if (!_port.IsOpen) _port.Open();
@@ -122,6 +123,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
     public void Close()
     {
         try { _port?.Close(); } catch { /* ignore */ }
+        TimerResolution.Leave();
     }
 
     public void Send(in CanFrame frame)
