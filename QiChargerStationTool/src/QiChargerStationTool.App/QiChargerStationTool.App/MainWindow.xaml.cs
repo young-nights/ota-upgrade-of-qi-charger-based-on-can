@@ -687,27 +687,46 @@ public partial class MainWindow : Window
             // 10 02 必须校验应答子功能 0x02：只认 SID(0x50) 时，队列里迟到的
             // 50 03（上个 10 03 操作残留）会被误判为成功 → 设备没进编程会话 →
             // 2E 20 10 回 0x22。ZQWL 偶发丢帧 → 未通过则补发一次。
-            UdsResult dsc = UdsResult.Fail("未发送");
-            for (int t = 1; t <= 2; t++)
+            // 2E 20 10 门禁（编程会话+SA）拿 0x22/0x33 = 会话/安全状态已丢
+            // （设备复位/S3 等）：整套 10 02 + SA 重做一次再试。
+            async Task<(bool Ok, byte Nrc)> TryGateAsync()
             {
-                dsc = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
-                    new byte[] { 0x02 }, expectSub: 0x02), ct);
-                if (dsc.Ok) break;
-                AppendLog($"[10 02] 第 {t} 次失败: {dsc.Error}");
-            }
-            if (!await MustStep(dsc, "10 02"))
-                return false;
-            var signer = RequireSigner();
-            if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
-            {
-                await FailAsync(name, "SA 解锁失败");
-                return false;
+                UdsResult d = UdsResult.Fail("未发送");
+                for (int t = 1; t <= 2; t++)
+                {
+                    d = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
+                        new byte[] { 0x02 }, expectSub: 0x02), ct);
+                    if (d.Ok) break;
+                    AppendLog($"[10 02] 第 {t} 次失败: {d.Error}");
+                }
+                if (!d.Ok) return (false, d.Nrc);
+                if (!await SecurityAccess.UnlockAsync(uds, RequireSigner(),
+                        m => AppendLog("[SA] " + m), ct))
+                    return (false, (byte)0);
+                var w = await Task.Run(() => uds.TryRequest(ProtoIds.SidWdbi,
+                    new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000,
+                    expectSub: 0x20), ct);
+                if (!w.Ok)
+                {
+                    AppendLog($"[2E 20 10] 失败: {w.Error}");
+                    return (false, w.Nrc);
+                }
+                return (true, (byte)0);
             }
 
-            if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidWdbi,
-                    new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000,
-                    expectSub: 0x20), ct), "2E 20 10"))
+            var (gateOk, gateNrc) = await TryGateAsync();
+            if (!gateOk && (gateNrc is 0x22 or 0x33))
+            {
+                AppendLog($"[恢复] NRC 0x{gateNrc:X2} 会话/安全丢失，重做 10 02 + SA 后重试 2E 20 10…");
+                (gateOk, gateNrc) = await TryGateAsync();
+            }
+            if (!gateOk)
+            {
+                await FailAsync(name, gateNrc != 0
+                    ? $"2E 20 10: NRC 0x{gateNrc:X2}（重试后仍失败）"
+                    : "门禁失败（10 02 / SA）");
                 return false;
+            }
             AppendLog($"2E 20 10 {otaTarget:X2} 选择目标 OK");
 
             // 擦除+下载+传输期间过滤协议逐帧噪声（[TX]/[RX]/[SER]/NRC 0x78 心跳），

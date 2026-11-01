@@ -60,6 +60,10 @@ public sealed class IsoTpClient
         // fw 1.1.47 起连续编号 E0~E3，E4 为旧编号兼容）
         if (id == ProtoIds.LpDiagId && d.Length >= 8 && d[7] == 0xA5)
         {
+            // UDS 组包标记：AA 55 <len> <sid0> <会话> <安全> <目标> A5
+            // （fw 1.1.49 起 [4..6] 带会话/安全/目标快照，写门 0x22 排障用）
+            if (d[0] == 0xAA && d[1] == 0x55)
+                return $"UDS 组包 len={d[2]} sid=0x{d[3]:X2} 会话=0x{d[4]:X2} 安全={d[5]} 目标=0x{d[6]:X2}";
             uint id29 = (uint)(d[4] << 24 | d[3] << 16 | d[2] << 8 | d[1]);
             return d[0] switch
             {
