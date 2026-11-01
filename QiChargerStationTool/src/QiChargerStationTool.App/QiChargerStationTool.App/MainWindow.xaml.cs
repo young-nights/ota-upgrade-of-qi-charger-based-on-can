@@ -802,6 +802,7 @@ public partial class MainWindow : Window
             {
                 foreach (var line in st.ToDisplayString().Split('\n'))
                     AppendLog("[Qi] " + line);
+                UpdateQiPanel(st);
                 if (st.IapState == 0x03)
                 {
                     AppendResult("FAIL", "Qi 状态查询", "IAP 失败态");
@@ -816,6 +817,60 @@ public partial class MainWindow : Window
             });
             return !fail;
         });
+
+    /// <summary>把 Qi 状态刷进左侧仪表盘（充电功率 + 保护位指示灯 + 摘要行）。</summary>
+    private void UpdateQiPanel(QiChipStatus st)
+    {
+        // 充电功率大字（mW 原值 + W 换算）
+        if (st.OutputPowerMw is { } mw)
+        {
+            TxtQiPower.Text = $"{mw} mW";
+            TxtQiPowerW.Text = $"（{mw / 1000.0:F2} W）";
+        }
+        else
+        {
+            TxtQiPower.Text = "— mW";
+            TxtQiPowerW.Text = "（— W）";
+        }
+
+        // 保护位指示灯：激活=红底红字，未激活=绿底绿字，未读到=灰底
+        var raw = st.StatusRaw;
+        SetProtectionChip(BdOvp, "OVP 过压", raw, QiChipStatusCodec.QiStatusOvp);
+        SetProtectionChip(BdUvp, "UVP 欠压", raw, QiChipStatusCodec.QiStatusUvp);
+        SetProtectionChip(BdOcp, "OCP 过流", raw, QiChipStatusCodec.QiStatusOcp);
+        SetProtectionChip(BdOtp, "OTP 过温", raw, QiChipStatusCodec.QiStatusOtp);
+        SetProtectionChip(BdFod, "FOD 异物", raw, QiChipStatusCodec.QiStatusFod);
+
+        // 摘要行
+        var temp = st.PcbTempC is { } t ? $"{t}℃" : "—";
+        var limit = st.PowerLimitName;
+        var active = st.ActiveProtections;
+        var protText = active is null ? "保护位: —" :
+            active.Count > 0 ? $"保护触发: {string.Join(" / ", active)}" : "保护位: 无";
+        TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}\n{protText}";
+    }
+
+    /// <summary>单个保护位指示灯着色：null=未知(灰) / 置位=红 / 未置位=绿。</summary>
+    private static void SetProtectionChip(Border chip, string label, byte? statusRaw, byte bit)
+    {
+        var tb = (TextBlock)chip.Child!;
+        tb.Text = label;
+        if (statusRaw is not { } raw)
+        {
+            chip.Background = new SolidColorBrush(Color.FromRgb(0xEE, 0xEE, 0xEE));
+            tb.Foreground = new SolidColorBrush(Color.FromRgb(0x99, 0x99, 0x99));
+        }
+        else if ((raw & bit) != 0)
+        {
+            chip.Background = new SolidColorBrush(Color.FromRgb(0xFF, 0xEB, 0xEE));
+            tb.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
+        }
+        else
+        {
+            chip.Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xF5, 0xE9));
+            tb.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
+        }
+    }
 
     /// <summary>
     /// 设置 Qi 功率：10 03 + SA → 2E 210D。UI 5W/10W/15W 映射档位码 0x01/0x02/0x03。

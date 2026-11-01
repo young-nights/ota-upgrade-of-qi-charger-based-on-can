@@ -290,6 +290,7 @@ public sealed class UdsClient
             FaultCode = TryU8(ProtoIds.DidFaultCode),
             ThermalDerate = TryU8(ProtoIds.DidThermalDerate),
             PowerLimit = TryU8(ProtoIds.DidPowerLimit),
+            StatusRaw = TryU8(ProtoIds.DidQiStatusRaw),
         };
     }
 

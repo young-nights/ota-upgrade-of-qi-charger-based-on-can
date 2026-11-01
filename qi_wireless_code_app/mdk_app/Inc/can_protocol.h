@@ -145,6 +145,7 @@ extern "C" {
 #define DID_THERMAL_DERATE          0x210CU   /*!< thermal derating level, uint8 */
 #define DID_POWER_LIMIT             0x210DU   /*!< power limit, uint8 档位码, R/W+NVM (0x01=5W/0x02=10W/0x03=15W，即 QI_POWER_*) */
 #define DID_LAST_FAULT_DETAIL       0x2110U   /*!< last fault detail, 4B */
+#define DID_QI_STATUS_RAW           0x2111U   /*!< Qi status byte 保护位: b0=PING b1=CHARGING b2=FULL b3=OVP b4=UVP b5=OCP b6=OTP b7=FOD */
 #define DID_CLAMP_STATE             0x2118U   /*!< PA0 hall: 0=closed, 1=open */
 #define DID_SIT1145_LP_STATUS       0x2119U   /*!< SIT1145 LP: flags, wup_cnt, last_sleep_sec */
 #define DID_SIT1145_LP_WIPE_DIAG    0x211AU   /*!< SIT1145 LP round-2 wipe diagnostics: ev24/ev63/stat/attempts (4B, SF) */

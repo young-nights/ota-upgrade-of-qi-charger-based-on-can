@@ -139,6 +139,42 @@ public class QiChipStatusTests
     }
 
     [Fact]
+    public void ActiveProtectionNames_None()
+    {
+        var names = QiChipStatusCodec.ActiveProtectionNames(0x00);
+        Assert.Empty(names);
+    }
+
+    [Fact]
+    public void ActiveProtectionNames_MultipleBits()
+    {
+        // OVP(b3) + FOD(b7) 同时置位
+        var raw = (byte)(QiChipStatusCodec.QiStatusOvp | QiChipStatusCodec.QiStatusFod);
+        var names = QiChipStatusCodec.ActiveProtectionNames(raw);
+        Assert.Equal(2, names.Count);
+        Assert.Contains("OVP 过压", names);
+        Assert.Contains("FOD 异物", names);
+    }
+
+    [Fact]
+    public void ActiveProtectionNames_AllBits()
+    {
+        var raw = (byte)(QiChipStatusCodec.QiStatusOvp | QiChipStatusCodec.QiStatusUvp |
+                         QiChipStatusCodec.QiStatusOcp | QiChipStatusCodec.QiStatusOtp |
+                         QiChipStatusCodec.QiStatusFod);
+        Assert.Equal(5, QiChipStatusCodec.ActiveProtectionNames(raw).Count);
+    }
+
+    [Fact]
+    public void ActiveProtectionNames_StateBitsIgnored()
+    {
+        // PING/CHARGING/FULL 状态位不算保护位
+        var raw = (byte)(QiChipStatusCodec.QiStatusPing | QiChipStatusCodec.QiStatusCharging |
+                         QiChipStatusCodec.QiStatusFull);
+        Assert.Empty(QiChipStatusCodec.ActiveProtectionNames(raw));
+    }
+
+    [Fact]
     public void ToDisplayString_IncludesKeyFields()
     {
         var st = new QiChipStatus

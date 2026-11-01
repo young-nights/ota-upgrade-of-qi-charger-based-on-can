@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.47";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.48";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -168,6 +168,7 @@ static uint8_t  g_qi_fod_status       = 0U;     /*!< DID 0x2109 */
 static uint8_t  g_qi_fault_code       = 0U;     /*!< DID 0x210B */
 static uint8_t  g_qi_thermal_derate   = 100U;   /*!< DID 0x210C, 100%=no derating */
 static uint8_t  g_qi_last_fault_detail[4] = {0U};  /*!< DID 0x2110, 4-byte fault detail */
+static uint8_t  g_qi_status_raw       = 0U;     /*!< DID 0x2111, Qi status byte (保护位) */
 
 /* Qi persistent config (loaded from NVM at init) */
 static uint16_t g_qi_power_level      = QI_POWER_15W;  /*!< DID 0x210D 档位码 (QI_POWER_*), 默认 15W */
@@ -1480,6 +1481,12 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       memcpy(out, g_qi_last_fault_detail, 4U);
       *olen = 4U;
       return 0;
+    case DID_QI_STATUS_RAW:
+      /* Qi 状态报文 data[0] 原始字节（含保护位），供上位机逐位显示：
+       * b0=PING b1=CHARGING b2=FULL b3=OVP b4=UVP b5=OCP b6=OTP b7=FOD */
+      out[0] = g_qi_status_raw;
+      *olen = 1U;
+      return 0;
     case 0x21FFU:
       out[0] = sit1145_get_mode();  /* 0x04=Standby, 0x07=Normal, 0x01=Sleep */
       *olen = 1U;
@@ -2383,6 +2390,7 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
     }
 
     status_byte = frame->data[0];
+    g_qi_status_raw = status_byte;  /* DID 0x2111: 保留原始保护位供上位机显示 */
 
     /* decode charge state from status bits */
     if ((status_byte & QI_STATUS_CHARGING) != 0U)

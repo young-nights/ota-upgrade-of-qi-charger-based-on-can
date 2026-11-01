@@ -73,7 +73,7 @@
     <!-- 固定设计画布 1120×720，随窗口等比映射 -->
     <Grid Width="1120" Height="720" Margin="10">
     <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="320"/>
+      <ColumnDefinition Width="340"/>
       <ColumnDefinition Width="200"/>
       <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
@@ -150,10 +150,39 @@
       </Grid>
     </Border>
 
-    <!-- 左：SN + 状态 -->
+    <!-- 左：Qi 状态仪表盘 + SN + 状态 -->
     <Border Grid.Row="1" Grid.Column="0" CornerRadius="4" Padding="12" Margin="0,0,6,6">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel>
+        <!-- Qi 状态仪表盘 -->
+        <TextBlock Text="Qi 状态" FontWeight="Bold" Foreground="#333"/>
+        <Border Background="#E3F2FD" CornerRadius="6" Padding="12,10" Margin="0,6,0,8">
+          <StackPanel>
+            <TextBlock Text="充电功率" FontSize="11" Foreground="#5B7FA6"/>
+            <TextBlock x:Name="TxtQiPower" Text="— mW" FontSize="30" FontWeight="Bold"
+                       Foreground="#0D47A1" Margin="0,2,0,0"/>
+            <TextBlock x:Name="TxtQiPowerW" Text="（— W）" FontSize="12" Foreground="#5B7FA6"
+                       Margin="0,2,0,0"/>
+          </StackPanel>
+        </Border>
+        <TextBlock Text="保护位" FontWeight="Bold" Foreground="#333" Margin="0,0,0,4"/>
+        <WrapPanel x:Name="PanelProtections">
+          <Border x:Name="BdOvp" CornerRadius="3" Padding="6,3" Margin="0,2,4,2"
+                  Background="#E8F5E9"><TextBlock Text="OVP 过压" FontSize="11" Foreground="#2E7D32"/></Border>
+          <Border x:Name="BdUvp" CornerRadius="3" Padding="6,3" Margin="0,2,4,2"
+                  Background="#E8F5E9"><TextBlock Text="UVP 欠压" FontSize="11" Foreground="#2E7D32"/></Border>
+          <Border x:Name="BdOcp" CornerRadius="3" Padding="6,3" Margin="0,2,4,2"
+                  Background="#E8F5E9"><TextBlock Text="OCP 过流" FontSize="11" Foreground="#2E7D32"/></Border>
+          <Border x:Name="BdOtp" CornerRadius="3" Padding="6,3" Margin="0,2,4,2"
+                  Background="#E8F5E9"><TextBlock Text="OTP 过温" FontSize="11" Foreground="#2E7D32"/></Border>
+          <Border x:Name="BdFod" CornerRadius="3" Padding="6,3" Margin="0,2,4,2"
+                  Background="#E8F5E9"><TextBlock Text="FOD 异物" FontSize="11" Foreground="#2E7D32"/></Border>
+        </WrapPanel>
+        <TextBlock x:Name="TxtQiSummary" Margin="0,6,0,0" Foreground="#555" FontSize="11"
+                   TextWrapping="Wrap" Text="充电状态: —   PCB: —℃   档位: —"/>
+
+        <Separator Margin="0,16,0,12"/>
+
         <TextBlock Text="SN 读写 / 扫码" FontWeight="Bold" Foreground="#333"/>
         <TextBlock Text="光标在输入框时，扫码枪扫码即自动填入"
                    Foreground="#888" FontSize="11" Margin="0,2,0,8" TextWrapping="Wrap"/>

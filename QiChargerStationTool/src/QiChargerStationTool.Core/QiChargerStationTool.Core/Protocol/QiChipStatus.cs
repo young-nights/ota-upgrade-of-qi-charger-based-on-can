@@ -26,12 +26,17 @@ public sealed class QiChipStatus
     public byte? ThermalDerate { get; init; }
     /// <summary>DID 0x210D 档位码（0x01/0x02/0x03）。</summary>
     public byte? PowerLimit { get; init; }
+    /// <summary>DID 0x2111 Qi 状态字节（含保护位，见 <see cref="QiChipStatusCodec.QiStatusBits"/>）。</summary>
+    public byte? StatusRaw { get; init; }
 
     public string IapStateName => QiChipStatusCodec.IapStateName(IapState);
     public string ChargeStateName => ChargeState is { } s ? QiChipStatusCodec.ChargeStateName(s) : "读取失败";
     public string FodName => FodStatus is { } f ? QiChipStatusCodec.FodName(f) : "读取失败";
     public string FaultName => FaultCode is { } f ? QiChipStatusCodec.FaultName(f) : "读取失败";
     public string PowerLimitName => PowerLimit is { } p ? QiChipStatusCodec.PowerLimitName(p) : "读取失败";
+    /// <summary>激活的保护位名列表（如 [OVP, FOD]）；StatusRaw 读取失败返回 null。</summary>
+    public IReadOnlyList<string>? ActiveProtections
+        => StatusRaw is { } raw ? QiChipStatusCodec.ActiveProtectionNames(raw) : null;
 
     /// <summary>多行摘要，便于写日志 / 操作记录。</summary>
     public string ToDisplayString()
@@ -51,6 +56,7 @@ public sealed class QiChipStatus
             $"故障码:   {FaultName}",
             $"热降额:   {(ThermalDerate is { } d ? $"{d}%" : "读取失败")}",
             $"功率档位: {PowerLimitName}",
+            $"保护位:   {(ActiveProtections is { } ap ? (ap.Count > 0 ? string.Join(" / ", ap) : "无") : "读取失败")}",
         };
         return string.Join("\n", lines);
     }
@@ -59,6 +65,43 @@ public sealed class QiChipStatus
 /// <summary>Qi 状态 DID 编解码（纯函数，便于单测）。</summary>
 public static class QiChipStatusCodec
 {
+    // ---- DID 0x2111 Qi 状态字节保护位（qi_protocol.h QI_STATUS_*）----
+    /// <summary>b3: 1=过压保护。</summary>
+    public const byte QiStatusOvp = 1 << 3;
+    /// <summary>b4: 1=欠压保护。</summary>
+    public const byte QiStatusUvp = 1 << 4;
+    /// <summary>b5: 1=过流保护。</summary>
+    public const byte QiStatusOcp = 1 << 5;
+    /// <summary>b6: 1=过温保护。</summary>
+    public const byte QiStatusOtp = 1 << 6;
+    /// <summary>b7: 1=异物检测保护。</summary>
+    public const byte QiStatusFod = 1 << 7;
+    /// <summary>b0: 1=检测到设备放置。</summary>
+    public const byte QiStatusPing = 1 << 0;
+    /// <summary>b1: 1=正在充电。</summary>
+    public const byte QiStatusCharging = 1 << 1;
+    /// <summary>b2: 1=电池已充满。</summary>
+    public const byte QiStatusFull = 1 << 2;
+
+    /// <summary>全部保护位 → 名称（用于 UI 指示灯）。</summary>
+    public static readonly IReadOnlyList<(byte Bit, string Name)> ProtectionBits = new[]
+    {
+        (QiStatusOvp, "OVP 过压"),
+        (QiStatusUvp, "UVP 欠压"),
+        (QiStatusOcp, "OCP 过流"),
+        (QiStatusOtp, "OTP 过温"),
+        (QiStatusFod, "FOD 异物"),
+    };
+
+    /// <summary>状态字节中激活的保护位名列表（无激活返回空列表）。</summary>
+    public static IReadOnlyList<string> ActiveProtectionNames(byte statusRaw)
+    {
+        var list = new List<string>();
+        foreach (var (bit, name) in ProtectionBits)
+            if ((statusRaw & bit) != 0)
+                list.Add(name);
+        return list;
+    }
     public static readonly IReadOnlyDictionary<byte, string> IapStates = new Dictionary<byte, string>
     {
         [0x00] = "空闲 (IDLE)",
