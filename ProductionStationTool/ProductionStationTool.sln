@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductionStationTool.Power
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductionStationTool.Tests", "tests\ProductionStationTool.Tests\ProductionStationTool.Tests\ProductionStationTool.Tests.csproj", "{AA41044D-52A6-C205-5F3F-726DEF74F20C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QiChargerStationTool.Core", "..\QiChargerStationTool\src\QiChargerStationTool.Core\QiChargerStationTool.Core\QiChargerStationTool.Core.csproj", "{B6FC46B0-4E7D-4CBA-8251-5317A0843C2A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,6 +35,10 @@ Global
 		{AA41044D-52A6-C205-5F3F-726DEF74F20C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AA41044D-52A6-C205-5F3F-726DEF74F20C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AA41044D-52A6-C205-5F3F-726DEF74F20C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B6FC46B0-4E7D-4CBA-8251-5317A0843C2A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B6FC46B0-4E7D-4CBA-8251-5317A0843C2A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B6FC46B0-4E7D-4CBA-8251-5317A0843C2A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B6FC46B0-4E7D-4CBA-8251-5317A0843C2A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
