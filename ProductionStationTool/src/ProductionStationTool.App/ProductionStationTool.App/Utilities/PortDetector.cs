@@ -1,7 +1,6 @@
 using System.IO.Ports;
 using System.Management;
 using System.Text.RegularExpressions;
-using ProductionStationTool.PowerZ;
 
 namespace ProductionStationTool.App.Utilities;
 
@@ -49,6 +48,12 @@ public static class PortDetector
         ("0483", "5750"),   // 用户实机（ST 方案）
         ("5FC9", "0063"),   // KM003C
         ("5FC9", "0061"),   // KM002C
+    };
+
+    /// <summary>PowerZ 名称关键词兜底（贴牌机 VID:PID 不在已知表时按名称识别）。</summary>
+    private static readonly string[] PowerZNameKeywords =
+    {
+        "KINGMETER", "POWER-Z", "POWERZ", "KM001", "KM002", "KM003",
     };
 
     private static readonly Regex ComRx = new(@"COM\d+", RegexOptions.IgnoreCase);
@@ -123,36 +128,51 @@ public static class PortDetector
     }
 
     /// <summary>
-    /// 枚举 PowerZ HID 设备（VID:PID 0483:5750，Windows 上显示「USB 输入设备」）。
+    /// 枚举 PowerZ HID 接口（0483:5750 等，Windows 上显示「USB 输入设备」）。
     /// 返回的 PortInfo.Name 固定为 PowerZ(HID)——HID 无 COM 口名。
     ///
-    /// 枚举走 HidSharp（HID 类驱动视角）而非 WMI：usbipd 把设备挂给 WSL 后
-    /// Windows 侧 HID 驱动解绑——WMI 的 PnP 节点还在（残留），但 HidSharp
-    /// 枚举看不见。再加打开探针双保险：列表里只留真正可打开的设备。
+    /// 策略：**全量扫描所有 HID 设备再按身份过滤**（VID:PID 命中已知表
+    /// 或厂商/产品名含 KINGMETER/POWER-Z/KM00 关键词），而非按 VID:PID
+    /// 定向查询——贴牌机 VID:PID 可能不同，定向查会漏；全量扫描 + 名称兜底
+    /// 能把改过 VID 的贴牌、同设备多 HID 接口都列出来。
+    /// 只枚举不打开设备（打开会占用/被占用时误判），可达性校验在连接时做。
     /// </summary>
     public static List<PortInfo> ListPowerZDevices()
     {
         var result = new List<PortInfo>();
         try
         {
-            foreach (var (vid, pid) in PowerZIds)
+            foreach (var d in HidSharp.DeviceList.Local.GetHidDevices())
             {
-                foreach (var d in HidSharp.DeviceList.Local.GetHidDevices(
-                             Convert.ToInt32(vid, 16), Convert.ToInt32(pid, 16), null, null))
-                {
-                    string name;
-                    try { name = d.GetProductName(); } catch { name = "PowerZ"; }
-                    result.Add(new PortInfo("PowerZ(HID)", $"{vid}:{pid}", name));
-                }
+                if (!IsPowerZHid(d))
+                    continue;
+                string name;
+                try { name = d.GetProductName(); } catch { name = "PowerZ"; }
+                result.Add(new PortInfo("PowerZ(HID)",
+                    $"{d.VendorID:X4}:{d.ProductID:X4}", name));
             }
         }
         catch { /* HidSharp 不可用则无 HID 识别 */ }
-
-        // 打开探针：设备被 usbipd 占用/驱动异常时过滤掉（列表不留残留）
-        if (result.Count > 0 && !HidPowerZSource.TryProbe(out _))
-            result.Clear();
-
         return result;
+    }
+
+    /// <summary>PowerZ HID 身份判定：VID:PID 命中已知表，或厂商/产品名含关键词。</summary>
+    private static bool IsPowerZHid(HidSharp.HidDevice d)
+    {
+        foreach (var (vid, pid) in PowerZIds)
+        {
+            if (d.VendorID == Convert.ToInt32(vid, 16) &&
+                d.ProductID == Convert.ToInt32(pid, 16))
+                return true;
+        }
+
+        string name;
+        try { name = $"{d.GetManufacturer()} {d.GetProductName()}"; }
+        catch { name = d.DevicePath; }
+        foreach (var kw in PowerZNameKeywords)
+            if (name.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 
     /// <summary>是否 CAN 盒子设备（VID=3562:0101 或描述含 ZQWL/CANFD 关键词）。</summary>

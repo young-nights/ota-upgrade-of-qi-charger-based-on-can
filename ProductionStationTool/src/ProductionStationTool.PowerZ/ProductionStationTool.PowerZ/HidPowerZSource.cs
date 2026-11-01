@@ -25,6 +25,14 @@ public sealed class HidPowerZSource : IPowerZSource
         (0x5FC9, 0x0061),   // KM002C
     };
 
+    /// <summary>
+    /// 名称关键词兜底（贴牌/改名设备 VID:PID 与已知表不同时按名称识别）。
+    /// </summary>
+    private static readonly string[] NameKeywords =
+    {
+        "KINGMETER", "POWER-Z", "POWERZ", "KM001", "KM002", "KM003",
+    };
+
     /// <summary>诊断日志（原始报文/错误），上层可接日志面板。</summary>
     public event Action<string>? Log;
 
@@ -38,20 +46,46 @@ public sealed class HidPowerZSource : IPowerZSource
     private readonly BlockingCollection<byte[]> _rx = new(new ConcurrentQueue<byte[]>(), 64);
     private int _writeLen;
 
-    /// <summary>枚举本机已插的 PowerZ HID 设备。</summary>
+    /// <summary>
+    /// 枚举本机 PowerZ HID 接口。
+    ///
+    /// 策略：**全量扫描所有 HID 设备，再按身份过滤**（VID:PID 命中已知表
+    /// 或 厂商/产品名含关键词），而非按 VID:PID 定向查询——贴牌机 VID:PID
+    /// 可能与已知表不同（如 ST 定制固件），定向查询会漏；全量扫描 + 名称兜底
+    /// 能把「改过 VID 的贴牌」「同设备多 HID 接口」都列出来。
+    /// 只枚举不打开（打开会占用设备/被占用时误判），可达性校验留给连接时的
+    /// <see cref="TryProbe"/>。
+    /// </summary>
     public static List<string> ListDevices()
     {
         var result = new List<string>();
-        foreach (var (vid, pid) in KnownIds)
+        foreach (var d in DeviceList.Local.GetHidDevices())
         {
-            foreach (var d in DeviceList.Local.GetHidDevices(vid, pid, null, null))
-            {
-                string name;
-                try { name = d.GetFriendlyName(); } catch { name = d.DevicePath; }
-                result.Add($"VID={vid:X4} PID={pid:X4} {name}");
-            }
+            if (!IsPowerZ(d))
+                continue;
+            string name;
+            try { name = d.GetProductName(); } catch { name = d.DevicePath; }
+            string mfr;
+            try { mfr = d.GetManufacturer(); } catch { mfr = ""; }
+            result.Add($"VID={d.VendorID:X4} PID={d.ProductID:X4} {mfr} {name}".Trim());
         }
         return result;
+    }
+
+    /// <summary>是否 PowerZ 家族设备（VID:PID 命中已知表，或厂商/产品名含关键词）。</summary>
+    private static bool IsPowerZ(HidDevice d)
+    {
+        foreach (var (vid, pid) in KnownIds)
+            if (d.VendorID == vid && d.ProductID == pid)
+                return true;
+
+        string name;
+        try { name = $"{d.GetManufacturer()} {d.GetProductName()}"; }
+        catch { name = d.DevicePath; }
+        foreach (var kw in NameKeywords)
+            if (name.Contains(kw, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 
     /// <summary>
@@ -92,11 +126,9 @@ public sealed class HidPowerZSource : IPowerZSource
 
     private static HidDevice? FindDevice()
     {
-        foreach (var (vid, pid) in KnownIds)
-        {
-            foreach (var d in DeviceList.Local.GetHidDevices(vid, pid, null, null))
+        foreach (var d in DeviceList.Local.GetHidDevices())
+            if (IsPowerZ(d))
                 return d;
-        }
         return null;
     }
 
