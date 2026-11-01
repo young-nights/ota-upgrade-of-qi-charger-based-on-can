@@ -153,8 +153,16 @@ public sealed class CanUdsDevice : IDisposable
         }
     }
 
-    /// <summary>开启无线充电（DID 0x2101=0x01，Extended+SA）：10 03 → SA → 2E 21 01 01。</summary>
-    public async Task<(bool Ok, string Detail)> EnableChargingAsync(CancellationToken ct = default)
+    /// <summary>开启无线充电（DID 0x2101=0x01，Extended+SA）。</summary>
+    public Task<(bool Ok, string Detail)> EnableChargingAsync(CancellationToken ct = default)
+        => SetChargingAsync(0x01, ct);
+
+    /// <summary>停止无线充电（DID 0x2101=0x00，Extended+SA）。</summary>
+    public Task<(bool Ok, string Detail)> DisableChargingAsync(CancellationToken ct = default)
+        => SetChargingAsync(0x00, ct);
+
+    /// <summary>写充电开关 2E 21 01 [onOff]：10 03(Extended) → SA → 2E。</summary>
+    private async Task<(bool Ok, string Detail)> SetChargingAsync(byte onOff, CancellationToken ct = default)
     {
         try
         {
@@ -169,9 +177,9 @@ public sealed class CanUdsDevice : IDisposable
                 return (false, "SA 解锁失败");
 
             await Task.Run(() => _uds.Request(ProtoIds.SidWdbi,
-                new byte[] { 0x21, 0x01, 0x01 }, timeoutMs: 5000), ct);
-            Log?.Invoke("2E 21 01 01 充电已开启");
-            return (true, "充电已开启");
+                new byte[] { 0x21, 0x01, onOff }, timeoutMs: 5000), ct);
+            Log?.Invoke($"2E 21 01 {onOff:X2} {(onOff != 0 ? "充电已开启" : "充电已停止")}");
+            return (true, onOff != 0 ? "充电已开启" : "充电已停止");
         }
         catch (UdsException ex)
         {

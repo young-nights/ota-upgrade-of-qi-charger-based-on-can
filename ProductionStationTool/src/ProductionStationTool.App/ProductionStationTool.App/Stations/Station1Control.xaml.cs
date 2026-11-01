@@ -111,8 +111,21 @@ public partial class Station1Control : UserControl, IStationPage
         RaiseAvailability();
     }
 
-    private void OnDisconnectRequested()
+    private async void OnDisconnectRequested()
     {
+        // 断开前发停止充电（2E 21 01 00）——充电开着则设备不休眠，命令可达
+        if (_can is not null && _connected)
+        {
+            try
+            {
+                var (ok, detail) = await _can.DisableChargingAsync();
+                LogPanel.Append(ok ? $"断开前停止充电：{detail}" : $"断开前停充失败：{detail}");
+            }
+            catch (Exception ex)
+            {
+                LogPanel.Append($"断开前停充异常：{ex.Message}");
+            }
+        }
         try { _can?.Dispose(); } catch { /* 忽略 */ }
         _can = null;
         _connected = false;
@@ -237,13 +250,20 @@ public partial class Station1Control : UserControl, IStationPage
                 TxtCurrent.Text = $"{p.Current:F3}";
                 FlowPanel.Mark(4, StepStatus.Passed);
 
-                // ⑥ 判限并入库：判限 FAIL 也入库为 FAIL 记录
+                // ⑥ 判限并入库：判限入库时发停止充电指令（2E 21 01 00）
+                FlowPanel.Mark(5, StepStatus.Running);
+                var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
+                LogPanel.Append(offOk ? $"步骤 6：停止充电（{offDetail}）" : $"步骤 6：停止充电失败 {offDetail}");
+
                 TxtPowerJudge.Text = p.IsNormal ? "正常" : "异常";
                 TxtPowerJudge.Foreground = p.IsNormal ? SuccessBrush : DangerBrush;
-                FlowPanel.Mark(5, p.IsNormal ? StepStatus.Passed : StepStatus.Failed);
-                LogPanel.Append(p.IsNormal
+                bool step6Ok = p.IsNormal && offOk;
+                FlowPanel.Mark(5, step6Ok ? StepStatus.Passed : StepStatus.Failed);
+                LogPanel.Append(step6Ok
                     ? "步骤 6：判限正常，已入库（PASS）"
-                    : $"步骤 6：判限异常（{string.Join("；", p.AbnormalItems)}），已入库（FAIL）");
+                    : $"步骤 6：判限/停充异常（{string.Join("；", p.AbnormalItems)}{(offOk ? "" : "；停充失败")}），已入库（FAIL）");
+                if (!offOk)
+                    ListAbnormal.Items.Add("停止充电指令失败");
             }
             else
             {
@@ -266,6 +286,13 @@ public partial class Station1Control : UserControl, IStationPage
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
             LogPanel.Append("步骤 6：未执行（前序失败），不判限不入库");
+        }
+
+        // 安全关充：流程中途出错（无采样/前序失败）时充电可能仍开着，补发停充
+        if (chargeOk && result?.Power is null)
+        {
+            var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
+            LogPanel.Append(offOk ? $"安全停充：{offDetail}" : $"安全停充失败：{offDetail}");
         }
 
         if (result is not null)
