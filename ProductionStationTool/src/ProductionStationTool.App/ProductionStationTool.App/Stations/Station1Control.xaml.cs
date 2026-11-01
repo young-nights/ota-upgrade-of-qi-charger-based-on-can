@@ -91,7 +91,11 @@ public partial class Station1Control : UserControl, IStationPage
             if (awake)
             {
                 var vs = await _can.TryReadAllVersionsAsync();
-                LogPanel.Append($"设备版本 APP={vs.Mcu1App} BL={vs.Bootloader} HW={vs.Hardware} Qi={vs.Mcu2Qi}");
+                LogPanel.Append("设备版本：");
+                LogPanel.Append($"  APP  = {vs.Mcu1App}");
+                LogPanel.Append($"  BL   = {vs.Bootloader}");
+                LogPanel.Append($"  HW   = {vs.Hardware}");
+                LogPanel.Append($"  Qi   = {vs.Mcu2Qi}");
                 if (vs.Errors.Count > 0)
                     LogPanel.Append("版本读取告警：" + string.Join("；", vs.Errors));
             }
