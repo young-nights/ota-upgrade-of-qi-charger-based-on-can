@@ -227,19 +227,29 @@ public sealed class IsoTpClient
                 }
                 else if (pci == 0x10)
                 {
-                    // FF 可能因 FC 丢失被设备重发：每次 FF 都重启组包并补发 FC
-                    // （旧逻辑对重复 FF 直接丢弃不补 FC → 设备等 FC、我方等 CF 死锁）
-                    ffTotal = ((f.Data[0] & 0x0F) << 8) | f.Data[1];
-                    ffBuf = f.Data.AsSpan(2, Math.Min(6, f.Data.Length - 2)).ToArray();
+                    if (ffBuf is null)
+                    {
+                        ffTotal = ((f.Data[0] & 0x0F) << 8) | f.Data[1];
+                        ffBuf = f.Data.AsSpan(2, Math.Min(6, f.Data.Length - 2)).ToArray();
+                        cfBuf.Clear();
+                        expectSn = 1;
+                        Log($"[RX] FF total={ffTotal}");
+                    }
+                    // 首发/重发 FF 都补发 FC（FC 丢失死锁）；重发 FF 不清
+                    // 组包进度——流中的 CF 序列保持连续，清了会把后续
+                    // CF 全判序号错丢掉（上一版重启组包的回归）
                     _tp.Send(new CanFrame(_txId, FcCts));
                     _tp.Send(new CanFrame(_txId, FcCts)); // double FC, anti-loss
-                    cfBuf.Clear();
-                    expectSn = 1;
-                    Log($"[RX] FF total={ffTotal}");
                 }
                 else if (pci == 0x20 && ffBuf is not null)
                 {
                     int sn = f.Data[0] & 0x0F;
+                    if (sn == 1 && expectSn != 1)
+                    {
+                        // 设备从头重传（FF 重发后 CF 重开）：接受并重置
+                        cfBuf.Clear();
+                        expectSn = 1;
+                    }
                     if (sn != expectSn) continue; // ignore dup/out-of-order
                     int copy = Math.Min(f.Data.Length - 1, ffTotal - (ffBuf.Length + cfBuf.Count));
                     for (int i = 0; i < copy; i++) cfBuf.Add(f.Data[1 + i]);
