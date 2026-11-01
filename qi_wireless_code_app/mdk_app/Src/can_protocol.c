@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.49";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.50";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -665,18 +665,38 @@ static void proto_send_response(uint8_t *data, uint16_t len)
   {
     return;
   }
-  /* SF: try immediate send first (isotp_tx_send has 500ms internal retry).
-   * If it fails (TX mailbox busy — e.g. FC just sent from isotp_poll for a
-   * multi-frame request, then CF callback runs handler → this SF response),
-   * fall back to g_tx_pend for deferred flush from can_protocol_poll.
+  /* SF: 直发（带 20 次忙重试），不再走 isotp_tx_send——其 isotp_can_send
+   * 有 wait_tx_idle(50ms) 预等 + 500ms 重试环，邮箱写锁竞态时 SF 应答会被
+   * 拖到 1.5~2s（升级每块慢 ~2s 的根因层）。失败仍落 g_tx_pend 延迟冲刷。
    * MF: always defer (isotp_wait_cts would block can_driver_poll callback). */
   if (len <= 7U)
   {
-    if (isotp_tx_send(CAN_PROTO_UDS_RESPONSE, data, (uint16_t)len) == 0)
+    uint8_t frame[8];
+    uint8_t i;
+    uint8_t t;
+    frame[0] = ISOTP_PCI_TYPE_SF | (uint8_t)len;
+    for (i = 0; i < len; i++)
     {
-      return;
+      frame[1U + i] = data[i];
     }
-    /* SF immediate send failed — fall through to g_tx_pend */
+    for (i = 1U + len; i < 8U; i++)
+    {
+      frame[i] = 0xCCU;
+    }
+    for (t = 0; t < 20U; t++)
+    {
+      if (can_driver_send(CAN_PROTO_UDS_RESPONSE, frame, 8U) == 0)
+      {
+        return;
+      }
+    }
+    /* 20 次都被拒（邮箱持续满/写锁）：落 g_tx_pend 由 poll 冲刷。
+     * 注意存原始 UDS 载荷（非组帧后 8B）——flush 会再过 isotp_tx_send 组帧。 */
+    memcpy(g_tx_pend, data, len);
+    g_tx_pend_len = len;
+    g_tx_pend_retries = 0U;
+    g_uds_mf_pending = 1U;
+    return;
   }
   memcpy(g_tx_pend, data, len);
   g_tx_pend_len = len;

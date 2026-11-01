@@ -148,6 +148,50 @@ public sealed class ZqwlSerialTransport : ICanTransport
         OnRawLog?.Invoke($"[CAN-TX] {id:X8} {Convert.ToHexString(data)}");
     }
 
+    /// <summary>
+    /// 多帧单次写入。Windows USB-CDC 每次 SerialPort.Write 有 ~30ms 往返，
+    /// 18 个 CF 逐帧写=640ms/块；拼成一个缓冲区一次写掉。
+    /// </summary>
+    public void SendBatch(IReadOnlyList<CanFrame> frames)
+    {
+        if (_port is not { IsOpen: true })
+            throw new InvalidOperationException($"ZQWL port {_portName} not open");
+        if (frames.Count == 0) return;
+        if (frames.Count == 1) { Send(frames[0]); return; }
+
+        var pkts = new byte[frames.Count][];
+        int total = 0;
+        for (int i = 0; i < frames.Count; i++)
+        {
+            var f = frames[i];
+            byte[] data = f.Data.Length >= 8 ? f.Data.AsSpan(0, 8).ToArray() : f.Data;
+            byte dlc = (byte)data.Length;
+            uint id = f.Id & 0x1FFFFFFF;
+            var pkt = new byte[3 + 4 + dlc + 1];
+            pkt[0] = CanHdr;
+            pkt[1] = (byte)(dlc & 0x7F);
+            pkt[2] = 0x04;
+            pkt[3] = (byte)((id >> 24) & 0x7F);
+            pkt[4] = (byte)((id >> 16) & 0xFF);
+            pkt[5] = (byte)((id >> 8) & 0xFF);
+            pkt[6] = (byte)(id & 0xFF);
+            data.CopyTo(pkt, 7);
+            pkt[^1] = CanFtr;
+            pkts[i] = pkt;
+            total += pkt.Length;
+        }
+        var buf = new byte[total];
+        int off = 0;
+        foreach (var p in pkts)
+        {
+            Buffer.BlockCopy(p, 0, buf, off, p.Length);
+            off += p.Length;
+        }
+        _port.Write(buf, 0, buf.Length);
+        foreach (var f in frames)
+            OnRawLog?.Invoke($"[CAN-TX] {f.Id & 0x1FFFFFFF:X8} {Convert.ToHexString(f.Data)}");
+    }
+
     public bool TryReceive(out CanFrame frame, int timeoutMs = 0)
     {
         var deadline = Environment.TickCount64 + timeoutMs;

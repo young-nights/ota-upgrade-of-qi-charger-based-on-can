@@ -17,6 +17,14 @@ public interface ICanTransport : IDisposable
     void Send(in CanFrame frame);
 
     /// <summary>
+    /// 连发多帧（单次写入，减少串口往返）。默认逐帧 Send，传输层可覆盖为批量写。
+    /// </summary>
+    void SendBatch(IReadOnlyList<CanFrame> frames)
+    {
+        foreach (var f in frames) Send(f);
+    }
+
+    /// <summary>
     /// Try dequeue one received frame. Returns false when queue is empty.
     /// </summary>
     bool TryReceive(out CanFrame frame, int timeoutMs = 0);

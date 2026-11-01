@@ -141,6 +141,7 @@ public sealed class IsoTpClient
         // FF + CFs
         int total = uds.Length;
         CanFrame? fc = null;
+        LastFcTries = 0;
         for (int tryN = 0; tryN < 3 && fc is null; tryN++)
         {
             var ff = new byte[8];
@@ -150,6 +151,7 @@ public sealed class IsoTpClient
             Array.Copy(uds, 0, ff, 2, n);
             for (int i = 2 + n; i < 8; i++) ff[i] = 0xCC;
             _tp.Send(new CanFrame(_txId, ff));
+            LastFcTries = tryN + 1;
             if (!quiet) Log($"[TX] FF try{tryN + 1} len={total} {Hex(uds.AsSpan(0, Math.Min(6, total)).ToArray())}");
             // FC 正常 <50ms 内到（设备 send_fc 最坏 50ms pre-wait）；
             // 1500ms 超时会把丢 FC 的每次重试放大成 1.5s/块
@@ -161,12 +163,17 @@ public sealed class IsoTpClient
         byte bs = fc.Value.Data.Length > 1 ? fc.Value.Data[1] : (byte)0;
         int stminMs = StminToMs(fc.Value.Data.Length > 2 ? fc.Value.Data[2] : (byte)0);
 
+        // CF 批写：全部 CF 拼一次串口写（Windows 每次 Write ~30ms 往返，
+        // 逐帧写 18 CF=540ms/块）。STmin 作为批前间隔保留。
         int offset = 6, sn = 1, inBlock = 0, cfCount = 0;
+        var batch = new List<CanFrame>();
         while (offset < total)
         {
             if (bs != 0 && inBlock >= bs)
             {
-                var f2 = WaitFc(1500)
+                // BS 分块：先发掉已攒的 CF 再等下一块 FC
+                if (batch.Count > 0) { _tp.SendBatch(batch); batch.Clear(); }
+                var f2 = WaitFc(300)
                     ?? throw new InvalidOperationException("ISO-TP FC timeout (BS)");
                 bs = f2.Data.Length > 1 ? f2.Data[1] : (byte)0;
                 stminMs = StminToMs(f2.Data.Length > 2 ? f2.Data[2] : (byte)0);
@@ -178,17 +185,23 @@ public sealed class IsoTpClient
             cf[0] = (byte)(0x20 | (sn & 0x0F));
             Array.Copy(uds, offset, cf, 1, chunk);
             for (int i = 1 + chunk; i < 8; i++) cf[i] = 0xCC;
-            _tp.Send(new CanFrame(_txId, cf));
-            // last CF: resend once (host→ECU multi-frame reliability)
-            if (offset + chunk >= total)
-            {
-                TimerResolution.PreciseSleep(1);
-                _tp.Send(new CanFrame(_txId, cf));
-            }
+            batch.Add(new CanFrame(_txId, cf));
             offset += chunk;
             sn = (sn + 1) & 0x0F;
             inBlock++;
             cfCount++;
+        }
+        if (batch.Count > 0) _tp.SendBatch(batch);
+        // last CF: resend once (host→ECU multi-frame reliability)
+        if (cfCount > 0)
+        {
+            var last = new byte[8];
+            last[0] = (byte)(0x20 | ((sn - 1) & 0x0F));
+            int tail = total - 6 - (cfCount - 1) * 7;
+            Array.Copy(uds, total - tail, last, 1, tail);
+            for (int i = 1 + tail; i < 8; i++) last[i] = 0xCC;
+            TimerResolution.PreciseSleep(1);
+            _tp.Send(new CanFrame(_txId, last));
         }
         if (!quiet) Log($"[TX] MF CF={cfCount} total={total}");
     }
@@ -328,6 +341,9 @@ public sealed class IsoTpClient
 
     /// <summary>最近一次 <see cref="TryReceive"/> 超时的诊断摘要。</summary>
     public string LastTimeoutDetail { get; private set; } = "";
+
+    /// <summary>最近一次多帧发送的 FF 重试次数（=FC 等到的次数，3=丢 2 次 FC）。</summary>
+    public int LastFcTries { get; private set; }
 
     private CanFrame? WaitFc(int timeoutMs)
     {
