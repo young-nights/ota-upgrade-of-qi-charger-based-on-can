@@ -90,9 +90,10 @@ public partial class Station1Control : UserControl, IStationPage
             LogPanel.Append(awake ? "设备在线（唤醒就绪 OK）" : "唤醒无应答（设备未上电？开始测试时会再唤醒）");
             if (awake)
             {
-                var (ok, ver, _) = await _can.TryReadVersionAsync();
-                if (ok)
-                    LogPanel.Append($"设备版本：{ver}");
+                var vs = await _can.TryReadAllVersionsAsync();
+                LogPanel.Append($"设备版本 APP={vs.Mcu1App} BL={vs.Bootloader} HW={vs.Hardware} Qi={vs.Mcu2Qi}");
+                if (vs.Errors.Count > 0)
+                    LogPanel.Append("版本读取告警：" + string.Join("；", vs.Errors));
             }
         }
         catch (Exception ex)

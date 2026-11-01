@@ -221,7 +221,9 @@ public sealed class IsoTpClient
                     if (n == 0 || n > 7 || n > f.Data.Length - 1) continue;
                     var data = f.Data.AsSpan(1, n).ToArray();
                     if (match(data)) return data;
-                    Log($"[RX] SF 不匹配 {Hex(data)}");
+                    // 7E(3E 保活应答)/7F(NRC) 是等待期间的过路流量，不刷屏
+                    if (data.Length == 0 || (data[0] != 0x7E && data[0] != 0x7F))
+                        Log($"[RX] SF 不匹配 {Hex(data)}");
                 }
                 else if (pci == 0x10)
                 {

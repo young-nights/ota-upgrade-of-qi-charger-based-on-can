@@ -86,9 +86,9 @@ public sealed class CanUdsDevice : IDisposable
         }, ct);
     }
 
-    /// <summary>读 APP 版本 DID 0xF195。</summary>
-    public Task<(bool Ok, string Version, string Error)> TryReadVersionAsync(CancellationToken ct = default)
-        => Task.Run(() => _uds.TryReadSwVersion(ct), ct);
+    /// <summary>读全套版本：APP 0xF195 / Qi 0x2133 / Boot 0xF180 / HW 0xF193。</summary>
+    public Task<VersionSet> TryReadAllVersionsAsync(CancellationToken ct = default)
+        => Task.Run(() => _uds.TryReadAllVersions(ct), ct);
 
     /// <summary>
     /// 写 SN 并回读校验（DID 0xF18C，Programming+SA，32B ASCII 空格填充）：
