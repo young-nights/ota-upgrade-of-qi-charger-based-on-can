@@ -16,6 +16,11 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _cts;
     /// <summary>是否有操作在跑。IsBusyGuard 只看这个，不看 _cts（否则结束后永远 true）。</summary>
     private bool _busy;
+    /// <summary>
+    /// 固件传输期间置真：过滤逐帧协议噪声（[TX]/[RX]/[SER] 等），只留进度/里程碑/错误，
+    /// 方便看百分比进度。错误关键字（超时/失败/NRC…）不过滤。
+    /// </summary>
+    private volatile bool _quietLogs;
     /// <summary>长连接传输层；连接后各操作复用，直到「断开」。</summary>
     private ZqwlSerialTransport? _transport;
     private readonly object _transportLock = new();
@@ -204,8 +209,36 @@ public partial class MainWindow : Window
         TxtStateDetail.Text = detail;
     }
 
+    /// <summary>固件传输期间过滤的协议噪声前缀（逐帧级，量大且与进度无关）。</summary>
+    private static readonly string[] NoisePrefixes =
+    {
+        "[TX]", "[RX]", "[RX?]", "[SER]", "[CAN-TX]", "[CAN-RX]",
+    };
+
+    /// <summary>错误关键字：即便带噪声前缀也保留（错误必须可见）。</summary>
+    private static readonly string[] ErrorKeywords =
+    {
+        "超时", "失败", "异常", "错误", "NRC", "无应答", "不匹配",
+    };
+
+    private static bool IsNoise(string msg)
+    {
+        // NRC 0x78 responsePending 是擦除/下载期间的正常等待心跳，不算错误
+        if (msg.Contains("responsePending"))
+            return true;
+        foreach (var kw in ErrorKeywords)
+            if (msg.Contains(kw))
+                return false;
+        foreach (var p in NoisePrefixes)
+            if (msg.StartsWith(p, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
+
     private void AppendLog(string msg)
     {
+        if (_quietLogs && IsNoise(msg))
+            return;
         Dispatcher.Invoke(() =>
         {
             string line = $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\r\n";
@@ -664,49 +697,67 @@ public partial class MainWindow : Window
                 return false;
             AppendLog($"2E 20 10 {otaTarget:X2} 选择目标 OK");
 
-            if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidRc,
-                    new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000), ct), "31 擦除"))
-                return false;
-            AppendLog("31 擦除完成");
-
+            // 擦除+下载+传输期间过滤协议逐帧噪声（[TX]/[RX]/[SER]/NRC 0x78 心跳），
+            // 只留进度百分比与错误——方便看运行到百分之多少
             int size = raw.Length;
-            if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidRd, new byte[]
-            {
-                0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
-                (byte)(size >> 24), (byte)(size >> 16), (byte)(size >> 8), (byte)size,
-            }, timeoutMs: 8000), ct), "34 RequestDownload"))
-                return false;
-            AppendLog($"34 RequestDownload {size}B @ 0x08010000 block={transferBlock}");
-
-            int off = 0, seq = 1, blk = 0;
-            int nblocks = (size + transferBlock - 1) / transferBlock;
-            var img = raw;
-            while (off < size)
-            {
-                ct.ThrowIfCancellationRequested();
-                int n = Math.Min(transferBlock, size - off);
-                var payload = new byte[1 + n];
-                payload[0] = (byte)(seq & 0xFF);
-                Buffer.BlockCopy(img, off, payload, 1, n);
-                if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidTd, payload,
-                        timeoutMs: 8000, waitPendingMs: 30_000), ct), $"36 块 {blk + 1}"))
-                    return false;
-                off += n;
-                blk++;
-                seq = (seq + 1) & 0xFF;
-                if (blk % 16 == 0 || off >= size)
-                    AppendLog($"[进度] {blk}/{nblocks}  {off}/{size} ({off * 100 / size}%)");
-            }
-
+            _quietLogs = true;
             try
             {
-                await Task.Run(() => uds.Request(ProtoIds.SidRte,
-                    Array.Empty<byte>(), timeoutMs: 8000, waitPendingMs: 60_000), ct);
-                AppendLog("37 TransferExit 确认，设备自复位");
+                if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidRc,
+                        new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000), ct), "31 擦除"))
+                    return false;
+                AppendLog("31 擦除完成");
+
+                if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidRd, new byte[]
+                {
+                    0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
+                    (byte)(size >> 24), (byte)(size >> 16), (byte)(size >> 8), (byte)size,
+                }, timeoutMs: 8000), ct), "34 RequestDownload"))
+                    return false;
+                AppendLog($"34 RequestDownload {size}B @ 0x08010000 block={transferBlock}");
+
+                int off = 0, seq = 1, blk = 0;
+                int nblocks = (size + transferBlock - 1) / transferBlock;
+                var img = raw;
+                int lastPct = -1;
+                while (off < size)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int n = Math.Min(transferBlock, size - off);
+                    var payload = new byte[1 + n];
+                    payload[0] = (byte)(seq & 0xFF);
+                    Buffer.BlockCopy(img, off, payload, 1, n);
+                    if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidTd, payload,
+                            timeoutMs: 8000, waitPendingMs: 30_000), ct), $"36 块 {blk + 1}"))
+                        return false;
+                    off += n;
+                    blk++;
+                    seq = (seq + 1) & 0xFF;
+
+                    // 每 2% 或首尾报一次进度：百分比一眼可见
+                    int pct = size > 0 ? (int)(off * 100L / size) : 100;
+                    if (pct != lastPct && (pct % 2 == 0 || off >= size))
+                    {
+                        lastPct = pct;
+                        AppendLog($"[进度] {pct}%  {blk}/{nblocks} 块  {off}/{size} 字节");
+                        await UiAsync(() => SetState($"升级中 {pct}%", Colors.DarkOrange));
+                    }
+                }
+
+                try
+                {
+                    await Task.Run(() => uds.Request(ProtoIds.SidRte,
+                        Array.Empty<byte>(), timeoutMs: 8000, waitPendingMs: 60_000), ct);
+                    AppendLog("37 TransferExit 确认，设备自复位");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"37 异常（设备可能已自复位）: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                AppendLog($"37 异常（设备可能已自复位）: {ex.Message}");
+                _quietLogs = false;
             }
 
             await UiAsync(() => Pass(name, $"{size}B 传输完成"));
