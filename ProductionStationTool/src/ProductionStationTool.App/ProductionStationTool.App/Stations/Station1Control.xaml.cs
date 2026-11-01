@@ -79,13 +79,27 @@ public partial class Station1Control : UserControl, IStationPage
         // 「连接」只做串口接入，不发任何 UDS 指令（唤醒/读版本归「开始测试」）
         try
         {
+            // PowerZ 可达性先验：HID 被 usbipd 挂到 WSL/被占用时打开失败，
+            // 不能只开 CAN 就报「已连接」（设备残留时会误判成功）
+            if (!HidPowerZSource.TryProbe(out var pzDetail))
+            {
+                _can?.Dispose();
+                _can = null;
+                _connected = false;
+                ConnPanel.SetStatus($"PowerZ 不可用：{pzDetail}", false);
+                LogPanel.Append($"PowerZ 校验失败：{pzDetail}");
+                LogPanel.Append("提示：若设备已 usbipd 挂载到 WSL，请先 usbipd detach 后重试");
+                RaiseAvailability();
+                return;
+            }
+
             _can?.Dispose();
             _can = new CanUdsDevice(can);
             _can.Log += LogSafe;
             await _can.OpenAsync();
             _connected = true;
             ConnPanel.SetStatus($"已连接 CAN:{can} PowerZ:{pz}", true);
-            LogPanel.Append($"串口连接：CAN={can}，PowerZ={pz}");
+            LogPanel.Append($"串口连接：CAN={can}，PowerZ={pz}（{pzDetail}）");
         }
         catch (Exception ex)
         {

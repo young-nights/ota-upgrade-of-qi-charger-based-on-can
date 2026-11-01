@@ -1,6 +1,7 @@
 using System.IO.Ports;
 using System.Management;
 using System.Text.RegularExpressions;
+using ProductionStationTool.PowerZ;
 
 namespace ProductionStationTool.App.Utilities;
 
@@ -124,6 +125,10 @@ public static class PortDetector
     /// <summary>
     /// 枚举 PowerZ HID 设备（VID:PID 0483:5750，Windows 上显示「USB 输入设备」）。
     /// 返回的 PortInfo.Name 固定为 PowerZ(HID)——HID 无 COM 口名。
+    ///
+    /// 枚举走 HidSharp（HID 类驱动视角）而非 WMI：usbipd 把设备挂给 WSL 后
+    /// Windows 侧 HID 驱动解绑——WMI 的 PnP 节点还在（残留），但 HidSharp
+    /// 枚举看不见。再加打开探针双保险：列表里只留真正可打开的设备。
     /// </summary>
     public static List<PortInfo> ListPowerZDevices()
     {
@@ -132,17 +137,21 @@ public static class PortDetector
         {
             foreach (var (vid, pid) in PowerZIds)
             {
-                using var searcher = new ManagementObjectSearcher(
-                    $"SELECT Name, Description, PNPDeviceID FROM Win32_PnPEntity " +
-                    $"WHERE PNPDeviceID LIKE 'USB\\\\VID_{vid}&PID_{pid}%'");
-                foreach (var o in searcher.Get())
+                foreach (var d in HidSharp.DeviceList.Local.GetHidDevices(
+                             Convert.ToInt32(vid, 16), Convert.ToInt32(pid, 16), null, null))
                 {
-                    var desc = (string)(o["Description"] ?? string.Empty);
-                    result.Add(new PortInfo("PowerZ(HID)", $"{vid}:{pid}", desc));
+                    string name;
+                    try { name = d.GetProductName(); } catch { name = "PowerZ"; }
+                    result.Add(new PortInfo("PowerZ(HID)", $"{vid}:{pid}", name));
                 }
             }
         }
-        catch { /* WMI 不可用则无 HID 识别 */ }
+        catch { /* HidSharp 不可用则无 HID 识别 */ }
+
+        // 打开探针：设备被 usbipd 占用/驱动异常时过滤掉（列表不留残留）
+        if (result.Count > 0 && !HidPowerZSource.TryProbe(out _))
+            result.Clear();
+
         return result;
     }
 

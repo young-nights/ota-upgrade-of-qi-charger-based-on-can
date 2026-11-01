@@ -54,6 +54,42 @@ public sealed class HidPowerZSource : IPowerZSource
         return result;
     }
 
+    /// <summary>
+    /// 可达性探针：设备能否真正打开（打开后立即关闭）。
+    /// usbipd 把设备挂给 WSL 后 Windows 侧 HID 驱动解绑——
+    /// HidSharp 枚举看不见、即使残留 PnP 节点打开也失败。
+    /// 枚举/连接前先探一次，把「列表有但实际不可用」的过滤掉。
+    /// </summary>
+    public static bool TryProbe(out string detail)
+    {
+        HidDevice? dev;
+        try { dev = FindDevice(); }
+        catch (Exception ex) { detail = $"HID 枚举失败: {ex.Message}"; return false; }
+
+        if (dev is null)
+        {
+            detail = "未找到 PowerZ HID 设备（可能已挂载到 WSL 或未插入）";
+            return false;
+        }
+
+        try
+        {
+            using var s = dev.Open();
+            detail = $"PowerZ HID 可达（{SafeName(dev)}）";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            detail = $"PowerZ HID 打开失败: {ex.Message}（设备被占用/挂载到 WSL）";
+            return false;
+        }
+    }
+
+    private static string SafeName(HidDevice d)
+    {
+        try { return d.GetProductName(); } catch { return d.DevicePath; }
+    }
+
     private static HidDevice? FindDevice()
     {
         foreach (var (vid, pid) in KnownIds)
