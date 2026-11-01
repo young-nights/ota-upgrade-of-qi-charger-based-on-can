@@ -126,6 +126,12 @@ public sealed class CanUdsDevice : IDisposable
             Log?.Invoke("2E F18C 写入完成");
 
             var readBack = await Task.Run(() => ReadSnCore(), ct);
+            if (readBack is null)
+            {
+                // 多帧应答偶发 FF/FC 竞态：重试一次
+                await Task.Delay(200, ct);
+                readBack = await Task.Run(() => ReadSnCore(), ct);
+            }
             return string.Equals(readBack, sn, StringComparison.Ordinal)
                 ? (true, $"SN={readBack}")
                 : (false, $"写后读回不符 期望={sn} 实际={readBack ?? "(空)"}");
@@ -191,13 +197,22 @@ public sealed class CanUdsDevice : IDisposable
         }
     }
 
-    /// <summary>22 F18C 解析（32B ASCII 空格填充，去尾部 0x00/0x20）。</summary>
+    /// <summary>22 F18C 解析（32B ASCII 空格填充，去尾部 0x00/0x20）。
+    /// 超时 6s：35B 多帧应答含设备 FF 重发窗口（~2s）+CF 传输，4s 不够。
+    /// 失败返回 null（不抛异常，供上层重试）。</summary>
     private string? ReadSnCore()
     {
-        var rx = _uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000);
-        int len = rx.Length - 3;
-        while (len > 0 && (rx[3 + len - 1] is 0x00 or 0x20))
-            len--;
-        return Encoding.ASCII.GetString(rx, 3, len);
+        try
+        {
+            var rx = _uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 6000);
+            int len = rx.Length - 3;
+            while (len > 0 && (rx[3 + len - 1] is 0x00 or 0x20))
+                len--;
+            return Encoding.ASCII.GetString(rx, 3, len);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

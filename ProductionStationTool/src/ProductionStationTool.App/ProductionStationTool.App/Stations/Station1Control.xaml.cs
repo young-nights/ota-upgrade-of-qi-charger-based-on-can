@@ -181,10 +181,9 @@ public partial class Station1Control : UserControl, IStationPage
         {
             powerZ = new HidPowerZSource();
             powerZ.Log += LogSafe;
-            LogPanel.Append("准备 PowerZ HID 采样源…");
-            await powerZ.StartAsync(ct);
 
-            // 严格顺序执行：每步完成即定格（Passed/Failed），下一步才亮「进行中」
+            // 严格顺序执行：每步完成即定格（Passed/Failed），下一步才亮「进行中」。
+            // PowerZ HID 在⑤真正开始（④开充电完成）时才打开，避免日志时序错乱。
             result = await _workflow.RunAsync(
                 snWriteAsync: async sn =>
                 {
@@ -219,6 +218,16 @@ public partial class Station1Control : UserControl, IStationPage
                     if (!ok)
                         throw new InvalidOperationException(detail);
                     FlowPanel.Mark(4, StepStatus.Running);     // ⑤ 采样：开始（充电完成才到）
+                    LogPanel.Append("步骤 5：打开 PowerZ HID 采样…");
+                    try
+                    {
+                        await powerZ!.StartAsync(ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        // HID 打开失败不抛：交给⑤等采样超时 →「无有效采样」定格
+                        LogPanel.Append($"[PowerZ] 打开失败：{ex.Message}");
+                    }
                 },
                 powerZ: powerZ,
                 limits: DefaultPowerLimits,
