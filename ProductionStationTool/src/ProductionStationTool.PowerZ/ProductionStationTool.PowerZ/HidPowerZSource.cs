@@ -68,9 +68,26 @@ public sealed class HidPowerZSource : IPowerZSource
         _stream.ReadTimeout = 250;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _loop = Task.Run(() => PollLoopAsync(_cts.Token));
-        try { Log?.Invoke($"PowerZ HID 已打开（{dev.GetProductName()}）"); }
-        catch { Log?.Invoke("PowerZ HID 已打开"); }
+        try
+        {
+            Log?.Invoke($"PowerZ HID 已打开（{dev.GetProductName()}） " +
+                        $"报文长度 in={SafeMaxIn(dev)} out={SafeMaxOut(dev)}");
+        }
+        catch
+        {
+            Log?.Invoke("PowerZ HID 已打开");
+        }
         return Task.CompletedTask;
+    }
+
+    private static int SafeMaxIn(HidDevice d)
+    {
+        try { return d.GetMaxInputReportLength(); } catch { return -1; }
+    }
+
+    private static int SafeMaxOut(HidDevice d)
+    {
+        try { return d.GetMaxOutputReportLength(); } catch { return -1; }
     }
 
     public async Task StopAsync(CancellationToken ct = default)
@@ -96,33 +113,85 @@ public sealed class HidPowerZSource : IPowerZSource
 
     public void Dispose() => StopAsync().GetAwaiter().GetResult();
 
-    /// <summary>发一帧协议包（HID 输出报文：report id=0 + 帧，按 maxOutput 补齐）。</summary>
+    /// <summary>报文长度探测结果（0=未探测到可用长度）。</summary>
+    private int _writeLen;
+
+    /// <summary>发一帧协议包（HID 输出报文：report id=0 + 帧）。
+    /// 长度自适应：maxOutput → 65 → 64 → 帧长+1 依次尝试，成功即记住。</summary>
     private void Send(byte[] frame)
     {
         var stream = _stream;
         if (stream is null)
             return;
-        int max = 64;
-        try { max = Math.Max(8, stream.Device.GetMaxOutputReportLength()); } catch { }
-        var buf = new byte[max];
-        buf[0] = 0x00;                       // report id 0
-        Buffer.BlockCopy(frame, 0, buf, 1, Math.Min(frame.Length, max - 1));
-        stream.Write(buf);
+
+        var candidates = new List<int>();
+        if (_writeLen > 0)
+            candidates.Add(_writeLen);
+        try
+        {
+            int max = stream.Device.GetMaxOutputReportLength();
+            if (max > 0 && !candidates.Contains(max))
+                candidates.Add(max);
+        }
+        catch { }
+        foreach (var n in new[] { 65, 64, frame.Length + 1 })
+            if (!candidates.Contains(n))
+                candidates.Add(n);
+
+        Exception? last = null;
+        foreach (var len in candidates)
+        {
+            if (len < frame.Length + 1)
+                continue;
+            try
+            {
+                var buf = new byte[len];
+                buf[0] = 0x00;                       // report id 0
+                Buffer.BlockCopy(frame, 0, buf, 1, frame.Length);
+                stream.Write(buf);
+                _writeLen = len;
+                return;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+            }
+        }
+        throw last ?? new InvalidOperationException("无可用 HID 报文长度");
     }
 
     private async Task PollLoopAsync(CancellationToken ct)
     {
         byte tid = 1;
+        int sendFail = 0;
+        int rawLogged = 0;
 
         try
         {
-            Send(PowerZProtocol.Connect(tid++));
-            if (!await WaitForAcceptAsync(ct))
-                Log?.Invoke("PowerZ Connect 无 Accept（设备协议可能不兼容），继续尝试轮询");
+            try
+            {
+                Send(PowerZProtocol.Connect(tid++));
+                if (!await WaitForAcceptAsync(ct))
+                    Log?.Invoke("PowerZ Connect 无 Accept（设备协议可能不兼容），继续轮询/抓报文");
+            }
+            catch (Exception ex)
+            {
+                Log?.Invoke($"[PowerZ] 发送失败: {ex.Message}（转只听模式抓原始报文）");
+            }
 
             while (!ct.IsCancellationRequested)
             {
-                Send(PowerZProtocol.GetDataAdc(tid++));
+                try
+                {
+                    Send(PowerZProtocol.GetDataAdc(tid++));
+                    sendFail = 0;
+                }
+                catch (Exception ex)
+                {
+                    // 写失败（报文长度/协议不符）：节流日志，转只听抓原始报文
+                    if (sendFail++ < 3 || sendFail % 20 == 0)
+                        Log?.Invoke($"[PowerZ] 发送失败: {ex.Message}（只听模式）");
+                }
 
                 var buf = await ReadFrameAsync(ct);
                 if (buf is { Length: > 0 })
@@ -131,10 +200,13 @@ public sealed class HidPowerZSource : IPowerZSource
                     {
                         SampleReceived?.Invoke(sample);
                     }
-                    else if (PowerZProtocol.RespType(buf) != PowerZProtocol.CmdAccept)
+                    else if (rawLogged < 30 || (rawLogged % 20) == 0)
                     {
-                        Log?.Invoke($"[PowerZ] 未识别报文: {Convert.ToHexString(buf.AsSpan(0, Math.Min(32, buf.Length)).ToArray())}");
+                        // 未识别报文：原始 hex 供实测样例校准（节流防刷屏）
+                        Log?.Invoke($"[PowerZ] 原始报文({buf.Length}B): " +
+                                    $"{Convert.ToHexString(buf.AsSpan(0, Math.Min(48, buf.Length)).ToArray())}");
                     }
+                    rawLogged++;
                 }
 
                 await Task.Delay(200, ct);
