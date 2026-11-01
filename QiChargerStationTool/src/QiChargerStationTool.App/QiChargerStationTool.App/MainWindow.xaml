@@ -282,11 +282,13 @@
               </StackPanel>
             </DockPanel>
           </Border>
-          <ListBox x:Name="LstLog" FontFamily="Consolas" FontSize="11"
-                   ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                   BorderThickness="0" Padding="4"
-                   SelectionMode="Extended"
-                   KeyDown="OnLogKeyDown"/>
+          <TextBox x:Name="TxtLog" FontFamily="Consolas" FontSize="11"
+                   IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                   VerticalScrollBarVisibility="Auto"
+                   HorizontalScrollBarVisibility="Auto"
+                   BorderThickness="0" Padding="4" Margin="0"
+                   Background="White" Foreground="#222"
+                   VerticalContentAlignment="Top"/>
         </DockPanel>
       </Border>
 

@@ -189,7 +189,6 @@ public partial class MainWindow : Window
                 UpdateConnectUi();
             }
             BtnStop.IsEnabled = busy;
-            Cursor = busy ? Cursors.Wait : Cursors.Arrow;
             if (label is not null && busy)
                 SetState(label, Colors.DarkOrange);
             if (!busy) FocusSnBox();
@@ -209,8 +208,12 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            LstLog.Items.Add($"[{DateTime.Now:HH:mm:ss.fff}] {msg}");
-            LstLog.ScrollIntoView(LstLog.Items[^1]);
+            string line = $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\r\n";
+            // 追加文本而非 Text += line（避免整串重排）；无选中时跟滚到底，
+            // 有选中时不打扰用户正在框选的文本
+            TxtLog.AppendText(line);
+            if (TxtLog.SelectedText.Length == 0)
+                TxtLog.ScrollToEnd();
         });
     }
 
@@ -981,38 +984,21 @@ public partial class MainWindow : Window
 
     // ---------- 日志复制 / 导出 ----------
 
-    private string CollectLogText()
-    {
-        var sb = new System.Text.StringBuilder();
-        foreach (var item in LstLog.Items)
-            sb.AppendLine(item?.ToString());
-        return sb.ToString();
-    }
+    private string CollectLogText() => TxtLog.Text;
 
     private void OnCopyLog(object sender, RoutedEventArgs e)
     {
         try
         {
             // 有选中则复制选中，否则复制全部
-            string text;
-            if (LstLog.SelectedItems.Count > 1)
-            {
-                var sb = new System.Text.StringBuilder();
-                foreach (var item in LstLog.SelectedItems)
-                    sb.AppendLine(item?.ToString());
-                text = sb.ToString();
-            }
-            else
-            {
-                text = CollectLogText();
-            }
+            string text = TxtLog.SelectedText.Length > 0 ? TxtLog.SelectedText : TxtLog.Text;
             if (text.Length == 0)
             {
                 AppendLog("[日志] 无内容可复制");
                 return;
             }
             Clipboard.SetText(text);
-            AppendLog($"[日志] 已复制 {LstLog.Items.Count} 行到剪贴板，可直接 Ctrl+V 粘贴");
+            AppendLog($"[日志] 已复制 {TxtLog.LineCount} 行到剪贴板，可直接 Ctrl+V 粘贴");
         }
         catch (Exception ex)
         {
@@ -1042,29 +1028,8 @@ public partial class MainWindow : Window
 
     private void OnClearLog(object sender, RoutedEventArgs e)
     {
-        LstLog.Items.Clear();
+        TxtLog.Clear();
         AppendLog("[日志] 已清空");
-    }
-
-    /// <summary>Ctrl+A 全选，Ctrl+C 复制选中。</summary>
-    private void OnLogKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.A && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
-        {
-            LstLog.SelectAll();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.C && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
-        {
-            if (LstLog.SelectedItems.Count > 0)
-            {
-                var sb = new System.Text.StringBuilder();
-                foreach (var item in LstLog.SelectedItems)
-                    sb.AppendLine(item?.ToString());
-                try { Clipboard.SetText(sb.ToString()); } catch { /* ignore */ }
-                e.Handled = true;
-            }
-        }
     }
 
     // ---------- helpers ----------
