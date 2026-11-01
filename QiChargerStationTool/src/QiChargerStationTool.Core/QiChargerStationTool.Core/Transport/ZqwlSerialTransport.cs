@@ -151,6 +151,10 @@ public sealed class ZqwlSerialTransport : ICanTransport
         var deadline = Environment.TickCount64 + timeoutMs;
         while (true)
         {
+            // 每轮主动泵串口——不能依赖 DataReceived 事件（USB-CDC 虚拟
+            // 串口事件不可靠，断触即全静默；timeoutMs=0 时旧逻辑根本走不到
+            // PumpSerial，接收完全押在事件上）
+            PumpSerial();
             lock (_rxLock)
             {
                 if (_rxQueue.Count > 0)
@@ -164,7 +168,6 @@ public sealed class ZqwlSerialTransport : ICanTransport
                 frame = default;
                 return false;
             }
-            PumpSerial();
             Thread.Sleep(1);
         }
     }
