@@ -57,6 +57,23 @@ public class Station1WorkflowTests
     }
 
     [Fact]
+    public async Task NoSample_StopsAndNotStored()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ(5, 1);            // 不 Emit → 等采样超时
+
+        var r = await wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult("SN-0001"),
+            () => Task.CompletedTask, pz,
+            new PowerLimits { VoltageMin = 0, VoltageMax = 9, CurrentMin = 0, CurrentMax = 9 });
+
+        Assert.False(r.Passed);
+        Assert.Null(r.Power);                     // 无判限结论
+        Assert.Contains("无有效采样", r.AbnormalItems[0]);
+        Assert.Empty(store.Rows);                 // 采样失败=流程错误：不入库
+    }
+
+    [Fact]
     public async Task AllNormal_PassAndStore()
     {
         var store = new FakeStore();

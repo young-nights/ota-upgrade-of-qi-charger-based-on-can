@@ -60,24 +60,26 @@ public sealed class Station1Workflow
         // 3. 开充电 + PowerZ 采样判限（等一个采样）
         await chargeStartAsync();
         var sample = await WaitSampleAsync(powerZ, ct);
-        var fails = sample is null
-            ? new List<string> { "PowerZ 无有效采样" }
-            : limits.Judge(sample.Value.Voltage, sample.Value.Current);
+        if (sample is null)
+        {
+            // 采样失败 = 流程错误（非判限结果）：停止，不判限、不入库
+            return new Station1Result(sn, false, null,
+                new[] { "PowerZ 无有效采样" });
+        }
+        var fails = limits.Judge(sample.Value.Voltage, sample.Value.Current);
 
         // 4. 结论
         var passed = fails.Count == 0;
-        PowerJudgement? judgement = sample is null
-            ? null
-            : new PowerJudgement(sample.Value.Voltage, sample.Value.Current, passed, fails);
+        var judgement = new PowerJudgement(sample.Value.Voltage, sample.Value.Current, passed, fails);
 
-        // 5. 入库（SN 写入成功才会走到这里）
+        // 5. 入库（SN 写入成功 + 采样成功才会走到这里；判限 FAIL 也入库为 FAIL 记录）
         _store.Add(new TestRecord
         {
             Sn = sn,
             StationNo = 1,
             Result = passed ? "PASS" : "FAIL",
-            Voltage = sample?.Voltage ?? 0,
-            Current = sample?.Current ?? 0,
+            Voltage = sample.Value.Voltage,
+            Current = sample.Value.Current,
             AbnormalItems = string.Join("；", fails),
             TestTime = DateTime.Now,
         });

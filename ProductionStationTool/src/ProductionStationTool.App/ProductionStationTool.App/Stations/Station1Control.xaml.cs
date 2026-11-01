@@ -160,7 +160,7 @@ public partial class Station1Control : UserControl, IStationPage
 
         // ⑤ 的数据源：HID 打开后交给 Workflow 等首个采样
         HidPowerZSource? powerZ = null;
-        bool writeOk = false, readOk = false, chargeOk = false, completed = false;
+        bool writeOk = false, readOk = false, chargeOk = false;
         Station1Result? result = null;
 
         try
@@ -171,14 +171,14 @@ public partial class Station1Control : UserControl, IStationPage
             LogPanel.Append("步骤 5 准备：打开 PowerZ HID 采样…");
             await powerZ.StartAsync(ct);
 
+            // 各委托只置 Running + 记结果；最终定格统一在尾部做（fail-fast）
             result = await _workflow.RunAsync(
                 snWriteAsync: async sn =>
                 {
                     LogPanel.Append($"生成 SN：{sn}");
-                    FlowPanel.Mark(1, StepStatus.Running);
                     TxtSn.Text = sn;
+                    FlowPanel.Mark(1, StepStatus.Running);
                     FlowPanel.Mark(1, StepStatus.Passed);
-
                     FlowPanel.Mark(2, StepStatus.Running);
                     var (ok, detail) = await _can.WriteSnAsync(sn, ct);
                     LogPanel.Append(ok ? $"步骤 3：写 SN 成功 {detail}" : $"步骤 3：写 SN 失败 {detail}");
@@ -190,7 +190,6 @@ public partial class Station1Control : UserControl, IStationPage
                     var back = await _can.TryReadSnAsync(ct);
                     readOk = back is not null;
                     LogPanel.Append($"步骤 3：回读 SN = {back ?? "(空)"}");
-                    FlowPanel.Mark(2, readOk ? StepStatus.Passed : StepStatus.Failed);
                     return back;
                 },
                 chargeStartAsync: async () =>
@@ -199,14 +198,12 @@ public partial class Station1Control : UserControl, IStationPage
                     var (ok, detail) = await _can.EnableChargingAsync(ct);
                     LogPanel.Append(ok ? $"步骤 4：{detail}" : $"步骤 4：开启充电失败 {detail}");
                     chargeOk = ok;
-                    FlowPanel.Mark(3, ok ? StepStatus.Passed : StepStatus.Failed);
                     if (!ok)
                         throw new InvalidOperationException(detail);
                 },
                 powerZ: powerZ,
                 limits: DefaultPowerLimits,
                 ct);
-            completed = true;
         }
         catch (Exception ex)
         {
@@ -222,49 +219,68 @@ public partial class Station1Control : UserControl, IStationPage
             }
         }
 
-        // 结果展示与剩余步骤定格
-        if (result is not null)
-        {
+        // ---- 步骤定格（fail-fast：任一步出错，其后步骤「未执行」）----
+        bool snOk = writeOk && readOk;
+        bool sampleOk = result?.Power is not null;
+
+        if (result is not null && result.Sn.Length > 0)
             TxtSn.Text = result.Sn;
-            if (result.Power is { } p)
+
+        // ③ 写入 SN 并回读
+        FlowPanel.Mark(2, snOk ? StepStatus.Passed : StepStatus.Failed);
+
+        // ④ 开启充电（③ 成功才执行过）
+        if (snOk)
+            FlowPanel.Mark(3, chargeOk ? StepStatus.Passed : StepStatus.Failed);
+        else
+            FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
+
+        // ⑤ PowerZ 采样（④ 成功才执行过）：拿到采样即算本步完成
+        if (chargeOk)
+        {
+            if (result?.Power is { } p)
             {
                 TxtVoltage.Text = $"{p.Voltage:F3}";
                 TxtCurrent.Text = $"{p.Current:F3}";
-                TxtPowerJudge.Text = p.IsNormal ? "正常" : "异常";
-                TxtPowerJudge.Foreground = p.IsNormal ? SuccessBrush : DangerBrush;
-                FlowPanel.Mark(4, p.IsNormal ? StepStatus.Passed : StepStatus.Failed);
+                FlowPanel.Mark(4, StepStatus.Passed);
             }
             else
             {
                 TxtVoltage.Text = "—";
                 TxtCurrent.Text = "—";
                 TxtPowerJudge.Text = "—";
-                if (!writeOk)
-                    FlowPanel.Mark(4, StepStatus.Failed);
+                FlowPanel.Mark(4, StepStatus.Failed, "无有效采样");
             }
-            foreach (var item in result.AbnormalItems)
-                ListAbnormal.Items.Add(item);
-        }
-
-        if (!writeOk || !readOk)
-            FlowPanel.Mark(2, StepStatus.Failed);
-        if (!chargeOk)
-            FlowPanel.Mark(3, StepStatus.Failed);
-
-        // ⑥ 判限并入库：Workflow 已在 SN 写入成功后入库（写入失败不入库、不消耗流水号）
-        FlowPanel.Mark(5, StepStatus.Running);
-        if (completed && writeOk)
-        {
-            FlowPanel.Mark(5, StepStatus.Passed);
-            LogPanel.Append($"步骤 6：已入库（{(result?.Passed == true ? "PASS" : "FAIL")}）");
         }
         else
         {
-            FlowPanel.Mark(5, StepStatus.Failed);
-            ListAbnormal.Items.Add("步骤 6「判限并入库」未完成（SN 写入失败不入库）");
+            TxtVoltage.Text = "—";
+            TxtCurrent.Text = "—";
+            TxtPowerJudge.Text = "—";
+            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
         }
 
-        SetResultBadge(result?.Passed == true && completed);
+        // ⑥ 判限并入库（⑤ 有采样才执行；判限 FAIL 也入库为 FAIL 记录）
+        if (sampleOk && result?.Power is { } pj)
+        {
+            TxtPowerJudge.Text = pj.IsNormal ? "正常" : "异常";
+            TxtPowerJudge.Foreground = pj.IsNormal ? SuccessBrush : DangerBrush;
+            FlowPanel.Mark(5, pj.IsNormal ? StepStatus.Passed : StepStatus.Failed);
+            LogPanel.Append(pj.IsNormal
+                ? "步骤 6：判限正常，已入库（PASS）"
+                : $"步骤 6：判限异常（{string.Join("；", pj.AbnormalItems)}），已入库（FAIL）");
+        }
+        else
+        {
+            FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
+            LogPanel.Append("步骤 6：未执行（前序失败），不判限不入库");
+        }
+
+        if (result is not null)
+            foreach (var item in result.AbnormalItems)
+                ListAbnormal.Items.Add(item);
+
+        SetResultBadge(result?.Passed == true);
         LogPanel.Append(result?.Passed == true
             ? "全部检测项正常，PASS"
             : $"存在 {ListAbnormal.Items.Count} 项异常，FAIL");
