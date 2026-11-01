@@ -158,48 +158,54 @@ public partial class Station1Control : UserControl, IStationPage
         FlowPanel.Mark(0, StepStatus.Passed);
         LogPanel.Append("设备已就绪");
 
-        // ⑤ 的数据源：HID 打开后交给 Workflow 等首个采样
+        // ⑤ 的数据源：HID 先静默就绪，等流程走到采样步再点亮「进行中」
         HidPowerZSource? powerZ = null;
         bool writeOk = false, readOk = false, chargeOk = false;
+        string? writtenSn = null;
         Station1Result? result = null;
 
         try
         {
             powerZ = new HidPowerZSource();
             powerZ.Log += LogSafe;
-            FlowPanel.Mark(4, StepStatus.Running);
-            LogPanel.Append("步骤 5 准备：打开 PowerZ HID 采样…");
+            LogPanel.Append("准备 PowerZ HID 采样源…");
             await powerZ.StartAsync(ct);
 
-            // 各委托只置 Running + 记结果；最终定格统一在尾部做（fail-fast）
+            // 严格顺序执行：每步完成即定格（Passed/Failed），下一步才亮「进行中」
             result = await _workflow.RunAsync(
                 snWriteAsync: async sn =>
                 {
-                    LogPanel.Append($"生成 SN：{sn}");
+                    writtenSn = sn;
                     TxtSn.Text = sn;
-                    FlowPanel.Mark(1, StepStatus.Running);
-                    FlowPanel.Mark(1, StepStatus.Passed);
-                    FlowPanel.Mark(2, StepStatus.Running);
+                    LogPanel.Append($"生成 SN：{sn}");
+                    FlowPanel.Mark(1, StepStatus.Passed);      // ② 生成 SN：完成
+
+                    FlowPanel.Mark(2, StepStatus.Running);     // ③ 写入并回读：开始
                     var (ok, detail) = await _can.WriteSnAsync(sn, ct);
                     LogPanel.Append(ok ? $"步骤 3：写 SN 成功 {detail}" : $"步骤 3：写 SN 失败 {detail}");
                     writeOk = ok;
+                    if (!ok)
+                        FlowPanel.Mark(2, StepStatus.Failed);  // 写失败即定格，不再回读
                     return ok;
                 },
                 snReadAsync: async () =>
                 {
                     var back = await _can.TryReadSnAsync(ct);
-                    readOk = back is not null;
+                    readOk = back is not null && string.Equals(back, writtenSn, StringComparison.Ordinal);
                     LogPanel.Append($"步骤 3：回读 SN = {back ?? "(空)"}");
+                    FlowPanel.Mark(2, readOk ? StepStatus.Passed : StepStatus.Failed);  // ③ 完成定格
                     return back;
                 },
                 chargeStartAsync: async () =>
                 {
-                    FlowPanel.Mark(3, StepStatus.Running);
+                    FlowPanel.Mark(3, StepStatus.Running);     // ④ 开充电：开始
                     var (ok, detail) = await _can.EnableChargingAsync(ct);
                     LogPanel.Append(ok ? $"步骤 4：{detail}" : $"步骤 4：开启充电失败 {detail}");
                     chargeOk = ok;
+                    FlowPanel.Mark(3, ok ? StepStatus.Passed : StepStatus.Failed);      // ④ 完成定格
                     if (!ok)
                         throw new InvalidOperationException(detail);
+                    FlowPanel.Mark(4, StepStatus.Running);     // ⑤ 采样：开始（充电完成才到）
                 },
                 powerZ: powerZ,
                 limits: DefaultPowerLimits,
@@ -219,30 +225,25 @@ public partial class Station1Control : UserControl, IStationPage
             }
         }
 
-        // ---- 步骤定格（fail-fast：任一步出错，其后步骤「未执行」）----
+        // ---- ⑤⑥ 定格 + 未执行步骤补齐（fail-fast：任一步出错，其后「未执行」）----
         bool snOk = writeOk && readOk;
-        bool sampleOk = result?.Power is not null;
 
-        if (result is not null && result.Sn.Length > 0)
-            TxtSn.Text = result.Sn;
-
-        // ③ 写入 SN 并回读
-        FlowPanel.Mark(2, snOk ? StepStatus.Passed : StepStatus.Failed);
-
-        // ④ 开启充电（③ 成功才执行过）
-        if (snOk)
-            FlowPanel.Mark(3, chargeOk ? StepStatus.Passed : StepStatus.Failed);
-        else
-            FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
-
-        // ⑤ PowerZ 采样（④ 成功才执行过）：拿到采样即算本步完成
-        if (chargeOk)
+        if (snOk && chargeOk)
         {
+            // ⑤ PowerZ 采样：拿到采样即本步完成（判限归⑥）
             if (result?.Power is { } p)
             {
                 TxtVoltage.Text = $"{p.Voltage:F3}";
                 TxtCurrent.Text = $"{p.Current:F3}";
                 FlowPanel.Mark(4, StepStatus.Passed);
+
+                // ⑥ 判限并入库：判限 FAIL 也入库为 FAIL 记录
+                TxtPowerJudge.Text = p.IsNormal ? "正常" : "异常";
+                TxtPowerJudge.Foreground = p.IsNormal ? SuccessBrush : DangerBrush;
+                FlowPanel.Mark(5, p.IsNormal ? StepStatus.Passed : StepStatus.Failed);
+                LogPanel.Append(p.IsNormal
+                    ? "步骤 6：判限正常，已入库（PASS）"
+                    : $"步骤 6：判限异常（{string.Join("；", p.AbnormalItems)}），已入库（FAIL）");
             }
             else
             {
@@ -250,28 +251,19 @@ public partial class Station1Control : UserControl, IStationPage
                 TxtCurrent.Text = "—";
                 TxtPowerJudge.Text = "—";
                 FlowPanel.Mark(4, StepStatus.Failed, "无有效采样");
+                FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
+                LogPanel.Append("步骤 6：未执行（无有效采样），不判限不入库");
             }
         }
         else
         {
+            // 前序失败：未到达的步骤全部标未执行
+            if (!chargeOk)
+                FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
             TxtVoltage.Text = "—";
             TxtCurrent.Text = "—";
             TxtPowerJudge.Text = "—";
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
-        }
-
-        // ⑥ 判限并入库（⑤ 有采样才执行；判限 FAIL 也入库为 FAIL 记录）
-        if (sampleOk && result?.Power is { } pj)
-        {
-            TxtPowerJudge.Text = pj.IsNormal ? "正常" : "异常";
-            TxtPowerJudge.Foreground = pj.IsNormal ? SuccessBrush : DangerBrush;
-            FlowPanel.Mark(5, pj.IsNormal ? StepStatus.Passed : StepStatus.Failed);
-            LogPanel.Append(pj.IsNormal
-                ? "步骤 6：判限正常，已入库（PASS）"
-                : $"步骤 6：判限异常（{string.Join("；", pj.AbnormalItems)}），已入库（FAIL）");
-        }
-        else
-        {
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
             LogPanel.Append("步骤 6：未执行（前序失败），不判限不入库");
         }
