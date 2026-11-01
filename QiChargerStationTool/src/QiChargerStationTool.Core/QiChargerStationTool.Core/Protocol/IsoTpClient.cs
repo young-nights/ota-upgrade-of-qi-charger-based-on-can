@@ -17,6 +17,15 @@ public sealed class IsoTpClient
     private readonly uint _rxId;
     private readonly ConcurrentQueue<CanFrame> _rxq = new();
 
+    // ---- 多帧应答组装状态（跨 TryReceive 存活）----
+    // 必须是实例字段：TryReceive 超时返回后 FF/半包 CF 还在路上，
+    // 若放局部变量，下次调用 ffBuf=null → 孤 CF 全丢 → 应答永不完整。
+    private byte[]? _ffBuf;
+    private int _ffTotal;
+    private int _expectSn = 1;
+    private readonly List<byte> _cfBuf = new();
+    private long _ffDeadline;   // FF 组装看门狗：超时未收齐则丢半包（防卡死）
+
     public event Action<string>? OnLog;
 
     public IsoTpClient(ICanTransport transport, uint txId = ProtoIds.UdsReqId,
@@ -185,12 +194,17 @@ public sealed class IsoTpClient
     public byte[]? TryReceive(Func<byte[], bool> match, int timeoutMs, CancellationToken ct = default)
     {
         long deadline = Environment.TickCount64 + timeoutMs;
-        byte[]? ffBuf = null;
-        int ffTotal = 0, expectSn = 1;
-        var cfBuf = new List<byte>();
         int seen = 0, dropped = 0;
         var noiseIds = new Dictionary<uint, int>();
         _sawBootup = false;
+
+        // 半包看门狗：FF 已收但 5s 内没凑齐 → 丢弃半包，防下一次误拼
+        if (_ffBuf is not null && Environment.TickCount64 > _ffDeadline)
+        {
+            Log($"[RX] MF 半包超时丢弃（{_ffBuf.Length + _cfBuf.Count}/{_ffTotal}）");
+            _ffBuf = null;
+            _cfBuf.Clear();
+        }
 
         while (Environment.TickCount64 < deadline)
         {
@@ -227,13 +241,14 @@ public sealed class IsoTpClient
                 }
                 else if (pci == 0x10)
                 {
-                    if (ffBuf is null)
+                    if (_ffBuf is null)
                     {
-                        ffTotal = ((f.Data[0] & 0x0F) << 8) | f.Data[1];
-                        ffBuf = f.Data.AsSpan(2, Math.Min(6, f.Data.Length - 2)).ToArray();
-                        cfBuf.Clear();
-                        expectSn = 1;
-                        Log($"[RX] FF total={ffTotal}");
+                        _ffTotal = ((f.Data[0] & 0x0F) << 8) | f.Data[1];
+                        _ffBuf = f.Data.AsSpan(2, Math.Min(6, f.Data.Length - 2)).ToArray();
+                        _cfBuf.Clear();
+                        _expectSn = 1;
+                        _ffDeadline = Environment.TickCount64 + 5000;
+                        Log($"[RX] FF total={_ffTotal}");
                     }
                     // 首发/重发 FF 都补发 FC（FC 丢失死锁）；重发 FF 不清
                     // 组包进度——流中的 CF 序列保持连续，清了会把后续
@@ -241,29 +256,35 @@ public sealed class IsoTpClient
                     _tp.Send(new CanFrame(_txId, FcCts));
                     _tp.Send(new CanFrame(_txId, FcCts)); // double FC, anti-loss
                 }
-                else if (pci == 0x20 && ffBuf is not null)
+                else if (pci == 0x20 && _ffBuf is not null)
                 {
                     int sn = f.Data[0] & 0x0F;
-                    if (sn == 1 && expectSn != 1)
+                    if (sn == 1 && _expectSn != 1)
                     {
                         // 设备从头重传（FF 重发后 CF 重开）：接受并重置
-                        cfBuf.Clear();
-                        expectSn = 1;
+                        _cfBuf.Clear();
+                        _expectSn = 1;
                     }
-                    if (sn != expectSn) continue; // ignore dup/out-of-order
-                    int copy = Math.Min(f.Data.Length - 1, ffTotal - (ffBuf.Length + cfBuf.Count));
-                    for (int i = 0; i < copy; i++) cfBuf.Add(f.Data[1 + i]);
-                    expectSn = (expectSn + 1) & 0x0F;
-                    if (ffBuf.Length + cfBuf.Count >= ffTotal)
+                    if (sn != _expectSn) continue; // ignore dup/out-of-order
+                    int copy = Math.Min(f.Data.Length - 1, _ffTotal - (_ffBuf.Length + _cfBuf.Count));
+                    for (int i = 0; i < copy; i++) _cfBuf.Add(f.Data[1 + i]);
+                    _expectSn = (_expectSn + 1) & 0x0F;
+                    if (_ffBuf.Length + _cfBuf.Count >= _ffTotal)
                     {
-                        var data = new byte[ffTotal];
+                        var data = new byte[_ffTotal];
                         int n = 0;
-                        foreach (var b in ffBuf) data[n++] = b;
-                        foreach (var b in cfBuf) data[n++] = b;
+                        foreach (var b in _ffBuf) data[n++] = b;
+                        foreach (var b in _cfBuf) data[n++] = b;
+                        _ffBuf = null;
+                        _cfBuf.Clear();
                         if (match(data)) return data;
                         Log($"[RX] MF 不匹配 {Hex(data)}");
-                        ffBuf = null;
                     }
+                }
+                else if (pci == 0x20 && _ffBuf is null)
+                {
+                    // 孤 CF（半包已被丢弃/超时）：记一笔，便于判读「FF 被吞」竞态
+                    Log($"[RX] 孤 CF sn={f.Data[0] & 0x0F}（无 FF 组包上下文，丢弃）");
                 }
                 else if (pci == 0x30)
                 {
