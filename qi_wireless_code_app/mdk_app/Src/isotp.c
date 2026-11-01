@@ -367,10 +367,16 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
 
       /* 立即发 FC（主循环上下文，非 ISR）。不用 isotp_send_fc 的
        * bus-off 恢复/重试路径：offline→online 会清 RX FIFO，若主机
-       * 已按上一次 FC 发来 CF，会在这里被抹掉。 */
+       * 已按上一次 FC 发来 CF，会在这里被抹掉。
+       * 邮箱写锁竞态会让首次 can_driver_send 被拒 → 旧逻辑落
+       * g_fc_pending 等 poll 补发，FC 迟到数百 ms，主机 FF 重试×3
+       * 每块白等 600ms（上位机计时 FC重试 3/1 的根因）。这里先忙重试
+       * 20 次（写锁窗口 µs~ms 级），仍失败才交 g_fc_pending。 */
       {
         uint8_t fc[8];
         uint8_t fi;
+        uint8_t t;
+        uint8_t sent = 0U;
         fc[0] = ISOTP_PCI_TYPE_FC | ISOTP_FC_STATUS_CTS;
         fc[1] = ISOTP_FC_DEFAULT_BS;
         fc[2] = ISOTP_FC_DEFAULT_STMIN;
@@ -378,9 +384,18 @@ void isotp_rx_process(uint8_t *data, uint8_t len)
         {
           fc[fi] = 0xCCU;
         }
-        if (can_driver_send(CAN_ID_UDS_RESPONSE, fc, 8U) != 0)
+        for (t = 0; t < 20U; t++)
         {
-          /* 邮箱忙（刚发完 3E/应答）：交给 isotp_poll 重发，绝不能
+          if (can_driver_send(CAN_ID_UDS_RESPONSE, fc, 8U) == 0)
+          {
+            sent = 1U;
+            break;
+          }
+          isotp_delay_ms(1U);
+        }
+        if (sent == 0U)
+        {
+          /* 仍被拒（邮箱持续满）：交给 isotp_poll 重发，绝不能
            * 既失败又清 g_fc_pending——否则 FC 永远发不出，CF 不会来。 */
           g_fc_pending_can_id = CAN_ID_UDS_RESPONSE;
           g_fc_pending_status = ISOTP_FC_STATUS_CTS;
