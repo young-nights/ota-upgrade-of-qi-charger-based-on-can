@@ -151,7 +151,9 @@ public sealed class IsoTpClient
             for (int i = 2 + n; i < 8; i++) ff[i] = 0xCC;
             _tp.Send(new CanFrame(_txId, ff));
             if (!quiet) Log($"[TX] FF try{tryN + 1} len={total} {Hex(uds.AsSpan(0, Math.Min(6, total)).ToArray())}");
-            fc = WaitFc(1500);
+            // FC 正常 <50ms 内到（设备 send_fc 最坏 50ms pre-wait）；
+            // 1500ms 超时会把丢 FC 的每次重试放大成 1.5s/块
+            fc = WaitFc(300);
         }
         if (fc is null)
             throw new InvalidOperationException("ISO-TP FC timeout (ECU did not send FlowControl)");
@@ -170,7 +172,7 @@ public sealed class IsoTpClient
                 stminMs = StminToMs(f2.Data.Length > 2 ? f2.Data[2] : (byte)0);
                 inBlock = 0;
             }
-            if (stminMs > 0) Thread.Sleep(stminMs);
+            if (stminMs > 0) TimerResolution.PreciseSleep(stminMs);
             int chunk = Math.Min(7, total - offset);
             var cf = new byte[8];
             cf[0] = (byte)(0x20 | (sn & 0x0F));
@@ -180,7 +182,7 @@ public sealed class IsoTpClient
             // last CF: resend once (host→ECU multi-frame reliability)
             if (offset + chunk >= total)
             {
-                Thread.Sleep(1);
+                TimerResolution.PreciseSleep(1);
                 _tp.Send(new CanFrame(_txId, cf));
             }
             offset += chunk;
@@ -295,7 +297,7 @@ public sealed class IsoTpClient
                     Log($"[RX] FC {Hex(f.Data)}");
                 }
             }
-            Thread.Sleep(1);
+            PollPause(deadline - timeoutMs);
         }
 
         string noise = string.Join(", ",
@@ -329,7 +331,8 @@ public sealed class IsoTpClient
 
     private CanFrame? WaitFc(int timeoutMs)
     {
-        long deadline = Environment.TickCount64 + timeoutMs;
+        long t0 = Environment.TickCount64;
+        long deadline = t0 + timeoutMs;
         while (Environment.TickCount64 < deadline)
         {
             Pump();
@@ -339,9 +342,21 @@ public sealed class IsoTpClient
                     continue;
                 if ((f.Data[0] & 0xF0) == 0x30) return f;
             }
-            Thread.Sleep(1);
+            PollPause(t0);
         }
         return null;
+    }
+
+    /// <summary>
+    /// 轮询间隔：前 100ms 忙等 1ms（不吃系统节拍，Sleep(1) 在慢节拍机器上
+    /// 会睡 15~50ms），之后退回 Sleep(1) 防长等烧 CPU。
+    /// </summary>
+    private static void PollPause(long loopStartMs)
+    {
+        if (Environment.TickCount64 - loopStartMs < 100)
+            TimerResolution.PreciseSleep(1);
+        else
+            Thread.Sleep(1);
     }
 
     private static int StminToMs(byte b)

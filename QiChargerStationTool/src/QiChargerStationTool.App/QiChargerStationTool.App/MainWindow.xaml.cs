@@ -752,6 +752,8 @@ public partial class MainWindow : Window
                 int nblocks = (size + transferBlock - 1) / transferBlock;
                 var img = raw;
                 int lastPct = -1;
+                long sumSend = 0, sumRecv = 0;
+                var swTr = System.Diagnostics.Stopwatch.StartNew();
                 while (off < size)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -764,6 +766,8 @@ public partial class MainWindow : Window
                     if (!await MustStep(uds.TryRequest(ProtoIds.SidTd, payload,
                             timeoutMs: 8000, waitPendingMs: 30_000), $"36 块 {blk + 1}"))
                         return false;
+                    sumSend += uds.LastSendMs;
+                    sumRecv += uds.LastRecvMs;
                     off += n;
                     blk++;
                     seq = (seq + 1) & 0xFF;
@@ -773,10 +777,13 @@ public partial class MainWindow : Window
                     if (pct != lastPct && (pct % 2 == 0 || off >= size))
                     {
                         lastPct = pct;
-                        AppendLog($"[进度] {pct}%  {blk}/{nblocks} 块  {off}/{size} 字节");
+                        AppendLog($"[进度] {pct}%  {blk}/{nblocks} 块  {off}/{size} 字节  " +
+                                  $"均 {swTr.Elapsed.TotalMilliseconds / blk:F1}ms/块（发 {sumSend / blk} + 等 {sumRecv / blk}）");
                         await UiAsync(() => SetState($"升级中 {pct}%", Colors.DarkOrange));
                     }
                 }
+                AppendLog($"[计时] 传输 {swTr.Elapsed.TotalSeconds:F1}s / {nblocks} 块 = " +
+                          $"{swTr.Elapsed.TotalMilliseconds / nblocks:F1}ms/块（组帧发送 {sumSend / nblocks}ms + 等应答 {sumRecv / nblocks}ms）");
 
                 try
                 {

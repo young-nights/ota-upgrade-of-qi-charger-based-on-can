@@ -51,6 +51,12 @@ public sealed class UdsClient
 
     private void Log(string m) => OnLog?.Invoke(m);
 
+    /// <summary>上一次 <see cref="TryRequest"/> 的组帧发送耗时（ms，含 STmin 间隔）。</summary>
+    public long LastSendMs { get; private set; }
+
+    /// <summary>上一次 <see cref="TryRequest"/> 的等应答耗时（ms，含 0x78 轮询）。</summary>
+    public long LastRecvMs { get; private set; }
+
     /// <summary>
     /// 发送并等待正响应。失败返回 <see cref="UdsResult"/>（Ok=false），不抛异常。
     /// </summary>
@@ -63,7 +69,10 @@ public sealed class UdsClient
             var uds = new byte[1 + payload.Length];
             uds[0] = sid;
             payload.CopyTo(uds, 1);
+            long tSend = Environment.TickCount64;
             _tp.Send(uds);
+            LastSendMs = Environment.TickCount64 - tSend;
+            long tRecv = Environment.TickCount64;
 
             long pendingDeadline = Environment.TickCount64 + waitPendingMs;
             while (true)
@@ -83,7 +92,10 @@ public sealed class UdsClient
                     timeoutMs, ct);
 
                 if (data is null)
+                {
+                    LastRecvMs = Environment.TickCount64 - tRecv;
                     return UdsResult.Fail($"UDS 无应答: {_tp.LastTimeoutDetail}");
+                }
 
                 if (data[0] == ProtoIds.SidNrc)
                 {
@@ -91,15 +103,20 @@ public sealed class UdsClient
                     if (nrc == ProtoIds.NrcRcrrp)
                     {
                         if (Environment.TickCount64 >= pendingDeadline)
+                        {
+                            LastRecvMs = Environment.TickCount64 - tRecv;
                             return UdsResult.Fail("NRC 0x78 响应挂起超时", nrc);
+                        }
                         Log("[RX] NRC 0x78 responsePending");
                         // 20ms 轮询：擦除/下载期设备持续回 0x78，200ms/条白白拖慢升级
                         Thread.Sleep(20);
                         continue;
                     }
                     var tmp = new UdsException(sid, nrc, $"NRC 0x{nrc:X2}");
+                    LastRecvMs = Environment.TickCount64 - tRecv;
                     return UdsResult.Fail(tmp.Explain(payload), nrc);
                 }
+                LastRecvMs = Environment.TickCount64 - tRecv;
                 return UdsResult.OkData(data);
             }
         }
