@@ -73,10 +73,19 @@ public sealed class SeedSigner
 /// <summary>SecurityAccess unlock: 27 01 seed → 27 03×16 → 27 02. 全程 TryRequest，不抛异常。</summary>
 public static class SecurityAccess
 {
-    public static async Task<bool> UnlockAsync(
+    /// <summary>
+    /// SA 解锁入口。整段主体（同步阻塞 TryRequest + SignSeed）必须跑在线程池上：
+    /// 若在 UI 线程直接执行，WPF 的 SynchronizationContext 会让 await 续体回到
+    /// UI 线程，阻塞串口收发长达数分钟（27 03×16 分片×3 重试 + 27 02 的 90s
+    /// pending 等待），界面完全卡死。Task.Run 保证无线程上下文，UI 永不阻塞。
+    /// </summary>
+    public static Task<bool> UnlockAsync(
+        UdsClient uds, SeedSigner signer, Action<string> log, CancellationToken ct)
+        => Task.Run(() => UnlockCoreAsync(uds, signer, log, ct), ct);
+
+    private static async Task<bool> UnlockCoreAsync(
         UdsClient uds, SeedSigner signer, Action<string> log, CancellationToken ct)
     {
-        await Task.Yield();
         for (int attempt = 1; attempt <= 3; attempt++)
         {
             if (ct.IsCancellationRequested) return false;
