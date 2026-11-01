@@ -76,6 +76,7 @@ public partial class Station1Control : UserControl, IStationPage
 
     private async void OnConnectRequested(string can, string pz)
     {
+        // 「连接」只做串口接入，不发任何 UDS 指令（唤醒/读版本归「开始测试」）
         try
         {
             _can?.Dispose();
@@ -85,20 +86,6 @@ public partial class Station1Control : UserControl, IStationPage
             _connected = true;
             ConnPanel.SetStatus($"已连接 CAN:{can} PowerZ:{pz}", true);
             LogPanel.Append($"串口连接：CAN={can}，PowerZ={pz}");
-
-            var awake = await _can.WaitReadyAsync();
-            LogPanel.Append(awake ? "设备在线（唤醒就绪 OK）" : "唤醒无应答（设备未上电？开始测试时会再唤醒）");
-            if (awake)
-            {
-                var vs = await _can.TryReadAllVersionsAsync();
-                LogPanel.Append("设备版本：");
-                LogPanel.Append($"  APP  = {vs.Mcu1App}");
-                LogPanel.Append($"  BL   = {vs.Bootloader}");
-                LogPanel.Append($"  HW   = {vs.Hardware}");
-                LogPanel.Append($"  Qi   = {vs.Mcu2Qi}");
-                if (vs.Errors.Count > 0)
-                    LogPanel.Append("版本读取告警：" + string.Join("；", vs.Errors));
-            }
         }
         catch (Exception ex)
         {
@@ -153,7 +140,8 @@ public partial class Station1Control : UserControl, IStationPage
         LogPanel.Append("开始工位 1 测试流程");
 
         // ① 连接设备：先唤醒 + 等 UDS 就绪（设备空闲 10s 会真休眠/整板断电，
-        //    首帧请求会丢在重新供电的冷启动窗口里——必须先唤醒探活）
+        //    首帧请求会丢在重新供电的冷启动窗口里——必须先唤醒探活），
+        //    然后读全套版本，再往下走
         FlowPanel.Mark(0, StepStatus.Running);
         LogPanel.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
         var ready = await _can.WaitReadyAsync(ct);
@@ -168,8 +156,17 @@ public partial class Station1Control : UserControl, IStationPage
             RaiseAvailability();
             return;
         }
+        LogPanel.Append("设备已就绪，读取版本…");
+        var vs = await _can.TryReadAllVersionsAsync();
+        LogPanel.Append("设备版本：");
+        LogPanel.Append($"  APP  = {vs.Mcu1App}");
+        LogPanel.Append($"  BL   = {vs.Bootloader}");
+        LogPanel.Append($"  HW   = {vs.Hardware}");
+        LogPanel.Append($"  Qi   = {vs.Mcu2Qi}");
+        if (vs.Errors.Count > 0)
+            LogPanel.Append("版本读取告警：" + string.Join("；", vs.Errors));
         FlowPanel.Mark(0, StepStatus.Passed);
-        LogPanel.Append("设备已就绪");
+        LogPanel.Append("步骤 1 完成");
 
         // ⑤ 的数据源：HID 先静默就绪，等流程走到采样步再点亮「进行中」
         HidPowerZSource? powerZ = null;
