@@ -149,11 +149,11 @@ public sealed class UdsClient
         return (true, DecodeAscii32(r.Data), "");
     }
 
-    /// <summary>一次读全：MCU1 APP / MCU2 Qi / Boot / HW。</summary>
+    /// <summary>一次读全：MCU1 APP / MCU2 Qi / Boot / HW（失败的 DID 自动重试一次）。</summary>
     public VersionSet TryReadAllVersions(CancellationToken ct = default)
     {
         var v = new VersionSet();
-        var (ok1, mcu1, e1) = TryReadAsciiDid(ProtoIds.DidSwVersion, ct);
+        var (ok1, mcu1, e1) = TryAsciiDidRetry(ProtoIds.DidSwVersion, ct);
         v.Mcu1App = ok1 ? mcu1 : null;
         if (!ok1) v.Errors.Add($"MCU1(F195): {e1}");
 
@@ -161,22 +161,32 @@ public sealed class UdsClient
         v.Mcu2Qi = ok2 ? mcu2 : null;
         if (!ok2) v.Errors.Add($"MCU2(2133): {e2}");
 
-        var (okb, boot, eb) = TryReadAsciiDid(ProtoIds.DidBootVersion, ct);
+        var (okb, boot, eb) = TryAsciiDidRetry(ProtoIds.DidBootVersion, ct);
         v.Bootloader = okb ? boot : null;
         if (!okb) v.Errors.Add($"Boot(F180): {eb}");
 
-        var (okh, hw, eh) = TryReadAsciiDid(ProtoIds.DidHwVersion, ct);
+        var (okh, hw, eh) = TryAsciiDidRetry(ProtoIds.DidHwVersion, ct);
         v.Hardware = okh ? hw : null;
         if (!okh) v.Errors.Add($"HW(F193): {eh}");
 
         return v;
     }
 
-    /// <summary>读 32B ASCII 版本串 DID（F195/F180/F193）。</summary>
+    /// <summary>ASCII DID 读取 + 一次重试（多帧应答偶发 FF/FC 竞态，重试即过）。</summary>
+    private (bool Ok, string Text, string Error) TryAsciiDidRetry(ushort did, CancellationToken ct)
+    {
+        var r = TryReadAsciiDid(did, ct);
+        if (r.Ok)
+            return r;
+        return TryReadAsciiDid(did, ct);
+    }
+
+    /// <summary>读 32B ASCII 版本串 DID（F195/F180/F193）。超时 6s：
+    /// 多帧应答含设备 FF 重发窗口（~2s）+ CF 传输，3s 不够用。</summary>
     public (bool Ok, string Text, string Error) TryReadAsciiDid(ushort did, CancellationToken ct = default)
     {
         var r = TryRequest(ProtoIds.SidRdbi,
-            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs: 3000, ct: ct);
+            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs: 6000, ct: ct);
         if (!r.Ok) return (false, "", r.Error);
         if (r.Data.Length < 4) return (false, "", $"0x{did:X4} 响应过短");
         return (true, DecodeAscii32(r.Data), "");
