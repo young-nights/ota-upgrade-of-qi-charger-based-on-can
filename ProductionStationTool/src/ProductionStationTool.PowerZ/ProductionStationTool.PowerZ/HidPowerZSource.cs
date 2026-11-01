@@ -4,23 +4,25 @@ using HidSharp;
 namespace ProductionStationTool.PowerZ;
 
 /// <summary>
-/// PowerZ HID 数据源（KINGMETER KM001 / ChargerLAB KM003C 族）。
+/// PowerZ HID 数据源（KINGMETER KM001，0483:5750）。
+///
+/// 协议已实测验证（2026-10-30）：输出报文 ReportID 0x55（64B），
+/// 输入报文 ReportID 0xAA（64B）。采样走服务 0x22 + 命令 0x0B05 +
+/// 子命令 1（连续流），每帧含 V/I 原始值（mV/mA，/1000 → V/A）。
+/// 详见 <see cref="PowerZProtocol"/>。
 ///
 /// 读取用「专用阻塞读线程 + 队列」——HIDSharp 的 ReadTimeout 超时会抛
 /// TimeoutException（即使被捕获 VS 调试器也会弹异常），改为无限阻塞读
 /// 只在有数据/断开时返回，正常运行零异常。
-///
-/// KM001(0483:5750) 与 KM003C(5FC9:0063) 协议不保证一致：发送走长度
-/// 自适应，未识别输入报文输出原始 hex 供实测校准。
 /// </summary>
 public sealed class HidPowerZSource : IPowerZSource
 {
     /// <summary>已知 PowerZ HID VID:PID。</summary>
     public static readonly (int Vid, int Pid)[] KnownIds =
     {
+        (0x0483, 0x5750),   // KINGMETER KM001（用户实机）
         (0x5FC9, 0x0063),   // KM003C
         (0x5FC9, 0x0061),   // KM002C
-        (0x0483, 0x5750),   // KINGMETER KM001（用户实机）
     };
 
     /// <summary>诊断日志（原始报文/错误），上层可接日志面板。</summary>
@@ -33,7 +35,7 @@ public sealed class HidPowerZSource : IPowerZSource
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private Thread? _reader;
-    private readonly BlockingCollection<byte[]> _rx = new(new ConcurrentQueue<byte[]>(), 16);
+    private readonly BlockingCollection<byte[]> _rx = new(new ConcurrentQueue<byte[]>(), 64);
     private int _writeLen;
 
     /// <summary>枚举本机已插的 PowerZ HID 设备。</summary>
@@ -70,7 +72,7 @@ public sealed class HidPowerZSource : IPowerZSource
         var dev = FindDevice()
             ?? throw new InvalidOperationException("未找到 PowerZ HID 设备（0483:5750 / 5FC9:0063）");
 
-        _stream = dev.Open();          // ReadTimeout 默认无限：阻塞读不抛超时异常
+        _stream = dev.Open();
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _reader = new Thread(() => ReadLoop(dev)) { IsBackground = true };
         _reader.Start();
@@ -101,11 +103,6 @@ public sealed class HidPowerZSource : IPowerZSource
     {
         if (_cts is not null)
             _cts.Cancel();
-
-        if (_stream is not null)
-        {
-            try { Send(PowerZProtocol.Disconnect(0)); } catch { /* 忽略 */ }
-        }
 
         // 关闭流解除阻塞读，读线程退出
         var stream = _stream;
@@ -145,7 +142,6 @@ public sealed class HidPowerZSource : IPowerZSource
             }
             catch
             {
-                // 设备断开/流关闭/瞬时 IO 错误：流已失效则退出，否则退避再读
                 if (_stream is null)
                     return;
                 Thread.Sleep(50);
@@ -153,8 +149,11 @@ public sealed class HidPowerZSource : IPowerZSource
         }
     }
 
-    /// <summary>发一帧协议包（HID 输出报文：report id=0 + 帧）。
-    /// 长度自适应：maxOutput → 65 → 64 → 帧长+1，成功即记住。</summary>
+    /// <summary>
+    /// 发一帧协议包。KM001 输出报文 = 64B，首字节即 ReportID 0x55，
+    /// 直接整包写入（HIDSharp Write 要求含 report id）。
+    /// 长度自适应：maxOutput → 64，成功即记住。
+    /// </summary>
     private void Send(byte[] frame)
     {
         var stream = _stream;
@@ -171,20 +170,18 @@ public sealed class HidPowerZSource : IPowerZSource
                 candidates.Add(max);
         }
         catch { }
-        foreach (var n in new[] { 65, 64, frame.Length + 1 })
-            if (!candidates.Contains(n))
-                candidates.Add(n);
+        if (!candidates.Contains(64))
+            candidates.Add(64);
 
         Exception? last = null;
         foreach (var len in candidates)
         {
-            if (len < frame.Length + 1)
+            if (len < frame.Length)
                 continue;
             try
             {
                 var buf = new byte[len];
-                buf[0] = 0x00;                       // report id 0
-                Buffer.BlockCopy(frame, 0, buf, 1, frame.Length);
+                Buffer.BlockCopy(frame, 0, buf, 0, frame.Length);
                 stream.Write(buf);
                 _writeLen = len;
                 return;
@@ -199,52 +196,52 @@ public sealed class HidPowerZSource : IPowerZSource
 
     private async Task PollLoopAsync(CancellationToken ct)
     {
-        byte tid = 1;
         int sendFail = 0;
         int rawLogged = 0;
 
         try
         {
+            // 启动测量流：服务 0x22 + 命令 0x0B05 + 子命令 1
             try
             {
-                Send(PowerZProtocol.Connect(tid++));
-                if (!await WaitForAcceptAsync(ct))
-                    Log?.Invoke("PowerZ Connect 无 Accept（设备协议可能不兼容），继续轮询/抓报文");
+                Send(PowerZProtocol.StartStreaming());
+                Log?.Invoke("[PowerZ] 已启动 V/I 采样流（svc=0x22 cmd=0x0B05 sub=1）");
             }
             catch (Exception ex)
             {
-                Log?.Invoke($"[PowerZ] 发送失败: {ex.Message}（转只听模式抓原始报文）");
+                Log?.Invoke($"[PowerZ] 启动采样流失败: {ex.Message}（转只听模式）");
             }
 
             while (!ct.IsCancellationRequested)
             {
-                try
+                // 定期重发启动帧（设备可能停流）
+                if (sendFail == 0 && Environment.TickCount64 % 5000 < 250)
                 {
-                    Send(PowerZProtocol.GetDataAdc(tid++));
-                    sendFail = 0;
-                }
-                catch (Exception ex)
-                {
-                    if (sendFail++ < 3 || sendFail % 20 == 0)
-                        Log?.Invoke($"[PowerZ] 发送失败: {ex.Message}（只听模式）");
+                    try { Send(PowerZProtocol.StartStreaming()); } catch { /* 忽略 */ }
                 }
 
                 var buf = TakeFrame(250);
                 if (buf is { Length: > 0 })
                 {
-                    if (PowerZProtocol.TryParseAdc(buf, out _, out var sample))
+                    if (PowerZProtocol.TryParseSample(buf, out var sample) ||
+                        PowerZProtocol.TryParseBlock(buf, out sample))
                     {
+                        sendFail = 0;
                         SampleReceived?.Invoke(sample);
+                    }
+                    else if (PowerZProtocol.IsResponse(buf, out var svc, out var cmd, out var sub))
+                    {
+                        // 已识别应答但非采样帧：静默（设备信息等）
                     }
                     else if (rawLogged < 30 || (rawLogged % 20) == 0)
                     {
-                        Log?.Invoke($"[PowerZ] 原始报文({buf.Length}B): " +
+                        Log?.Invoke($"[PowerZ] 未识别报文({buf.Length}B): " +
                                     $"{Convert.ToHexString(buf.AsSpan(0, Math.Min(48, buf.Length)).ToArray())}");
                     }
                     rawLogged++;
                 }
 
-                await Task.Delay(200, ct);
+                await Task.Delay(50, ct);
             }
         }
         catch (OperationCanceledException) { /* 正常退出 */ }
@@ -254,29 +251,11 @@ public sealed class HidPowerZSource : IPowerZSource
         }
     }
 
-    private async Task<bool> WaitForAcceptAsync(CancellationToken ct)
-    {
-        for (int i = 0; i < 5 && !ct.IsCancellationRequested; i++)
-        {
-            var buf = TakeFrame(250);
-            if (buf is { Length: >= 2 } && PowerZProtocol.RespType(buf) == PowerZProtocol.CmdAccept)
-                return true;
-        }
-        return false;
-    }
-
-    /// <summary>从读队列取一帧（去 report id 前导），超时返回 null——不抛异常。</summary>
+    /// <summary>从读队列取一帧原始报文（含 ReportID），超时返回 null——不抛异常。</summary>
     private byte[]? TakeFrame(int timeoutMs)
     {
         if (!_rx.TryTake(out var rep, timeoutMs))
             return null;
-        if (rep.Length == 0)
-            return null;
-        int offset = rep[0] == 0x00 ? 1 : 0;
-        if (offset >= rep.Length)
-            return null;
-        var frame = new byte[rep.Length - offset];
-        Buffer.BlockCopy(rep, offset, frame, 0, frame.Length);
-        return frame;
+        return rep.Length == 0 ? null : rep;
     }
 }
