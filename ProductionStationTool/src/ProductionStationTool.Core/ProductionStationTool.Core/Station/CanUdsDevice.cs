@@ -1,0 +1,165 @@
+using System.Text;
+using QiChargerStationTool.Core.Protocol;
+using QiChargerStationTool.Core.Security;
+using QiChargerStationTool.Core.Transport;
+
+namespace ProductionStationTool.Core.Station;
+
+/// <summary>
+/// CAN/UDS 设备访问（ZQWL-CANFD 串口 → ISO-TP/UDS），复用
+/// QiChargerStationTool.Core 协议栈（不改维修工具，只引用）。
+///
+/// 按固件门禁（can_protocol.c WDBI 注释）封装工位流程所需操作：
+///   写 SN   0xF18C：Programming(10 02) + SA → 2E F18C → 22 F18C 回读；
+///   开充电  0x2101：Extended(10 03) + SA → 2E 21 01 01；
+///   唤醒    0x18DA0D03 的 02 3E 00 CC…（DLC=8）burst + 3E 探活。
+/// </summary>
+public sealed class CanUdsDevice : IDisposable
+{
+    private readonly ZqwlSerialTransport _transport;
+    private readonly IsoTpClient _iso;
+    private readonly UdsClient _uds;
+
+    /// <summary>诊断日志（UDS 层）。</summary>
+    public event Action<string>? Log;
+
+    public bool IsOpen => _transport.IsOpen;
+
+    public CanUdsDevice(string portName, int baud = 2_000_000)
+    {
+        _transport = new ZqwlSerialTransport(portName, baud);
+        _iso = new IsoTpClient(_transport);
+        _uds = new UdsClient(_iso);
+        _uds.OnLog += m => Log?.Invoke(m);
+    }
+
+    public Task OpenAsync(CancellationToken ct = default)
+        => Task.Run(() => _transport.Open(), ct);
+
+    public Task CloseAsync(CancellationToken ct = default)
+        => Task.Run(() => _transport.Close(), ct);
+
+    public void Dispose() => _transport.Dispose();
+
+    /// <summary>唤醒 burst（8× 02 3E 00 CC…）+ 3E 探活；返回设备是否应答。</summary>
+    public async Task<bool> TryWakeAsync(CancellationToken ct = default)
+    {
+        return await Task.Run(() =>
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                _uds.SendWake();
+                Thread.Sleep(250);
+            }
+            var r = _uds.TryRequest(ProtoIds.SidTp, new byte[] { 0x00 }, timeoutMs: 1500, ct: ct);
+            return r.Ok || r.Nrc != 0;   // 有正响应或 NRC 都算栈活着
+        }, ct);
+    }
+
+    /// <summary>读 APP 版本 DID 0xF195。</summary>
+    public Task<(bool Ok, string Version, string Error)> TryReadVersionAsync(CancellationToken ct = default)
+        => Task.Run(() => _uds.TryReadSwVersion(ct), ct);
+
+    /// <summary>
+    /// 写 SN 并回读校验（DID 0xF18C，Programming+SA，32B ASCII 空格填充）：
+    /// 10 02 → SA 解锁 → 2E F18C → 22 F18C 比对。
+    /// </summary>
+    public async Task<(bool Ok, string Detail)> WriteSnAsync(string sn, CancellationToken ct = default)
+    {
+        try
+        {
+            sn = sn.Trim();
+            if (sn.Length == 0)
+                return (false, "SN 为空");
+            if (sn.Length > 32)
+                return (false, $"SN 过长 {sn.Length}>32");
+
+            await Task.Run(() => _uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
+            Log?.Invoke("进入编程会话 10 02");
+
+            var signer = SeedSigner.FromDefaultKey();
+            if (signer is null)
+                return (false, "缺少 keys/private.pem，无法 SA 解锁");
+            if (!await SecurityAccess.UnlockAsync(_uds, signer, m => Log?.Invoke(m), ct))
+                return (false, "SA 解锁失败");
+
+            var body = new byte[32];
+            for (int i = 0; i < 32; i++)
+                body[i] = 0x20;
+            var ascii = Encoding.ASCII.GetBytes(sn);
+            Array.Copy(ascii, body, Math.Min(ascii.Length, 32));
+            var payload = new byte[34];
+            payload[0] = 0xF1;
+            payload[1] = 0x8C;
+            body.CopyTo(payload, 2);
+            await Task.Run(() => _uds.Request(ProtoIds.SidWdbi, payload, timeoutMs: 5000), ct);
+            Log?.Invoke("2E F18C 写入完成");
+
+            var readBack = await Task.Run(() => ReadSnCore(), ct);
+            return string.Equals(readBack, sn, StringComparison.Ordinal)
+                ? (true, $"SN={readBack}")
+                : (false, $"写后读回不符 期望={sn} 实际={readBack ?? "(空)"}");
+        }
+        catch (UdsException ex)
+        {
+            return (false, $"UDS NRC 0x{ex.Nrc:X2}（0x22=条件不满足 0x33=安全未解锁）");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>读 SN（DID 0xF18C，默认会话）；失败返回 null。</summary>
+    public async Task<string?> TryReadSnAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            return await Task.Run(() => ReadSnCore(), ct);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>开启无线充电（DID 0x2101=0x01，Extended+SA）：10 03 → SA → 2E 21 01 01。</summary>
+    public async Task<(bool Ok, string Detail)> EnableChargingAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await Task.Run(() => _uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            Log?.Invoke("进入扩机会话 10 03");
+            await Task.Run(() => _uds.KeepAlive(), ct);
+
+            var signer = SeedSigner.FromDefaultKey();
+            if (signer is null)
+                return (false, "缺少 keys/private.pem，无法 SA 解锁");
+            if (!await SecurityAccess.UnlockAsync(_uds, signer, m => Log?.Invoke(m), ct))
+                return (false, "SA 解锁失败");
+
+            await Task.Run(() => _uds.Request(ProtoIds.SidWdbi,
+                new byte[] { 0x21, 0x01, 0x01 }, timeoutMs: 5000), ct);
+            Log?.Invoke("2E 21 01 01 充电已开启");
+            return (true, "充电已开启");
+        }
+        catch (UdsException ex)
+        {
+            return (false, $"UDS NRC 0x{ex.Nrc:X2}");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>22 F18C 解析（32B ASCII 空格填充，去尾部 0x00/0x20）。</summary>
+    private string? ReadSnCore()
+    {
+        var rx = _uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000);
+        int len = rx.Length - 3;
+        while (len > 0 && (rx[3 + len - 1] is 0x00 or 0x20))
+            len--;
+        return Encoding.ASCII.GetString(rx, 3, len);
+    }
+}

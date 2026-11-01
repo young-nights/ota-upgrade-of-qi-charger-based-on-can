@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\ProductionStationTool.PowerZ\ProductionStationTool.PowerZ\ProductionStationTool.PowerZ.csproj" />
+    <!-- CAN/UDS 协议栈复用维修上位机 Core（ZQWL 传输 + ISO-TP/UDS + SA 签名） -->
+    <ProjectReference Include="..\..\..\..\QiChargerStationTool\src\QiChargerStationTool.Core\QiChargerStationTool.Core\QiChargerStationTool.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
