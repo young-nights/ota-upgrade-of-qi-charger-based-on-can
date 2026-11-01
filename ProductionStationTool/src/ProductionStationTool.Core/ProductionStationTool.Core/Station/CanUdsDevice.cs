@@ -56,6 +56,36 @@ public sealed class CanUdsDevice : IDisposable
         }, ct);
     }
 
+    /// <summary>
+    /// 唤醒 + 等 UDS 就绪（每次跑流程前必调）：
+    /// 设备空闲 10s 会真休眠（整板断电），首帧 UDS 会触发 WUF 唤醒但本身
+    /// 丢在重新供电的冷启动窗口（~2-3s）里——必须 burst 唤醒后轮询探活
+    /// 到应答为止（最长 8s），再开始正式请求。
+    /// </summary>
+    public async Task<bool> WaitReadyAsync(CancellationToken ct = default)
+    {
+        return await Task.Run(() =>
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                _uds.SendWake();
+                Thread.Sleep(250);
+            }
+            long deadline = Environment.TickCount64 + 8000;
+            while (Environment.TickCount64 < deadline && !ct.IsCancellationRequested)
+            {
+                var r = _uds.TryRequest(ProtoIds.SidTp, new byte[] { 0x00 }, timeoutMs: 1500, ct: ct);
+                if (r.Ok || r.Nrc != 0)
+                    return true;
+                // 无应答：再补 2 帧唤醒（可能仍在 Boot），0.3s 后重探
+                _uds.SendWake();
+                _uds.SendWake();
+                Thread.Sleep(300);
+            }
+            return false;
+        }, ct);
+    }
+
     /// <summary>读 APP 版本 DID 0xF195。</summary>
     public Task<(bool Ok, string Version, string Error)> TryReadVersionAsync(CancellationToken ct = default)
         => Task.Run(() => _uds.TryReadSwVersion(ct), ct);

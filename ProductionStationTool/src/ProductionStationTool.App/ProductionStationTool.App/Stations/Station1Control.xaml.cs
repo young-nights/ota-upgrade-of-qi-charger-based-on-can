@@ -86,8 +86,8 @@ public partial class Station1Control : UserControl, IStationPage
             ConnPanel.SetStatus($"已连接 CAN:{can} PowerZ:{pz}", true);
             LogPanel.Append($"串口连接：CAN={can}，PowerZ={pz}");
 
-            var awake = await _can.TryWakeAsync();
-            LogPanel.Append(awake ? "设备在线（唤醒探活 OK）" : "唤醒探活无应答（设备未上电？）");
+            var awake = await _can.WaitReadyAsync();
+            LogPanel.Append(awake ? "设备在线（唤醒就绪 OK）" : "唤醒无应答（设备未上电？开始测试时会再唤醒）");
             if (awake)
             {
                 var (ok, ver, _) = await _can.TryReadVersionAsync();
@@ -134,9 +134,24 @@ public partial class Station1Control : UserControl, IStationPage
         ListAbnormal.Items.Clear();
         LogPanel.Append("开始工位 1 测试流程");
 
-        // ① 连接设备：入口已校验 CAN 已接入
+        // ① 连接设备：先唤醒 + 等 UDS 就绪（设备空闲 10s 会真休眠/整板断电，
+        //    首帧请求会丢在重新供电的冷启动窗口里——必须先唤醒探活）
         FlowPanel.Mark(0, StepStatus.Running);
+        LogPanel.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
+        var ready = await _can.WaitReadyAsync(ct);
+        if (!ready)
+        {
+            FlowPanel.Mark(0, StepStatus.Failed);
+            ListAbnormal.Items.Add("步骤 1「连接设备」失败：设备无应答（未上电？）");
+            SetResultBadge(false);
+            LogPanel.Append("设备 8s 内无应答——请检查供电后重试");
+            _running = false;
+            _flowCompleted = true;
+            RaiseAvailability();
+            return;
+        }
         FlowPanel.Mark(0, StepStatus.Passed);
+        LogPanel.Append("设备已就绪");
 
         // ⑤ 的数据源：HID 打开后交给 Workflow 等首个采样
         HidPowerZSource? powerZ = null;
