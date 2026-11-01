@@ -93,7 +93,8 @@ public sealed class UdsClient
                         if (Environment.TickCount64 >= pendingDeadline)
                             return UdsResult.Fail("NRC 0x78 响应挂起超时", nrc);
                         Log("[RX] NRC 0x78 responsePending");
-                        Thread.Sleep(200);
+                        // 20ms 轮询：擦除/下载期设备持续回 0x78，200ms/条白白拖慢升级
+                        Thread.Sleep(20);
                         continue;
                     }
                     var tmp = new UdsException(sid, nrc, $"NRC 0x{nrc:X2}");
@@ -227,7 +228,8 @@ public sealed class UdsClient
     /// <summary>WriteDataByIdentifier：payload = DID(2B) + data。失败返回 UdsResult，不抛。</summary>
     public UdsResult TryWriteDid(ushort did, byte[] data, int timeoutMs = 4000)
         => TryRequest(ProtoIds.SidWdbi,
-            new byte[] { (byte)(did >> 8), (byte)did }.Concat(data).ToArray(), timeoutMs);
+            new byte[] { (byte)(did >> 8), (byte)did }.Concat(data).ToArray(), timeoutMs,
+            expectSub: (byte)(did >> 8));
 
     /// <summary>ReadDataByIdentifier → 数据区；失败返回 (null, error)。</summary>
     public (byte[]? Data, string Error) TryReadDid(ushort did, int timeoutMs = 3000)

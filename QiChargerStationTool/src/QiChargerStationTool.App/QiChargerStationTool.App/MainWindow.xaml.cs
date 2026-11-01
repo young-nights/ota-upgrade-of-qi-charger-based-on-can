@@ -481,7 +481,8 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            UdsResult r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x02 }), ct);
+            UdsResult r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
+                new byte[] { 0x02 }, expectSub: 0x02), ct);
             if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
             var signer = RequireSigner();
             if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
@@ -491,7 +492,8 @@ public partial class MainWindow : Window
             }
 
             r = await Task.Run(() =>
-                uds.TryRequest(ProtoIds.SidWdbi, BuildSnPayload(sn), timeoutMs: 5000), ct);
+                uds.TryRequest(ProtoIds.SidWdbi, BuildSnPayload(sn), timeoutMs: 5000,
+                    expectSub: 0xF1), ct);
             if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
             r = await Task.Run(() =>
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
@@ -682,8 +684,18 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            if (!await MustStep(await Task.Run(() =>
-                    uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x02 }), ct), "10 02"))
+            // 10 02 必须校验应答子功能 0x02：只认 SID(0x50) 时，队列里迟到的
+            // 50 03（上个 10 03 操作残留）会被误判为成功 → 设备没进编程会话 →
+            // 2E 20 10 回 0x22。ZQWL 偶发丢帧 → 未通过则补发一次。
+            UdsResult dsc = UdsResult.Fail("未发送");
+            for (int t = 1; t <= 2; t++)
+            {
+                dsc = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
+                    new byte[] { 0x02 }, expectSub: 0x02), ct);
+                if (dsc.Ok) break;
+                AppendLog($"[10 02] 第 {t} 次失败: {dsc.Error}");
+            }
+            if (!await MustStep(dsc, "10 02"))
                 return false;
             var signer = RequireSigner();
             if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
@@ -693,7 +705,8 @@ public partial class MainWindow : Window
             }
 
             if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidWdbi,
-                    new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000), ct), "2E 20 10"))
+                    new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000,
+                    expectSub: 0x20), ct), "2E 20 10"))
                 return false;
             AppendLog($"2E 20 10 {otaTarget:X2} 选择目标 OK");
 
@@ -950,7 +963,8 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
+                new byte[] { 0x03 }, expectSub: 0x03), ct);
             if (!Must(r)) { await FailAsync($"设置 Qi 功率 {label}", r.Error); return false; }
             AppendLog("进入扩展会话 10 03");
             var signer = RequireSigner();
@@ -995,7 +1009,8 @@ public partial class MainWindow : Window
                 await FailAsync(name, readyErr);
                 return false;
             }
-            var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc, new byte[] { 0x03 }), ct);
+            var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
+                new byte[] { 0x03 }, expectSub: 0x03), ct);
             if (!Must(r))
             {
                 await FailAsync(name, r.Error);
@@ -1008,7 +1023,8 @@ public partial class MainWindow : Window
                 return false;
             }
             r = await Task.Run(() => uds.TryRequest(ProtoIds.SidWdbi,
-                new byte[] { 0x21, 0x01, (byte)(enable ? 0x01 : 0x00) }, timeoutMs: 4000), ct);
+                new byte[] { 0x21, 0x01, (byte)(enable ? 0x01 : 0x00) }, timeoutMs: 4000,
+                expectSub: 0x21), ct);
             if (!Must(r))
             {
                 await FailAsync(name, r.Error);

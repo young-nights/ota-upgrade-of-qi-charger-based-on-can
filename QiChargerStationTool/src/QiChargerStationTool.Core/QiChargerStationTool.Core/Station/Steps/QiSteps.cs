@@ -56,7 +56,7 @@ public sealed class SetQiPowerStep : ITestStep
         string label = QiChipStatusCodec.PowerLimitName(PowerCode);
         try
         {
-            ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }); // extended
+            ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }, expectSub: 0x03); // extended
             ctx.Log("进入扩展会话 10 03");
 
             var signer = SeedSigner.FromDefaultKey();

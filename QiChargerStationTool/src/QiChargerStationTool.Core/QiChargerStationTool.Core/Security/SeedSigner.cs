@@ -91,7 +91,8 @@ public static class SecurityAccess
             if (ct.IsCancellationRequested) return false;
             try
             {
-                var seedR = uds.TryRequest(ProtoIds.SidSa, new byte[] { 0x01 }, timeoutMs: 5000, ct: ct);
+                var seedR = uds.TryRequest(ProtoIds.SidSa, new byte[] { 0x01 }, timeoutMs: 5000,
+                    expectSub: 0x01, ct: ct);
                 if (!seedR.Ok)
                 {
                     log($"27 01 失败: {seedR.Error}");

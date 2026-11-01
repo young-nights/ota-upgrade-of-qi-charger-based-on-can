@@ -52,7 +52,7 @@ public sealed class WriteSnStep : ITestStep
         try
         {
             // programming session
-            ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 });
+            ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }, expectSub: 0x02);
             ctx.Log("进入编程会话");
 
             var signer = SeedSigner.FromDefaultKey();
@@ -76,7 +76,7 @@ public sealed class WriteSnStep : ITestStep
             payload[0] = 0xF1;
             payload[1] = 0x8C;
             body.CopyTo(payload, 2);
-            ctx.Uds.Request(ProtoIds.SidWdbi, payload, timeoutMs: 5000);
+            ctx.Uds.Request(ProtoIds.SidWdbi, payload, timeoutMs: 5000, expectSub: 0xF1);
             ctx.Log("2E F18C 写入完成");
 
             // read back
