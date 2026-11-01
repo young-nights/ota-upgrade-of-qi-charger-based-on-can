@@ -227,7 +227,8 @@ public sealed class IsoTpClient
                 }
                 else if (pci == 0x10)
                 {
-                    if (ffBuf is not null) continue;
+                    // FF 可能因 FC 丢失被设备重发：每次 FF 都重启组包并补发 FC
+                    // （旧逻辑对重复 FF 直接丢弃不补 FC → 设备等 FC、我方等 CF 死锁）
                     ffTotal = ((f.Data[0] & 0x0F) << 8) | f.Data[1];
                     ffBuf = f.Data.AsSpan(2, Math.Min(6, f.Data.Length - 2)).ToArray();
                     _tp.Send(new CanFrame(_txId, FcCts));
