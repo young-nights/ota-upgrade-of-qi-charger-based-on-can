@@ -42,6 +42,7 @@ public static class ProtoIds
     public const ushort DidFaultCode = 0x210B;     // u8
     public const ushort DidThermalDerate = 0x210C; // u8, 100=无降额
     public const ushort DidPowerLimit = 0x210D;    // u8 档位码, 仅 0x01/0x02/0x03
+    public const ushort DidChargeCount = 0x210E;   // u32 LE 充电次数（状态字节2 b0 上升沿计数，NVM）
     public const ushort DidQiStatusRaw = 0x2111;   // u8 Qi 状态字节（保护位）
 
     /// <summary>

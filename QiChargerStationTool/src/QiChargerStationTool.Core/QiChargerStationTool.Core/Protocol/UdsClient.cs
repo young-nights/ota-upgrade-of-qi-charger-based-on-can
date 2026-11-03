@@ -285,6 +285,11 @@ public sealed class UdsClient
             try { return QiChipStatusCodec.ReadU16Le(ReadDid(did)); }
             catch { return null; }
         }
+        uint? TryU32(ushort did)
+        {
+            try { return QiChipStatusCodec.ReadU32Le(ReadDid(did)); }
+            catch { return null; }
+        }
 
         byte? vRaw = null, iRaw = null;
         try
@@ -312,6 +317,7 @@ public sealed class UdsClient
             FaultCode = TryU8(ProtoIds.DidFaultCode),
             ThermalDerate = TryU8(ProtoIds.DidThermalDerate),
             PowerLimit = TryU8(ProtoIds.DidPowerLimit),
+            ChargeCount = TryU32(ProtoIds.DidChargeCount),
             StatusRaw = TryU8(ProtoIds.DidQiStatusRaw),
         };
     }

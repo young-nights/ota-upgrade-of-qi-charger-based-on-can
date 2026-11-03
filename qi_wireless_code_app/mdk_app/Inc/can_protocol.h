@@ -144,6 +144,7 @@ extern "C" {
 #define DID_FAULT_CODE              0x210BU   /*!< fault code, uint8 */
 #define DID_THERMAL_DERATE          0x210CU   /*!< thermal derating level, uint8 */
 #define DID_POWER_LIMIT             0x210DU   /*!< power limit, uint8 档位码, R/W+NVM (0x01=5W/0x02=10W/0x03=15W，即 QI_POWER_*) */
+#define DID_CHARGE_COUNT            0x210EU   /*!< 充电次数, uint32 LE, R+NVM：Qi 状态字节2 b0 上升沿（放机稳定 30s）计一次 */
 #define DID_LAST_FAULT_DETAIL       0x2110U   /*!< last fault detail, 4B */
 #define DID_QI_STATUS_RAW           0x2111U   /*!< Qi status byte 保护位: b0=PING b1=CHARGING b2=FULL b3=OVP b4=UVP b5=OCP b6=OTP b7=FOD */
 #define DID_CLAMP_STATE             0x2118U   /*!< PA0 hall: 0=closed, 1=open */
@@ -200,6 +201,7 @@ extern "C" {
 
 #define NVM_OFFSET_POWER_LIMIT      0x100U    /*!< DID 0x210D power limit 档位码 (QI_POWER_*) */
 #define NVM_OFFSET_CHARGE_ENABLE    0x104U    /*!< DID 0x2101 充电使能 0/1，掉电续充恢复用 */
+#define NVM_OFFSET_CHARGE_COUNT     0x108U    /*!< DID 0x210E 充电次数 uint32 LE */
 
 /* ========================================================================== */
 /*  RoutineControl routine IDs                                               */

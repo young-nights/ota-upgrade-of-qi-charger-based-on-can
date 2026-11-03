@@ -26,6 +26,8 @@ public sealed class QiChipStatus
     public byte? ThermalDerate { get; init; }
     /// <summary>DID 0x210D 档位码（0x01/0x02/0x03）。</summary>
     public byte? PowerLimit { get; init; }
+    /// <summary>DID 0x210E 充电次数（Qi 状态字节2 b0 上升沿计数，NVM 持久化）。</summary>
+    public uint? ChargeCount { get; init; }
     /// <summary>DID 0x2111 Qi 状态字节（含保护位，见 <see cref="QiChipStatusCodec.QiStatusBits"/>）。</summary>
     public byte? StatusRaw { get; init; }
 
@@ -56,6 +58,7 @@ public sealed class QiChipStatus
             $"故障码:   {FaultName}",
             $"热降额:   {(ThermalDerate is { } d ? $"{d}%" : "读取失败")}",
             $"功率档位: {PowerLimitName}",
+            $"充电次数: {(ChargeCount is { } cc ? $"{cc} 次" : "读取失败")}",
             $"保护位:   {(ActiveProtections is { } ap ? (ap.Count > 0 ? string.Join(" / ", ap) : "无") : "读取失败")}",
         };
         return string.Join("\n", lines);
@@ -193,6 +196,13 @@ public static class QiChipStatusCodec
     {
         if (data.Length < 2) throw new ArgumentException("DID 数据区不足 2 字节");
         return (ushort)(data[0] | (data[1] << 8));
+    }
+
+    /// <summary>uint32 LE DID 数据区。</summary>
+    public static uint ReadU32Le(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 4) throw new ArgumentException("DID 数据区不足 4 字节");
+        return (uint)(data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24));
     }
 
     /// <summary>完整 RDBI 正响应（62 xx xx …）→ 数据区。</summary>

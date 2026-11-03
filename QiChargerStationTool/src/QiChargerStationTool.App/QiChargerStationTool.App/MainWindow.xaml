@@ -163,6 +163,9 @@
                        Foreground="#0D47A1" Margin="0,2,0,0"/>
             <TextBlock x:Name="TxtQiPowerW" Text="（— W）" FontSize="12" Foreground="#5B7FA6"
                        Margin="0,2,0,0"/>
+            <TextBlock Text="充电次数" FontSize="11" Foreground="#5B7FA6" Margin="0,10,0,0"/>
+            <TextBlock x:Name="TxtChargeCount" Text="— 次" FontSize="18" FontWeight="Bold"
+                       Foreground="#0D47A1" Margin="0,2,0,0"/>
           </StackPanel>
         </Border>
         <TextBlock Text="保护位" FontWeight="Bold" Foreground="#333" Margin="0,0,0,4"/>
@@ -227,7 +230,8 @@
         <Separator Margin="6,10"/>
         <Button x:Name="BtnQiStatus" Content="Qi 状态查询" Style="{StaticResource GrayBtn}"
                 Click="OnQiStatusQuery"
-                ToolTip="全量读取 IAP 状态 / 充电状态 / 功率 / 温度 / FOD / 故障 / 热降额 / 功率档位"/>
+                ToolTipService.ShowOnDisabled="True"
+                ToolTip="全量读取 IAP 状态 / 充电状态 / 功率 / 温度 / FOD / 故障 / 热降额 / 功率档位 / 充电次数"/>
         <Button x:Name="BtnLinkProbe" Content="链路自检" Style="{StaticResource GrayBtn}"
                 Click="OnLinkProbe"
                 ToolTip="发 3E 00 + 22 F195，打印收发，判断是无回包还是协议不匹配"/>

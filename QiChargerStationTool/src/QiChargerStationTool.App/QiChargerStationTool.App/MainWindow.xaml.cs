@@ -16,6 +16,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _cts;
     /// <summary>是否有操作在跑。IsBusyGuard 只看这个，不看 _cts（否则结束后永远 true）。</summary>
     private bool _busy;
+    /// <summary>充电使能状态（关闭充电后禁用 Qi 状态查询按钮）。</summary>
+    private bool _chargeEnabled = true;
     /// <summary>
     /// 固件传输期间置真：过滤逐帧协议噪声（[TX]/[RX]/[SER] 等），只留进度/里程碑/错误，
     /// 方便看百分比进度。错误关键字（超时/失败/NRC…）不过滤。
@@ -192,6 +194,7 @@ public partial class MainWindow : Window
             else
             {
                 UpdateConnectUi();
+                ApplyQiStatusGate();
             }
             BtnStop.IsEnabled = busy;
             if (label is not null && busy)
@@ -200,6 +203,20 @@ public partial class MainWindow : Window
         }
         if (Dispatcher.CheckAccess()) Apply();
         else Dispatcher.Invoke(Apply);
+    }
+
+    /// <summary>
+    /// 充电关闭时禁用「Qi 状态查询」按钮并浮窗（ToolTip）提示原因：
+    /// Qi 芯片由 PB2 供电，关充电即断电，查询无意义。
+    /// </summary>
+    private void ApplyQiStatusGate()
+    {
+        const string tipOn =
+            "全量读取 IAP 状态 / 充电状态 / 功率 / 温度 / FOD / 故障 / 热降额 / 功率档位 / 充电次数";
+        const string tipOff =
+            "充电已关闭：Qi 芯片已断电（PB2 关闭），无法查询状态。\n请先点击「开启充电」再查询。";
+        BtnQiStatus.IsEnabled = _chargeEnabled;
+        BtnQiStatus.ToolTip = _chargeEnabled ? tipOn : tipOff;
     }
 
     private void SetState(string text, Color color, string detail = "")
@@ -908,7 +925,8 @@ public partial class MainWindow : Window
                 }
                 var summary =
                     $"Qi {st.QiVerMajor}.{st.QiVerMinor}.{st.QiVerPatch} · {st.ChargeStateName} · " +
-                    $"{st.OutputPowerMw}mW · {st.FaultName} · 档位 {st.PowerLimitName}";
+                    $"{st.OutputPowerMw}mW · {st.FaultName} · 档位 {st.PowerLimitName} · " +
+                    $"充电 {(st.ChargeCount is { } cc2 ? cc2.ToString() : "—")} 次";
                 Pass("Qi 状态查询", summary);
             });
             return !fail;
@@ -937,13 +955,17 @@ public partial class MainWindow : Window
         SetProtectionChip(BdOtp, "OTP 过温", raw, QiChipStatusCodec.QiStatusOtp);
         SetProtectionChip(BdFod, "FOD 异物", raw, QiChipStatusCodec.QiStatusFod);
 
+        // 充电次数（DID 0x210E，NVM 累计）
+        TxtChargeCount.Text = st.ChargeCount is { } cc ? $"{cc} 次" : "— 次";
+
         // 摘要行
         var temp = st.PcbTempC is { } t ? $"{t}℃" : "—";
         var limit = st.PowerLimitName;
         var active = st.ActiveProtections;
         var protText = active is null ? "保护位: —" :
             active.Count > 0 ? $"保护触发: {string.Join(" / ", active)}" : "保护位: 无";
-        TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}\n{protText}";
+        var countText = st.ChargeCount is { } c2 ? $"{c2} 次" : "—";
+        TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n{protText}";
     }
 
     /// <summary>单个保护位指示灯着色：null=未知(灰) / 置位=红 / 未置位=绿。</summary>
@@ -1057,7 +1079,14 @@ public partial class MainWindow : Window
                 await FailAsync(name, r.Error);
                 return false;
             }
-            await UiAsync(() => Pass(name, enable ? "已开启" : "已关闭"));
+            _chargeEnabled = enable;
+            await UiAsync(() =>
+            {
+                Pass(name, enable ? "已开启" : "已关闭");
+                ApplyQiStatusGate();
+                if (!enable)
+                    AppendLog("[充电] 已关闭：Qi 状态查询按钮已禁用（Qi 芯片断电，查询无意义）");
+            });
             return true;
         });
     }
