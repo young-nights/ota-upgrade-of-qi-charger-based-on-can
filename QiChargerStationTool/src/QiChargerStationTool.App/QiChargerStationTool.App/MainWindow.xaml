@@ -228,10 +228,10 @@
         <Button x:Name="BtnIap" Content="IAP 升级" Style="{StaticResource GrayBtn}"
                 Click="OnIapUpgrade"/>
         <Separator Margin="6,10"/>
-        <Button x:Name="BtnQiStatus" Content="Qi 状态查询" Style="{StaticResource GrayBtn}"
+        <Button x:Name="BtnQiStatus" Content="开始状态检查" Style="{StaticResource GrayBtn}"
                 Click="OnQiStatusQuery"
                 ToolTipService.ShowOnDisabled="True"
-                ToolTip="全量读取 IAP 状态 / 充电状态 / 功率 / 温度 / FOD / 故障 / 热降额 / 功率档位 / 充电次数"/>
+                ToolTip="点击开始持续检查（Qi 芯片持续上报，仪表盘约每 1s 刷新）；再次点击停止"/>
         <Button x:Name="BtnLinkProbe" Content="链路自检" Style="{StaticResource GrayBtn}"
                 Click="OnLinkProbe"
                 ToolTip="发 3E 00 + 22 F195，打印收发，判断是无回包还是协议不匹配"/>

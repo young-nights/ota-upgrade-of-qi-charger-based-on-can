@@ -18,6 +18,12 @@ public partial class MainWindow : Window
     private bool _busy;
     /// <summary>充电使能状态（关闭充电后禁用 Qi 状态查询按钮）。</summary>
     private bool _chargeEnabled = true;
+    /// <summary>Qi 状态持续检查开关（按钮切换）。</summary>
+    private volatile bool _pollRunning;
+    /// <summary>持续检查轮询任务的取消源。</summary>
+    private CancellationTokenSource? _pollCts;
+    /// <summary>UDS 会话互斥：持续检查轮询与单次操作（RunOpAsync body）不交叉占用总线。</summary>
+    private readonly SemaphoreSlim _udsGate = new(1, 1);
     /// <summary>
     /// 固件传输期间置真：过滤逐帧协议噪声（[TX]/[RX]/[SER] 等），只留进度/里程碑/错误，
     /// 方便看百分比进度。错误关键字（超时/失败/NRC…）不过滤。
@@ -137,6 +143,7 @@ public partial class MainWindow : Window
 
     private void OnDisconnect(object sender, RoutedEventArgs e)
     {
+        StopQiPoll("连接断开");
         DisconnectTransport();
         AppendLog("[断开] 已关闭 COM 口");
         SetState("已断开", Colors.DimGray);
@@ -206,15 +213,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 充电关闭时禁用「Qi 状态查询」按钮并浮窗（ToolTip）提示原因：
-    /// Qi 芯片由 PB2 供电，关充电即断电，查询无意义。
+    /// 充电关闭时禁用「Qi 状态检查」按钮并浮窗（ToolTip）提示原因：
+    /// Qi 芯片由 PB2 供电，关充电即断电，查询无意义。同时停掉持续检查。
     /// </summary>
     private void ApplyQiStatusGate()
     {
         const string tipOn =
-            "全量读取 IAP 状态 / 充电状态 / 功率 / 温度 / FOD / 故障 / 热降额 / 功率档位 / 充电次数";
+            "点击开始持续检查（Qi 芯片持续上报，仪表盘约每 1s 刷新）；再次点击停止";
         const string tipOff =
-            "充电已关闭：Qi 芯片已断电（PB2 关闭），无法查询状态。\n请先点击「开启充电」再查询。";
+            "充电已关闭：Qi 芯片已断电（PB2 关闭），无法查询状态。\n请先点击「开启充电」再检查。";
+        if (!_chargeEnabled)
+            StopQiPoll("充电已关闭");
         BtnQiStatus.IsEnabled = _chargeEnabled;
         BtnQiStatus.ToolTip = _chargeEnabled ? tipOn : tipOff;
     }
@@ -345,7 +354,16 @@ public partial class MainWindow : Window
                     // 只挂 uds.OnLog：UdsClient 已转发 IsoTp 日志，避免双份
                     var uds = new UdsClient(iso);
                     uds.OnLog += m => AppendLog(m);
-                    bodyOk = await body(uds, ct);
+                    // 与 Qi 状态持续检查互斥：等轮询空档再执行本次操作
+                    await _udsGate.WaitAsync(ct);
+                    try
+                    {
+                        bodyOk = await body(uds, ct);
+                    }
+                    finally
+                    {
+                        _udsGate.Release();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -399,6 +417,7 @@ public partial class MainWindow : Window
             AppendLog($"[异常已捕获] {ex.GetType().Name}: {ex.Message}");
             AppendLog("[异常] 操作已终止，请重试或检查连接");
             SetState("异常", Colors.Crimson, ex.Message);
+            StopQiPoll("异常");
             SetBusy(false);
         }
         catch { /* ignore */ }
@@ -880,57 +899,120 @@ public partial class MainWindow : Window
             return true;
         });
 
-    /// <summary>Qi 芯片状态全量查询：IAP + 充电 + 传感器 + 功率档位，任意会话可读。</summary>
+    /// <summary>
+    /// Qi 状态检查开关：点击开始持续检查（Qi 芯片持续上报，后台每 ~1s 刷新
+    /// 仪表盘），再次点击停止。充电关闭时按钮禁用（见 ApplyQiStatusGate）。
+    /// </summary>
     private async void OnQiStatusQuery(object sender, RoutedEventArgs e)
-        => await RunOpAsync("Qi 状态查询", TimeSpan.FromSeconds(20), async (uds, ct) =>
+    {
+        if (_pollRunning)
         {
-            // 真休眠=整板断电：先唤醒 burst + 等 UDS 就绪再查
+            StopQiPoll("用户停止");
+            SetState("就绪", Colors.DimGray, "状态检查已停止");
+            return;
+        }
+        if (!_chargeEnabled)
+        {
+            AppendLog("[状态检查] 充电已关闭，Qi 芯片断电，无法检查（按钮已禁用）");
+            return;
+        }
+        await RunOpAsync("状态检查启动", TimeSpan.FromSeconds(20), async (uds, ct) =>
+        {
+            // 真休眠=整板断电：先唤醒 burst + 等 UDS 就绪再进入轮询
             var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
             if (!ready)
             {
                 await UiAsync(() =>
                 {
-                    AppendResult("FAIL", "Qi 状态查询", readyErr);
+                    AppendResult("FAIL", "状态检查启动", readyErr);
                     SetState("失败", Colors.Crimson, readyErr);
                 });
                 return false;
             }
-            QiChargerStationTool.Core.Protocol.QiChipStatus st;
-            try
-            {
-                st = await Task.Run(() => uds.ReadQiChipStatus(ct), ct);
-            }
-            catch (Exception ex)
-            {
-                var msg = FormatOpError(ex);
-                await UiAsync(() =>
-                {
-                    AppendResult("FAIL", "Qi 状态查询", msg);
-                    SetState("失败", Colors.Crimson, msg);
-                });
-                return false;
-            }
-            bool fail = false;
-            await UiAsync(() =>
-            {
-                foreach (var line in st.ToDisplayString().Split('\n'))
-                    AppendLog("[Qi] " + line);
-                UpdateQiPanel(st);
-                if (st.IapState == 0x03)
-                {
-                    AppendResult("FAIL", "Qi 状态查询", "IAP 失败态");
-                    SetState("失败", Colors.Crimson, "IAP 状态=失败，请检查 Qi 芯片固件");
-                    fail = true;
-                    return;
-                }
-                var summary =
-                    $"Qi {st.QiVerMajor}.{st.QiVerMinor}.{st.QiVerPatch} · {st.ChargeStateName} · " +
-                    $"{st.OutputPowerMw}mW · {st.FaultName} · 档位 {st.PowerLimitName} · " +
-                    $"充电 {(st.ChargeCount is { } cc2 ? cc2.ToString() : "—")} 次";
-                Pass("Qi 状态查询", summary);
-            });
-            return !fail;
+            await UiAsync(StartQiPollUi);
+            return true;
         });
+    }
+
+    /// <summary>进入持续检查态：置开关标志、按钮样式，启动后台轮询任务。</summary>
+    private void StartQiPollUi()
+    {
+        _pollRunning = true;
+        _pollCts = new CancellationTokenSource();
+        UpdatePollButton();
+        AppendLog("[状态检查] 已开始：仪表盘约每 1s 刷新一次；再次点击「停止状态检查」结束");
+        SetState("状态检查中", Colors.DarkOrange, "持续读取 Qi 状态，再次点击按钮停止");
+        _ = QiPollLoopAsync(_pollCts.Token);
+    }
+
+    /// <summary>后台轮询：每 ~1s 读一次 Qi 全量状态并刷仪表盘（不打日志/操作记录）。</summary>
+    private async Task QiPollLoopAsync(CancellationToken ct)
+    {
+        int failStreak = 0;
+        while (!ct.IsCancellationRequested)
+        {
+            // 与其它 UDS 操作互斥：占用中（如 OTA/写 SN）本轮直接跳过
+            if (await _udsGate.WaitAsync(0, ct))
+            {
+                try
+                {
+                    ZqwlSerialTransport transport;
+                    lock (_transportLock) { transport = _transport; }
+                    if (transport is { IsOpen: true })
+                    {
+                        var st = await Task.Run(() =>
+                        {
+                            var iso = new IsoTpClient(transport);
+                            var uds = new UdsClient(iso);
+                            return uds.ReadQiChipStatus(ct);
+                        }, ct);
+                        failStreak = 0;
+                        await UiAsync(() => UpdateQiPanel(st));
+                    }
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    // 连续失败只打首条与每第 10 条，避免刷屏
+                    failStreak++;
+                    if (failStreak == 1 || failStreak % 10 == 0)
+                        await UiAsync(() => AppendLog($"[状态检查] 读取失败（连续 {failStreak} 次）: {FormatOpError(ex)}"));
+                }
+                finally
+                {
+                    _udsGate.Release();
+                }
+            }
+            try { await Task.Delay(1000, ct); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    /// <summary>停止持续检查（幂等）：取消轮询任务并恢复按钮。</summary>
+    private void StopQiPoll(string reason)
+    {
+        if (_pollCts == null && !_pollRunning) return;
+        _pollRunning = false;
+        try { _pollCts?.Cancel(); } catch { /* ignore */ }
+        _pollCts = null;
+        UpdatePollButton();
+        AppendLog($"[状态检查] 已停止（{reason}）");
+    }
+
+    /// <summary>按开关状态刷新按钮文案/底色（运行中=橙底「停止状态检查」）。</summary>
+    private void UpdatePollButton()
+    {
+        if (_pollRunning)
+        {
+            BtnQiStatus.Content = "停止状态检查";
+            BtnQiStatus.Background = new SolidColorBrush(Color.FromRgb(0xFF, 0xCC, 0x80));
+        }
+        else
+        {
+            BtnQiStatus.Content = "开始状态检查";
+            BtnQiStatus.Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xE8, 0xE8));
+        }
+    }
 
     /// <summary>把 Qi 状态刷进左侧仪表盘（充电功率 + 保护位指示灯 + 摘要行）。</summary>
     private void UpdateQiPanel(QiChipStatus st)
