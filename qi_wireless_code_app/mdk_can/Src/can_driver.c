@@ -385,11 +385,13 @@ static int8_t can_try_txbuf(can_txbuf_select_type sel, can_txbuf_type *tx_buf)
 
   if (sel == CAN_TXBUF_PTB)
   {
-    can_txbuf_transmit(CAN1, CAN_TRANSMIT_PTB);
+    (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_PTB);
   }
   else
   {
-    can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ONE);
+    /* 触发失败（上一触发位未清）不算入队失败：帧已在 STB FIFO，
+     * can_driver_poll 的补触发会在一轮主循环内把它发出去。 */
+    (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
   }
   return 0;
 }
@@ -715,6 +717,21 @@ int8_t can_driver_wait_tx_all_idle(uint32_t timeout_ms)
 void can_driver_poll(void)
 {
   can_rx_frame_t frame;
+
+  /* STB 滞留帧补触发（SF 应答迟到 ~3s 的根因）：can_txbuf_transmit
+   * (STB_*) 在上一次触发位（tsone/tsall/tsa）未清时返回 ERROR——帧
+   * 已写入 STB FIFO 却拿不到触发信号，滞留到下一次 can_driver_send
+   * 的触发才被带走（实测每个 SF 应答都迟到到下一个请求到达时才出线，
+   * 主机侧表现为「UDS 无应答」）。can_try_txbuf 无法在写入点重试
+   * （触发位要等当前帧发完才清），故每轮检测 STB 非空且无触发挂起
+   * 即补发 STB_ALL，滞留帧一轮主循环内出队。 */
+  if ((can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY) &&
+      (CAN1->ctrlstat_bit.tsall == 0U) &&
+      (CAN1->ctrlstat_bit.tsone == 0U) &&
+      (CAN1->ctrlstat_bit.tsa == 0U))
+  {
+    (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
+  }
 
   while (rx_fifo_count > 0)
   {

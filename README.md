@@ -172,7 +172,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.55** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.56** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -182,6 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-03 | **fix(can): STB 滞留帧补触发——SF 应答迟到 3s / 状态轮询卡死根因**（依据 station_log_20261103_184021）。机制：`can_txbuf_transmit(STB_*)` 在上一触发位（tsone/tsall/tsa）未清时返回 ERROR 拒绝新触发，`can_try_txbuf` 无视返回值报成功——帧写进 STB FIFO 却无触发信号，滞留到**下一次 `can_driver_send`** 才被带走：SF 应答全部迟到到下一个请求到达时才出线（实测 3.02s，恰好是工具 3s 超时+下一请求），状态轮询 11 个 DID 读全超时→UI 无数据，设置功率的 `50 03` 应答被卡 3s→「门禁失败」。SA 分片正常是因标记帧走 PTB、应答独占 STB 无触发冲突。修复：`can_driver_poll` 每轮检测 STB 非空且无触发挂起即补发 `STB_ALL`（滞留帧一轮主循环内出队）；`can_try_txbuf` STB 改用 `STB_ALL` 并注释触发失败不算入队失败。`SW_VERSION_STR` 1.1.55→1.1.56 |
 | 2026-11-03 | **fix(qi): SF 应答静默丢失修复（10 02/0x2133 无应答根因）**。机制：`isotp_message_received` 先发 AA55 标记帧（占邮箱 ~0.5ms），`proto_send_response` 的 SF 直发为 20 次微秒级紧循环——等不到邮箱释放，**每个 SF 应答都落 `g_tx_pend` 单槽**（SF 应答迟到 ~110ms 的原因）；单槽后写覆盖前写，唤醒 burst 的迟到 `7E 00`（3E 00 应答）会盖掉 `10 02` 的 `50 02`、`22 21 33` 应答同理被盖 → 主机「UDS 无应答」（MF 应答走延迟冲刷不受影响，故读版本 F1xx 正常）。修复：SF 直发改 1ms 间隔重试（30ms 预算，正常 ~1ms 出帧，不再落单槽）；单槽保护——keep-alive 应答（7E）不得覆盖在途真实应答；上位机就绪探测 `22 F195` 补 `expectDid`（防吃旧应答误判就绪后抢发请求）。`SW_VERSION_STR` 1.1.54→1.1.55 |
 | 2026-11-03 | **fix(qi/tool): 实时功率大端解析修正 + UDS 应答 DID 匹配修正**。①固件（can_protocol.c）：Qi 0x01 上报帧「实时功率」2 字节按**大端**解析（协议表 IAP 大小/地址明写高八位在前，版本字段 1.1.20 实测同为大端；此前按小端拼导致字节颠倒——826mW 读成 14851mW，"偶发大数"根源之一）；docs/4 功率字段注记同步。②上位机（UdsClient）：`TryRequest` 新增 `expectDid` 参数，RDBI/WDBI 应答必须核对回显 DID（d[1..2]）——此前只匹配 SID(0x62/0x6E)，设备应答慢（~110ms）而请求间隔快（~40ms）时每个读都吃掉上一个请求的应答、值整体错位（功率吃到 0x2105 电压/电流字节 = "偶发大数"主因）；TryReadDid/TryWriteDid/TryReadSwVersion/TryReadAsciiDid/TryReadQiFwVersion/ReadSlot 及产线步骤 OtaSteps/SnSteps 全部传 expectDid（新增 ProtoIds.DidChargerEnable 常量）。`SW_VERSION_STR` 1.1.53→1.1.54 |
 | 2026-11-03 | **fix(tool): 「Qi 状态检测」按钮门禁与命名调整**（仅 QiChargerStationTool）：按钮文案恒定「Qi 状态检测」，运行态仅橙底区分（不再换字）；未开启充电时按钮禁用并浮窗提示——含**初始态**（`_chargeEnabled` 初始 false，本会话点过「开启充电」成功后才可点），开启充电恢复、关闭充电禁用；`UpdateQiStatusButton` 统一管理文案/底色/浮窗/可用态（操作忙碌中不误恢复） |
