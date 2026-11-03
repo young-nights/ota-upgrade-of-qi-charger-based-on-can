@@ -40,11 +40,25 @@ public sealed class ZqwlSerialTransport : ICanTransport
 
     private void WriteRaw(byte[] pkt, string tag)
     {
-        if (_port is not { IsOpen: true })
-            throw new InvalidOperationException($"ZQWL port {_portName} not open");
-        _port.Write(pkt, 0, pkt.Length);
+        WriteBytes(pkt);
         // 配置帧只在打开阶段打一行摘要，不进 CAN 日志
         if (tag.Length > 0) OnRawLog?.Invoke($"[CFG] {tag}");
+    }
+
+    /// <summary>
+    /// 带看门狗的串口写入。USB-CDC 驱动挂起时 SerialPort.Write 可无限
+    /// 阻塞（WriteTimeout 对 USB 串口并不总是生效），会把 UI/操作线程
+    /// 永久卡死（点击「连接」卡住、必须重启软件的根因）。后台写 + 2s
+    /// 看门狗：超时抛错让上层提示拔插盒子，调用线程不再被拖死。
+    /// </summary>
+    private void WriteBytes(byte[] buf)
+    {
+        if (_port is not { IsOpen: true })
+            throw new InvalidOperationException($"ZQWL port {_portName} not open");
+        var writeTask = Task.Run(() => _port.Write(buf, 0, buf.Length));
+        if (!writeTask.Wait(2000))
+            throw new InvalidOperationException(
+                "串口写入超时（2s）：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
     }
 
     /// <summary>49 3B 配置帧：func + rw + 16B payload + 45 2E。</summary>
@@ -66,58 +80,68 @@ public sealed class ZqwlSerialTransport : ICanTransport
     {
         if (_port is null) throw new ObjectDisposedException(nameof(ZqwlSerialTransport));
         TimerResolution.Enter();   // 1ms 节拍：Thread.Sleep(1) 才是真 1ms，否则 15ms
+        bool ok = false;
         try
         {
-            if (!_port.IsOpen) _port.Open();
+            try
+            {
+                if (!_port.IsOpen) _port.Open();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new InvalidOperationException(
+                    $"打开 {_portName} 被拒绝（串口被占用）：" +
+                    "①关掉其它占用该口的程序（旧的上位机/串口助手/SecureCRT）；" +
+                    "②若曾 attach 到 WSL，管理员 PowerShell 执行 usbipd detach；" +
+                    "③拔插一次 USB 盒子；④任务管理器结束残留的 QiChargerStationTool 进程。" +
+                    " 详情：" + ex.Message, ex);
+            }
+            catch (IOException ex)
+            {
+                throw new InvalidOperationException(
+                    $"打开 {_portName} 失败：设备可能已拔出或驱动异常，请重新插拔 USB。详情：{ex.Message}", ex);
+            }
+
+            OnRawLog?.Invoke($"[OPEN] {_portName} @ {_port.BaudRate}");
+
+            // 与 zqwl_can_listen.py open_can0_250k() 同构，缺一步 CAN 就不会开
+            // 1) 读设备信息
+            WriteRaw(Cfg(0x40, 0x52), "read device info");
+            Thread.Sleep(200);
+            Drain(80);
+
+            // 2) 仲裁 250k / 数据 500k → 0x45，ch=0
+            WriteRaw(Cfg(0x42, 0x57, new byte[] { 0x00, 0x00, 0x45 }), "baud 250k/500k");
+            Thread.Sleep(50);
+
+            // 3) 滤波组0 扩展帧全收；组1 标准帧全收
+            WriteRaw(Cfg(0x43, 0x57, new byte[]
+            {
+                0x00, 0x00, 0x01, 0x01,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+            }), "filter ext all");
+            Thread.Sleep(50);
+            WriteRaw(Cfg(0x43, 0x57, new byte[]
+            {
+                0x00, 0x01, 0x01, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+            }), "filter std all");
+            Thread.Sleep(50);
+
+            // 4) 打开 CAN0：不写 flash、不复位（0x44 的复位位会把 USB 打掉）
+            WriteRaw(Cfg(0x44, 0x57, new byte[] { 0x00, 0x00, 0x01, 0x00 }), "open CAN0");
+            Thread.Sleep(150);
+            Drain(80);
+            OnRawLog?.Invoke("[OPEN] CAN0 250k ext ready");
+            ok = true;
         }
-        catch (UnauthorizedAccessException ex)
+        finally
         {
-            throw new InvalidOperationException(
-                $"打开 {_portName} 被拒绝（串口被占用）：" +
-                "①关掉其它占用该口的程序（旧的上位机/串口助手/SecureCRT）；" +
-                "②若曾 attach 到 WSL，管理员 PowerShell 执行 usbipd detach；" +
-                "③拔插一次 USB 盒子；④任务管理器结束残留的 QiChargerStationTool 进程。" +
-                " 详情：" + ex.Message, ex);
+            /* 打开失败也要归还定时器精度引用（成功路径由 Close 归还） */
+            if (!ok) TimerResolution.Leave();
         }
-        catch (IOException ex)
-        {
-            throw new InvalidOperationException(
-                $"打开 {_portName} 失败：设备可能已拔出或驱动异常，请重新插拔 USB。详情：{ex.Message}", ex);
-        }
-
-        OnRawLog?.Invoke($"[OPEN] {_portName} @ {_port.BaudRate}");
-
-        // 与 zqwl_can_listen.py open_can0_250k() 同构，缺一步 CAN 就不会开
-        // 1) 读设备信息
-        WriteRaw(Cfg(0x40, 0x52), "read device info");
-        Thread.Sleep(200);
-        Drain(80);
-
-        // 2) 仲裁 250k / 数据 500k → 0x45，ch=0
-        WriteRaw(Cfg(0x42, 0x57, new byte[] { 0x00, 0x00, 0x45 }), "baud 250k/500k");
-        Thread.Sleep(50);
-
-        // 3) 滤波组0 扩展帧全收；组1 标准帧全收
-        WriteRaw(Cfg(0x43, 0x57, new byte[]
-        {
-            0x00, 0x00, 0x01, 0x01,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        }), "filter ext all");
-        Thread.Sleep(50);
-        WriteRaw(Cfg(0x43, 0x57, new byte[]
-        {
-            0x00, 0x01, 0x01, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        }), "filter std all");
-        Thread.Sleep(50);
-
-        // 4) 打开 CAN0：不写 flash、不复位（0x44 的复位位会把 USB 打掉）
-        WriteRaw(Cfg(0x44, 0x57, new byte[] { 0x00, 0x00, 0x01, 0x00 }), "open CAN0");
-        Thread.Sleep(150);
-        Drain(80);
-        OnRawLog?.Invoke("[OPEN] CAN0 250k ext ready");
     }
 
     public void Close()
@@ -144,7 +168,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
         pkt[6] = (byte)(id & 0xFF);
         data.CopyTo(pkt, 7);
         pkt[^1] = CanFtr;
-        _port.Write(pkt, 0, pkt.Length);
+        WriteBytes(pkt);
         OnRawLog?.Invoke($"[CAN-TX] {id:X8} {Convert.ToHexString(data)}");
     }
 
@@ -187,7 +211,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
             Buffer.BlockCopy(p, 0, buf, off, p.Length);
             off += p.Length;
         }
-        _port.Write(buf, 0, buf.Length);
+        WriteBytes(buf);
         foreach (var f in frames)
             OnRawLog?.Invoke($"[CAN-TX] {f.Id & 0x1FFFFFFF:X8} {Convert.ToHexString(f.Data)}");
     }

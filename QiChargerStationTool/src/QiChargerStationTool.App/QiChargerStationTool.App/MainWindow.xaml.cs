@@ -104,7 +104,7 @@ public partial class MainWindow : Window
         get { lock (_transportLock) return _transport is { IsOpen: true }; }
     }
 
-    private void OnConnect(object sender, RoutedEventArgs e)
+    private async void OnConnect(object sender, RoutedEventArgs e)
     {
         var port = SelectedPortName();
         if (string.IsNullOrWhiteSpace(port))
@@ -119,27 +119,61 @@ public partial class MainWindow : Window
                 AppendLog($"[连接] 已连接 {port}，勿重复连接");
                 return;
             }
-            try
-            {
-                _transport?.Dispose();
-                _transport = new ZqwlSerialTransport(port, FixedBaud);
-                // 原始串口收发全部进运行日志，便于调试超时/无应答
-                _transport.OnRawLog += m => AppendLog("[SER] " + m);
-                _transport.Open();
-            }
-            catch (Exception ex)
-            {
-                _transport?.Dispose();
-                _transport = null;
-                SetState("失败", Colors.Crimson, $"连接失败: {ex.Message}");
-                AppendLog($"[连接] {port} 失败: {ex.Message}");
-                UpdateConnectUi();
-                return;
-            }
         }
-        AppendLog($"[连接] CAN 打开 {port} @ {FixedBaud}");
-        SetState("已连接", Colors.ForestGreen, port);
-        UpdateConnectUi();
+        // 连接全程后台 + 看门狗：USB 盒子驱动挂起时 Open/Write/Close 会
+        // 无限阻塞，同步调用会把 UI 线程卡死（点击「连接」卡住、必须
+        // 重启软件的根因）。限时失败给明确提示：拔插盒子即可恢复。
+        BtnConnect.IsEnabled = false;
+        SetState("连接中…", Colors.DarkOrange, port);
+        AppendLog($"[连接] 打开 {port} @ {FixedBaud} …");
+        try
+        {
+            var transport = await Task.Run(() =>
+            {
+                // 旧连接释放限时（Close 可能卡在 USB 驱动）：超时弃线程
+                ZqwlSerialTransport? old;
+                lock (_transportLock) { old = _transport; _transport = null; }
+                if (old != null)
+                {
+                    var disposeTask = Task.Run(() => { try { old.Dispose(); } catch { /* ignore */ } });
+                    if (!disposeTask.Wait(2000))
+                        AppendLog("[连接] 旧连接释放超时（已弃线程），继续打开");
+                }
+                var t = new ZqwlSerialTransport(port, FixedBaud);
+                t.OnRawLog += m => AppendLog("[SER] " + m);
+                var openTask = Task.Run(() => t.Open());
+                if (!openTask.Wait(8000))
+                {
+                    // Open 卡死：弃线程，拔插盒子后 COM 重新枚举即可重连
+                    _ = Task.Run(() => { try { t.Dispose(); } catch { /* ignore */ } });
+                    throw new InvalidOperationException(
+                        $"打开 {port} 超时（8s）：USB 盒子无响应。" +
+                        "请拔插 CAN 盒子后点「连接」重试（无需重启软件）");
+                }
+                try
+                {
+                    openTask.GetAwaiter().GetResult();   // 传播打开异常
+                }
+                catch
+                {
+                    _ = Task.Run(() => { try { t.Dispose(); } catch { /* ignore */ } });
+                    throw;
+                }
+                return t;
+            });
+            lock (_transportLock) { _transport = transport; }
+            AppendLog($"[连接] CAN 打开 {port} @ {FixedBaud}");
+            SetState("已连接", Colors.ForestGreen, port);
+        }
+        catch (Exception ex)
+        {
+            SetState("失败", Colors.Crimson, $"连接失败: {ex.Message}");
+            AppendLog($"[连接] {port} 失败: {ex.Message}");
+        }
+        finally
+        {
+            UpdateConnectUi();
+        }
     }
 
     private void OnDisconnect(object sender, RoutedEventArgs e)
