@@ -342,6 +342,8 @@ public partial class Station1Control : UserControl, IStationPage
         TxtResult.Text = "待测试";
         TxtResult.Foreground = MutedBrush;
         BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
+        BarOta.Value = 0;
+        TxtOtaStatus.Text = "待命";
         LogPanel.Clear();
         LogPanel.Append("已切换下一台，串口保持连接，等待开始测试");
         RaiseAvailability();
@@ -378,5 +380,72 @@ public partial class Station1Control : UserControl, IStationPage
         BadgeResult.Background = passed
             ? new SolidColorBrush(Color.FromRgb(0xDC, 0xFC, 0xE7))
             : new SolidColorBrush(Color.FromRgb(0xFE, 0xE2, 0xE2));
+    }
+
+    // ---------- 固件升级（OTA，维护动作：不进测试流程/不入库） ----------
+
+    private void OnOtaBrowse(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择 XATO 签名镜像",
+            Filter = "XATO 镜像 (*.bin)|*.bin|所有文件 (*.*)|*.*",
+        };
+        if (dlg.ShowDialog() == true)
+            BoxOtaFirmware.Text = dlg.FileName;
+    }
+
+    /// <summary>
+    /// OTA 升级（对齐 QiChargerStationTool 的 RunUpgradeAsync）：
+    /// 进度条按块推进；升级中禁止「开始测试/下一个」（_running 复用）。
+    /// </summary>
+    private async void OnOtaUpgrade(object sender, RoutedEventArgs e)
+    {
+        if (_running)
+            return;
+        if (!_connected || _can is null)
+        {
+            TxtOtaStatus.Text = "串口未接入，无法升级";
+            LogPanel.Append("[OTA] 串口未接入（CAN），无法升级");
+            return;
+        }
+        var path = BoxOtaFirmware.Text.Trim();
+        if (path.Length == 0 || !System.IO.File.Exists(path))
+        {
+            TxtOtaStatus.Text = "请先选择固件文件";
+            LogPanel.Append("[OTA] 固件文件不存在，请先「浏览…」选择 app_image_vX_Y_Z.bin");
+            return;
+        }
+
+        _running = true;
+        RaiseAvailability();
+        BtnOta.IsEnabled = false;
+        BarOta.Value = 0;
+        TxtOtaStatus.Text = "升级中…";
+        LogPanel.Append($"[OTA] 开始升级：{path}");
+        var progress = new Progress<OtaProgress>(p =>
+        {
+            BarOta.Value = p.Percent;
+            TxtOtaStatus.Text = $"{p.Percent}%  {p.Phase}";
+        });
+        try
+        {
+            var (ok, detail) = await _can.OtaUpgradeAsync(path, 0x01, 128, progress);
+            TxtOtaStatus.Text = ok ? $"完成：{detail}" : $"失败：{detail}";
+            LogPanel.Append(ok ? $"[OTA] 升级成功：{detail}" : $"[OTA] 升级失败：{detail}");
+            if (ok)
+                LogPanel.Append("[OTA] 设备自复位搬运中，稍候可「开始测试」读版本验证");
+        }
+        catch (Exception ex)
+        {
+            TxtOtaStatus.Text = $"异常：{ex.Message}";
+            LogPanel.Append($"[OTA] 异常：{ex.Message}");
+        }
+        finally
+        {
+            _running = false;
+            BtnOta.IsEnabled = true;
+            RaiseAvailability();
+        }
     }
 }

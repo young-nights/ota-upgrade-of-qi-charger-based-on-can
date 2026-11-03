@@ -28,6 +28,33 @@
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="测试流程" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,12"/>
+                    <!-- 固件升级（维护动作，不进测试流程/入库） -->
+                    <Border DockPanel.Dock="Bottom" Background="{StaticResource FieldBgBrush}"
+                            CornerRadius="8" Padding="12" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="固件升级（OTA，维护用）" Style="{StaticResource FieldLabel}"
+                                       Margin="0,0,0,6"/>
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="BoxOtaFirmware" Style="{StaticResource FieldBox}"
+                                         ToolTip="XATO 签名镜像 app_image_vX_Y_Z.bin（pack_image.py 产物）"/>
+                                <Button Grid.Column="2" Content="浏览…" Style="{StaticResource GhostButton}"
+                                        Height="30" Click="OnOtaBrowse"/>
+                            </Grid>
+                            <Button x:Name="BtnOta" Content="OTA 升级" Style="{StaticResource PrimaryButton}"
+                                    Height="32" Click="OnOtaUpgrade"
+                                    ToolTip="10 02 + SA → 2E 20 10 → 31 擦除 → 34/36 传输 → 37 收尾（设备自复位）"/>
+                            <ProgressBar x:Name="BarOta" Height="8" Minimum="0" Maximum="100" Value="0"
+                                         Margin="0,8,0,0"/>
+                            <TextBlock x:Name="TxtOtaStatus" Text="待命" FontSize="11"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <controls:FlowStepsPanel x:Name="FlowPanel"/>
                     </ScrollViewer>

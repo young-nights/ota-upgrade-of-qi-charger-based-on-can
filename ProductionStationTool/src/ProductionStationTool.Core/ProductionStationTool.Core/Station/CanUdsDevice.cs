@@ -1,9 +1,13 @@
 using System.Text;
+using QiChargerStationTool.Core.Imaging;
 using QiChargerStationTool.Core.Protocol;
 using QiChargerStationTool.Core.Security;
 using QiChargerStationTool.Core.Transport;
 
 namespace ProductionStationTool.Core.Station;
+
+/// <summary>OTA 升级进度（Percent 0~100，Phase 阶段描述）。</summary>
+public sealed record OtaProgress(int Percent, string Phase);
 
 /// <summary>
 /// CAN/UDS 设备访问（ZQWL-CANFD 串口 → ISO-TP/UDS），复用
@@ -124,7 +128,7 @@ public sealed class CanUdsDevice : IDisposable
         payload[1] = 0x8C;
         body.CopyTo(payload, 2);
         var w = await Task.Run(() => RequestRetry(ProtoIds.SidWdbi, payload, 5000, ct,
-            expectSub: 0xF1), ct);
+            expectSub: 0xF1, expectDid: ProtoIds.DidSn), ct);
         if (!w.Ok)
             return (false, $"2E F18C 写入失败：{w.Error}");
         Log?.Invoke("2E F18C 写入完成");
@@ -178,7 +182,8 @@ public sealed class CanUdsDevice : IDisposable
             return (false, "SA 解锁失败");
 
         var w = await Task.Run(() => RequestRetry(ProtoIds.SidWdbi,
-            new byte[] { 0x21, 0x01, onOff }, 5000, ct, expectSub: 0x21), ct);
+            new byte[] { 0x21, 0x01, onOff }, 5000, ct, expectSub: 0x21,
+            expectDid: ProtoIds.DidChargerEnable), ct);
         if (!w.Ok)
             return (false, $"2E 21 01 {onOff:X2} 失败：{w.Error}");
         Log?.Invoke($"2E 21 01 {onOff:X2} {(onOff != 0 ? "充电已开启" : "充电已停止")}");
@@ -186,16 +191,167 @@ public sealed class CanUdsDevice : IDisposable
     }
 
     /// <summary>
+    /// OTA 升级（设计对齐 QiChargerStationTool 的 RunUpgradeAsync）：
+    /// XATO 镜像解析 → 唤醒就绪 → 门禁（10 02 + SA + 2E 20 10，NRC 0x22/0x33
+    /// 会话/安全丢失时整套重做一次）→ 31 擦除备份区 → 34/36 传输（进度回调）
+    /// → 37 收尾（设备自复位搬运，异常容忍）。
+    /// otaTarget：0x01=MCU1/APP（XATO 签名镜像），0x04=MCU2/Qi（原始 bin）。
+    /// </summary>
+    public async Task<(bool Ok, string Detail)> OtaUpgradeAsync(
+        string imagePath,
+        byte otaTarget = 0x01,
+        int transferBlock = 128,
+        IProgress<OtaProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+            return (false, $"固件不存在: {imagePath}");
+
+        byte[] raw = await Task.Run(() => File.ReadAllBytes(imagePath), ct);
+        string verHint;
+        if (otaTarget == 0x01)
+        {
+            // AT32 OTA 走 XATO 签名镜像
+            var image = XatoImage.Parse(raw);
+            verHint = image.ExtractSwVersion() ?? "";
+            Log?.Invoke($"[OTA] XATO 镜像 {raw.Length}B ver={verHint} 目标=MCU1/APP");
+        }
+        else
+        {
+            // Qi IAP 原始 bin，无需 XATO 头
+            verHint = "";
+            Log?.Invoke($"[IAP] 原始固件 {raw.Length}B 目标=MCU2/Qi");
+        }
+
+        // 刷写前先等 APP/UDS 就绪，避免踩到 Boot 窗口
+        if (!await WaitReadyAsync(ct))
+            return (false, "设备未就绪（唤醒/探活超时）");
+
+        // 门禁（对齐维修工具 TryGateAsync）：10 02 必须校验应答子功能 0x02
+        // （只认 SID(0x50) 时队列里迟到的 50 03 会被误判成功）；ZQWL 偶发
+        // 丢帧 → 未通过补发一次；2E 20 10 拿 0x22/0x33 = 会话/安全状态已丢
+        // （设备复位/S3 等）→ 整套 10 02 + SA 重做一次再试。
+        async Task<(bool Ok, byte Nrc)> TryGateAsync()
+        {
+            UdsResult d = UdsResult.Fail("未发送");
+            for (int t = 1; t <= 2; t++)
+            {
+                d = await Task.Run(() => _uds.TryRequest(ProtoIds.SidDsc,
+                    new byte[] { 0x02 }, expectSub: 0x02, ct: ct), ct);
+                if (d.Ok) break;
+                Log?.Invoke($"[10 02] 第 {t} 次失败: {d.Error}");
+            }
+            if (!d.Ok)
+                return (false, d.Nrc);
+            Log?.Invoke("进入编程会话 10 02");
+
+            var signer = SeedSigner.FromDefaultKey();
+            if (signer is null)
+                return (false, (byte)0);
+            if (!await SecurityAccess.UnlockAsync(_uds, signer, m => Log?.Invoke("[SA] " + m), ct))
+                return (false, (byte)0);
+
+            var w = await Task.Run(() => _uds.TryRequest(ProtoIds.SidWdbi,
+                new byte[] { 0x20, 0x10, otaTarget }, timeoutMs: 4000,
+                expectSub: 0x20, ct: ct, expectDid: ProtoIds.DidFwType), ct);
+            if (!w.Ok)
+            {
+                Log?.Invoke($"[2E 20 10] 失败: {w.Error}");
+                return (false, w.Nrc);
+            }
+            return (true, (byte)0);
+        }
+
+        var (gateOk, gateNrc) = await TryGateAsync();
+        if (!gateOk && (gateNrc is 0x22 or 0x33))
+        {
+            Log?.Invoke($"[恢复] NRC 0x{gateNrc:X2} 会话/安全丢失，重做 10 02 + SA 后重试 2E 20 10…");
+            (gateOk, gateNrc) = await TryGateAsync();
+        }
+        if (!gateOk)
+        {
+            return (false, gateNrc != 0
+                ? $"2E 20 10: NRC 0x{gateNrc:X2}（重试后仍失败）"
+                : "门禁失败（10 02 / SA）");
+        }
+        Log?.Invoke($"2E 20 10 {otaTarget:X2} 选择目标 OK");
+
+        // 擦除 + 下载 + 传输整体放一个 Task.Run（逐块 Task.Run 会白付调度开销），
+        // 进度经 IProgress 回传 UI 线程
+        int size = raw.Length;
+        return await Task.Run<(bool Ok, string Detail)>(async () =>
+        {
+            var erase = _uds.TryRequest(ProtoIds.SidRc,
+                new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000, ct: ct);
+            if (!erase.Ok)
+                return (false, $"31 擦除失败: {erase.Error}");
+            Log?.Invoke("31 擦除备份区完成");
+            progress?.Report(new OtaProgress(0, "擦除完成"));
+
+            var rd = _uds.TryRequest(ProtoIds.SidRd, new byte[]
+            {
+                0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
+                (byte)(size >> 24), (byte)(size >> 16), (byte)(size >> 8), (byte)size,
+            }, timeoutMs: 8000, ct: ct);
+            if (!rd.Ok)
+                return (false, $"34 RequestDownload 失败: {rd.Error}");
+            Log?.Invoke($"34 RequestDownload {size}B @ 0x08010000 block={transferBlock}");
+
+            int off = 0, seq = 1, blk = 0;
+            int nblocks = (size + transferBlock - 1) / transferBlock;
+            int lastPct = -1;
+            while (off < size)
+            {
+                ct.ThrowIfCancellationRequested();
+                int n = Math.Min(transferBlock, size - off);
+                var payload = new byte[1 + n];
+                payload[0] = (byte)(seq & 0xFF);
+                Buffer.BlockCopy(raw, off, payload, 1, n);
+                var t = _uds.TryRequest(ProtoIds.SidTd, payload,
+                    timeoutMs: 8000, waitPendingMs: 30_000, ct: ct);
+                if (!t.Ok)
+                    return (false, $"36 块 {blk + 1}/{nblocks} 失败: {t.Error}");
+                off += n;
+                blk++;
+                seq = (seq + 1) & 0xFF;
+
+                // 每 2% 或首尾报一次进度
+                int pct = size > 0 ? (int)(off * 100L / size) : 100;
+                if (pct != lastPct && (pct % 2 == 0 || off >= size))
+                {
+                    lastPct = pct;
+                    progress?.Report(new OtaProgress(pct, $"传输中 {blk}/{nblocks} 块 {off}/{size}B"));
+                }
+            }
+
+            try
+            {
+                _uds.Request(ProtoIds.SidRte,
+                    Array.Empty<byte>(), timeoutMs: 8000, waitPendingMs: 60_000, ct: ct);
+                Log?.Invoke("37 TransferExit 确认，设备自复位搬运");
+            }
+            catch (Exception ex)
+            {
+                Log?.Invoke($"37 异常（设备可能已自复位）: {ex.Message}");
+            }
+            progress?.Report(new OtaProgress(100, "完成"));
+            return (true, $"传输 {size}B 完成" + (verHint.Length > 0 ? $" ver={verHint}" : ""));
+        }, ct);
+    }
+
+    /// <summary>
     /// 不抛异常的 UDS 请求 + 一次重试（无应答的偶发竞态重试即过；
     /// 有 NRC = 设备应答了，不重试）。
     /// </summary>
     private UdsResult RequestRetry(byte sid, byte[] payload, int timeoutMs, CancellationToken ct,
-                                   byte? expectSub = null)
+                                   byte? expectSub = null, ushort? expectDid = null)
     {
-        var r = _uds.TryRequest(sid, payload, timeoutMs: timeoutMs, expectSub: expectSub, ct: ct);
+        var r = _uds.TryRequest(sid, payload, timeoutMs: timeoutMs, expectSub: expectSub,
+                                ct: ct, expectDid: expectDid);
         if (r.Ok || r.Nrc != 0)
             return r;
-        return _uds.TryRequest(sid, payload, timeoutMs: timeoutMs, expectSub: expectSub, ct: ct);
+        return _uds.TryRequest(sid, payload, timeoutMs: timeoutMs, expectSub: expectSub,
+                               ct: ct, expectDid: expectDid);
     }
 
     /// <summary>22 F18C 解析（32B ASCII 空格填充，去尾部 0x00/0x20）。
@@ -203,7 +359,8 @@ public sealed class CanUdsDevice : IDisposable
     /// 不抛异常；失败返回 null（供上层重试）。</summary>
     private string? ReadSnCore()
     {
-        var r = RequestRetry(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, 6000, CancellationToken.None);
+        var r = RequestRetry(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, 6000, CancellationToken.None,
+            expectDid: ProtoIds.DidSn);
         if (!r.Ok || r.Data.Length < 4)
             return null;
         int len = r.Data.Length - 3;
