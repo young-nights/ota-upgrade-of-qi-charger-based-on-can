@@ -172,7 +172,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.56** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.57** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -182,6 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-03 | **feat(qi): 默认功率改 10W + 开充补发功率设置（延时 100ms）**。背景：Qi 芯片定制出厂默认 15W，芯片掉电重启后丢配置、上报 15W 而非 NVM 档位。①默认档位 `g_qi_power_level` 15W→**10W**（NVM 有值仍以 NVM 为准）。②每次开启充电（DID 0x2101=1）**补发功率设置**：置 `g_qi_pwr_cfg_sent=0` 并排 `g_qi_pwr_cfg_due=now+100ms` 计划，由 `qi_power_cfg_poll` 延时执行。③`qi_power_cfg_poll` 改为上电后**延时 `QI_PWR_CFG_DELAY_MS` 100ms 等芯片稳定再发**（原 PB2 上升沿立即发——芯片启动期收不到命令，是上报默认 15W 的根因）；PB2 未上电则等上电后重新计时。docs/16 OTA-REQ-015 同步。`SW_VERSION_STR` 1.1.56→1.1.57 |
 | 2026-11-03 | **fix(tool): 连接按钮卡死修复——串口读写全链路看门狗**（仅 QiChargerStationTool，固件版本不变）。根因：USB-CDC 驱动挂起时 `SerialPort.Write/Open/Close` 会无限阻塞（WriteTimeout 对 USB 串口不总是生效），而 `OnConnect` 在 UI 线程同步调用——点击「连接」整个界面冻结，且卡死的 Close/Open 永不返回，拔插盒子后仍需重启软件。修复：①`OnConnect` 全程后台化（Task.Run）+ 限时——旧连接释放 2s 超时弃线程、Open 8s 超时报「拔插 CAN 盒子后重试（无需重启软件）」；②新增 `WriteBytes` 写看门狗（后台写 + 2s 超时抛错），`WriteRaw`/`Send`/`SendBatch` 全部走它，操作中写卡死不再拖死 UI/轮询线程；③`Open` 失败路径归还 TimerResolution 精度引用（try/finally） |
 | 2026-11-03 | **fix(can): STB 滞留帧补触发——SF 应答迟到 3s / 状态轮询卡死根因**（依据 station_log_20261103_184021）。机制：`can_txbuf_transmit(STB_*)` 在上一触发位（tsone/tsall/tsa）未清时返回 ERROR 拒绝新触发，`can_try_txbuf` 无视返回值报成功——帧写进 STB FIFO 却无触发信号，滞留到**下一次 `can_driver_send`** 才被带走：SF 应答全部迟到到下一个请求到达时才出线（实测 3.02s，恰好是工具 3s 超时+下一请求），状态轮询 11 个 DID 读全超时→UI 无数据，设置功率的 `50 03` 应答被卡 3s→「门禁失败」。SA 分片正常是因标记帧走 PTB、应答独占 STB 无触发冲突。修复：`can_driver_poll` 每轮检测 STB 非空且无触发挂起即补发 `STB_ALL`（滞留帧一轮主循环内出队）；`can_try_txbuf` STB 改用 `STB_ALL` 并注释触发失败不算入队失败。`SW_VERSION_STR` 1.1.55→1.1.56 |
 | 2026-11-03 | **fix(qi): SF 应答静默丢失修复（10 02/0x2133 无应答根因）**。机制：`isotp_message_received` 先发 AA55 标记帧（占邮箱 ~0.5ms），`proto_send_response` 的 SF 直发为 20 次微秒级紧循环——等不到邮箱释放，**每个 SF 应答都落 `g_tx_pend` 单槽**（SF 应答迟到 ~110ms 的原因）；单槽后写覆盖前写，唤醒 burst 的迟到 `7E 00`（3E 00 应答）会盖掉 `10 02` 的 `50 02`、`22 21 33` 应答同理被盖 → 主机「UDS 无应答」（MF 应答走延迟冲刷不受影响，故读版本 F1xx 正常）。修复：SF 直发改 1ms 间隔重试（30ms 预算，正常 ~1ms 出帧，不再落单槽）；单槽保护——keep-alive 应答（7E）不得覆盖在途真实应答；上位机就绪探测 `22 F195` 补 `expectDid`（防吃旧应答误判就绪后抢发请求）。`SW_VERSION_STR` 1.1.54→1.1.55 |

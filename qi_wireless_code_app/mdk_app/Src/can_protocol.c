@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.56";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.57";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -106,6 +106,7 @@ static uint8_t  g_sa_sig_block_seq        = 0;
 #define QI_VER_QUERY_TIMEOUT_MS    500U   /*!< DID 0x2013 Qi 版本查询回复超时 */
 #define QI_VER_PROBE_POWERUP_MS    200U   /*!< 上电版本探测：Qi 芯片启动等待 */
 #define QI_VER_PROBE_LISTEN_MS    1000U   /*!< 上电版本探测：被动监听 CMD 0x01 超时 */
+#define QI_PWR_CFG_DELAY_MS        100U   /*!< 上电/开充后延时下发功率配置（等 Qi 芯片上电稳定） */
 
 /* DID 0x2013 应答版本串：固定前缀 "QC_JYF_MCU2_FW_"（15B）+
  * Qi 版本号三段十进制 "x.x.x"（3~8B）。Qi 读回版本为 3 字节
@@ -171,8 +172,9 @@ static uint8_t  g_qi_last_fault_detail[4] = {0U};  /*!< DID 0x2110, 4-byte fault
 static uint8_t  g_qi_status_raw       = 0U;     /*!< DID 0x2111, Qi status byte (保护位) */
 
 /* Qi persistent config (loaded from NVM at init) */
-static uint16_t g_qi_power_level      = QI_POWER_15W;  /*!< DID 0x210D 档位码 (QI_POWER_*), 默认 15W */
+static uint16_t g_qi_power_level      = QI_POWER_10W;  /*!< DID 0x210D 档位码 (QI_POWER_*), 默认 10W（Qi 芯片定制出厂默认 15W，上电/开充必须补发） */
 static uint8_t  g_qi_pwr_cfg_sent     = 0U;   /*!< 本次 Qi 上电后功率配置已下发（PB2 断电/IAP 完成后清零重发） */
+static uint32_t g_qi_pwr_cfg_due      = 0U;   /*!< 功率配置延迟下发时间点（0=无计划；上电/开充后置 now+100ms） */
 static uint32_t g_qi_charge_count     = 0U;   /*!< DID 0x210E 充电次数（状态字节2 b0 上升沿计数，NVM 持久化） */
 static uint8_t  g_qi_charge_trig_bit  = 0U;   /*!< 状态字节2 b0 上次采样值（边沿检测用） */
 
@@ -1323,20 +1325,35 @@ static void qi_apply_power_cfg(void)
 
 /**
  * @brief  Qi 供电状态跟踪（can_protocol_poll 每轮调用）
- * @note   PB2 断电清零重发标志；上电后补发一次功率配置
- *         （Qi 芯片掉电丢失配置，重上电须重新下发）。
+ * @note   PB2 断电清零重发标志与计划；上电后延时 QI_PWR_CFG_DELAY_MS
+ *         等芯片稳定再下发功率配置——Qi 芯片定制出厂默认 15W 且启动期
+ *         收不到 UART 命令，上电瞬间就发会丢（芯片上报默认 15W 的
+ *         根因）。开启充电（DID 0x2101=1）会显式重置标志并排 100ms
+ *         计划，确保每次开充都补发 NVM 档位（如 5W）。
  */
 static void qi_power_cfg_poll(void)
 {
   if (board_5v_is_on() == 0U)
   {
     g_qi_pwr_cfg_sent = 0U;
+    g_qi_pwr_cfg_due  = 0U;
     return;
   }
-  if (g_qi_pwr_cfg_sent == 0U)
+  if (g_qi_pwr_cfg_sent != 0U)
   {
-    qi_apply_power_cfg();
+    return;
   }
+  if (g_qi_pwr_cfg_due == 0U)
+  {
+    /* PB2 上升沿（芯片刚上电）：排稳定计划 */
+    g_qi_pwr_cfg_due = timer_get_tick() + QI_PWR_CFG_DELAY_MS;
+    return;
+  }
+  if ((int32_t)(timer_get_tick() - g_qi_pwr_cfg_due) < 0)
+  {
+    return;
+  }
+  qi_apply_power_cfg();
 }
 
 static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
@@ -2014,6 +2031,15 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           (void)qi_nvm_save(NVM_OFFSET_CHARGE_ENABLE, nvm_buf, 1U);
         }
         board_charge_set_enable(val);  /* CCU enable; PB2 controlled by charge_poll */
+        if (val == 0x01U)
+        {
+          /* 每次开充补发功率设置：Qi 芯片定制出厂默认 15W，不补发就
+           * 上报 15W 而非 NVM 档位（如 5W）。延时 100ms 等芯片上电
+           * 稳定，由 qi_power_cfg_poll 执行发送（PB2 未上电则等上电
+           * 后重新计时）。 */
+          g_qi_pwr_cfg_sent = 0U;
+          g_qi_pwr_cfg_due  = timer_get_tick() + QI_PWR_CFG_DELAY_MS;
+        }
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
         resp[2] = data[2];
