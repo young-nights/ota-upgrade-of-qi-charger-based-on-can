@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.54";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.55";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -677,6 +677,7 @@ static void proto_send_response(uint8_t *data, uint16_t len)
     uint8_t frame[8];
     uint8_t i;
     uint8_t t;
+    uint32_t t0;
     frame[0] = ISOTP_PCI_TYPE_SF | (uint8_t)len;
     for (i = 0; i < len; i++)
     {
@@ -686,12 +687,26 @@ static void proto_send_response(uint8_t *data, uint16_t len)
     {
       frame[i] = 0xCCU;
     }
-    for (t = 0; t < 20U; t++)
+    /* 1ms 间隔重试：isotp_message_received 刚发完 AA55 标记帧，CAN 邮箱
+     * 被占用 ~0.5ms（250kbps 一帧）。此前 20 次微秒级紧循环根本等不到
+     * 邮箱释放——每个 SF 应答都落 g_tx_pend 单槽，且后写覆盖前写：
+     * 唤醒 burst 的迟到 7E 00 会盖掉 10 02 的 50 02、22 21 33 的应答
+     * 亦然（主机侧表现为「UDS 无应答」）。正常 1~2 次（约 1ms）即发出，
+     * 30ms 预算兜底连续占用。 */
+    for (t = 0; t < 30U; t++)
     {
       if (can_driver_send(CAN_PROTO_UDS_RESPONSE, frame, 8U) == 0)
       {
         return;
       }
+      t0 = timer_get_tick();
+      while ((timer_get_tick() - t0) < 1U)
+      { __NOP(); }
+    }
+    /* 单槽保护：keep-alive 应答（7E）不得覆盖在途真实应答 */
+    if ((g_tx_pend_len != 0U) && (len >= 1U) && (data[0] == 0x7EU))
+    {
+      return;
     }
     /* 20 次都被拒（邮箱持续满/写锁）：落 g_tx_pend 由 poll 冲刷。
      * 注意存原始 UDS 载荷（非组帧后 8B）——flush 会再过 isotp_tx_send 组帧。 */

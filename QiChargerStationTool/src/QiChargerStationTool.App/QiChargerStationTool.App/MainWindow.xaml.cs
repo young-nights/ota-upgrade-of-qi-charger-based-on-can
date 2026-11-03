@@ -653,7 +653,7 @@ public partial class MainWindow : Window
             n++;
             var r = await Task.Run(() =>
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 },
-                    timeoutMs: 1500, ct: ct), ct);
+                    timeoutMs: 1500, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
             if (r.Ok)
             {
                 log?.Invoke($"[就绪] 第 {n} 次探测 UDS 应答，设备就绪");
