@@ -64,6 +64,11 @@ void board_5v_set(uint8_t on)
   }
 }
 
+uint8_t board_5v_is_on(void)
+{
+  return (gpio_output_data_bit_read(GPIOB, GPIO_PINS_2) != RESET) ? 1U : 0U;
+}
+
 void board_12v_buck_set(uint8_t on)
 {
   /* low = enable */

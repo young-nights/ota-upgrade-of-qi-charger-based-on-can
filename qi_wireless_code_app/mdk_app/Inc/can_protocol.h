@@ -199,6 +199,7 @@ extern "C" {
 /* ========================================================================== */
 
 #define NVM_OFFSET_POWER_LIMIT      0x100U    /*!< DID 0x210D power limit 档位码 (QI_POWER_*) */
+#define NVM_OFFSET_CHARGE_ENABLE    0x104U    /*!< DID 0x2101 充电使能 0/1，掉电续充恢复用 */
 
 /* ========================================================================== */
 /*  RoutineControl routine IDs                                               */

@@ -172,7 +172,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.48** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.52** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -182,6 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-03 | **feat(qi): 充电使能/功率 NVM 掉电续充 + Qi 版本持久化修复**。①DID 0x2101 充电使能改 NVM 持久化（新增 `NVM_OFFSET_CHARGE_ENABLE` 0x104）：CCU 写入时先置标志→写 flash→再执行门控；上电 `qi_nvm_load_config` 恢复使能，充电是否开启仍由 `board_charge_poll` 霍尔条件（PA0）把关——颠簸断电续充。②功率档位 NVM 加载后补下发 Qi 芯片：`qi_apply_power_cfg`/`qi_power_cfg_poll` 跟踪 PB2 上电（`board_5v_is_on`），探测窗口/充电启动/IAP 完成后各补发一次 `qi_protocol_set_power`。③修复 Qi 版本断电读回旧版本：`can_proto_qi_version_probe` 先监听实时 CMD 0x01 再回退 Flash 缓存（原逻辑预载缓存致监听循环立即退出、新版本永不落盘）；新增 `qi_ver_persist_if_changed`，升级刷新（阻塞/轮询）与版本问询回复后均持久化到 device_info。`SW_VERSION_STR` 1.1.51→1.1.52 |
 | 2026-11-01 | **feat(qi): 新增 DID 0x2111 暴露 Qi 状态原始字节**（含保护位 b3=OVP b4=UVP b5=OCP b6=OTP b7=FOD + b0=PING b1=CHARGING b2=FULL），供上位机逐位显示保护状态。`SW_VERSION_STR` 1.1.47→1.1.48 |
 | 2026-10-28 | **refactor(diag): E 诊断帧重排为连续序列 E0~E3**（原 E0/E2/E3/E4 缺 E1）。E0 全局快照不变；原 E2→E1（fc/MASK）、E3→E2（ID/DM0-1）、E4→E3（DM2-7），内容与格式不变、仅编号顺移。`SW_VERSION_STR` 1.1.46→1.1.47 |
 | 2026-10-28 | **feat(config): E 诊断帧宏开关 `CAN_LP_EFRAME_ENABLE`**（app_config.h，默认 1）。置 0 时 `can_lp_enter_sleep` 的 E0/E2/E3/E4 快照帧整段不编译（0x18FF270D，量产屏蔽用）；UDS 组包标记 AA55 不受控。`SW_VERSION_STR` 1.1.45→1.1.46 |

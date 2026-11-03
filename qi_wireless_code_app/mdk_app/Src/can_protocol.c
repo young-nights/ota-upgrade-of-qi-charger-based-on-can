@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.51";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.52";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -157,7 +157,7 @@ static uint32_t g_qi_ver_q_start_ms = 0U;
 /*  Qi charging state variables                                              */
 /* ========================================================================== */
 
-static uint8_t  g_qi_charger_enable   = 0U;     /*!< DID 0x2101: volatile, reset to 0 */
+static uint8_t  g_qi_charger_enable   = 0U;     /*!< DID 0x2101: NVM 持久化（NVM_OFFSET_CHARGE_ENABLE），掉电续充 */
 static uint8_t  g_qi_charge_state     = QI_CHARGE_DISABLED;  /*!< DID 0x2102 */
 static uint8_t  g_qi_device_present   = 0U;     /*!< DID 0x2103 */
 static uint16_t g_qi_output_power_mw  = 0U;     /*!< DID 0x2104, mW */
@@ -172,6 +172,7 @@ static uint8_t  g_qi_status_raw       = 0U;     /*!< DID 0x2111, Qi status byte 
 
 /* Qi persistent config (loaded from NVM at init) */
 static uint16_t g_qi_power_level      = QI_POWER_15W;  /*!< DID 0x210D 档位码 (QI_POWER_*), 默认 15W */
+static uint8_t  g_qi_pwr_cfg_sent     = 0U;   /*!< 本次 Qi 上电后功率配置已下发（PB2 断电/IAP 完成后清零重发） */
 
 /** @brief  SIT1145 Normal + CAN online. Power-on is Normal (idle 30 s → Sleep). */
 static uint8_t  g_can_awake = 0;
@@ -974,6 +975,29 @@ void can_proto_qi_iap_reset(void)
   g_qi_iap_pending_did[0] = 0U;
   g_qi_iap_pending_did[1] = 0U;
   g_qi_iap_pending_chunk = 0U;
+  /* Qi 芯片 IAP 后重启丢配置：清标志让 qi_power_cfg_poll 补发功率档位 */
+  g_qi_pwr_cfg_sent = 0U;
+}
+
+/**
+ * @brief  Qi 版本缓存持久化（RAM → Flash，仅变化时写）
+ * @note   升级完成/上电探测/问询回复拿到真实版本后调用。
+ *         断电重启后 probe 凭 Flash 缓存兜底，避免读回旧版本
+ *         （SIT1145 Sleep = AT32 整板断电，RAM 缓存必然丢失）。
+ */
+static void qi_ver_persist_if_changed(void)
+{
+  uint8_t cmaj, cmin, cpk;
+
+  if (g_qi_fw_version_valid == 0U)
+  {
+    return;
+  }
+  if ((device_info_read_qi_version(&cmaj, &cmin, &cpk) != 0) ||
+      (cmaj != g_qi_ver_major) || (cmin != g_qi_ver_minor) || (cpk != g_qi_ver_patch))
+  {
+    (void)device_info_write_qi_version(g_qi_ver_major, g_qi_ver_minor, g_qi_ver_patch);
+  }
 }
 
 /**
@@ -1013,6 +1037,8 @@ void can_proto_qi_version_refresh_blocking(uint16_t timeout_ms)
     qi_protocol_poll();
     if (g_qi_fw_version_valid != 0U)
     {
+      /* 升级后新版本持久化：断电/休眠重启不得读回旧版本 */
+      qi_ver_persist_if_changed();
       return;  /* 自动上报已到达，缓存已刷新 */
     }
   }
@@ -1043,6 +1069,8 @@ static void qi_ver_refresh_poll(void)
   {
     g_qi_ver_refresh_pending = 0U;
     refresh_start_ms = 0U;
+    /* 升级后新版本持久化：断电/休眠重启不得读回旧版本 */
+    qi_ver_persist_if_changed();
     /* 若 DID 0x2013 正在等延迟应答，现在回复 */
     if (g_qi_ver_q_state == 1U)
     {
@@ -1197,6 +1225,8 @@ static uint32_t generate_random_seed(void)
 
 /**
  * @brief  load persistent Qi config from NVM
+ * @note   上电先读充电使能标志（掉电续充），再读功率档位；
+ *         充电是否真正开启仍由 board_charge_poll 的霍尔条件把关。
  */
 static void qi_nvm_load_config(void)
 {
@@ -1225,6 +1255,15 @@ static void qi_nvm_load_config(void)
         g_qi_power_level = QI_POWER_15W;
       }
     }
+    /* 充电使能：CCU 下发 0x2101 时已先写 flash；此处恢复到 RAM + 门控逻辑 */
+    if (nvm_drv_read(NVM_OFFSET_CHARGE_ENABLE, buf, 1U) == NVM_STATUS_OK)
+    {
+      if (buf[0] == 0x01U)
+      {
+        g_qi_charger_enable = 1U;
+        board_charge_set_enable(1U);
+      }
+    }
   }
 }
 
@@ -1242,6 +1281,39 @@ static int8_t qi_nvm_save(uint16_t offset, const uint8_t *data, uint16_t len)
     return -1;
   }
   return 0;
+}
+
+/* Qi 供电上沿后功率配置下发跟踪：PB2 上电（chip 掉电重启）即需重发 */
+/**
+ * @brief  将 NVM 功率档位下发给 Qi 芯片（chip 需已上电）
+ * @note   上电探测窗口与 PB2 上升沿各调一次；IAP 期间不发（避免 UART 交叉）。
+ */
+static void qi_apply_power_cfg(void)
+{
+  if (g_qi_iap_state != QI_IAP_IDLE)
+  {
+    return;
+  }
+  (void)qi_protocol_set_power((uint8_t)g_qi_power_level, 0U);
+  g_qi_pwr_cfg_sent = 1U;
+}
+
+/**
+ * @brief  Qi 供电状态跟踪（can_protocol_poll 每轮调用）
+ * @note   PB2 断电清零重发标志；上电后补发一次功率配置
+ *         （Qi 芯片掉电丢失配置，重上电须重新下发）。
+ */
+static void qi_power_cfg_poll(void)
+{
+  if (board_5v_is_on() == 0U)
+  {
+    g_qi_pwr_cfg_sent = 0U;
+    return;
+  }
+  if (g_qi_pwr_cfg_sent == 0U)
+  {
+    qi_apply_power_cfg();
+  }
 }
 
 static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
@@ -1902,7 +1974,14 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
           return;
         }
+        /* 掉电续充：先置充电状态标志 → 写 flash → 再执行门控
+         * （板载电池颠簸松脱断电后，上电凭 flash 标志恢复充电意图） */
         g_qi_charger_enable = val;
+        {
+          uint8_t nvm_buf[1];
+          nvm_buf[0] = val;
+          (void)qi_nvm_save(NVM_OFFSET_CHARGE_ENABLE, nvm_buf, 1U);
+        }
         board_charge_set_enable(val);  /* CCU enable; PB2 controlled by charge_poll */
         resp[0] = UDS_SID_WRITE_DATA_BY_ID + UDS_POSITIVE_RESPONSE_OFFSET;
         resp[1] = data[1];
@@ -2392,6 +2471,7 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
       qi_ver_parse_xyz(vsrc, vlen, &g_qi_ver_major, &g_qi_ver_minor, &g_qi_ver_patch);
       g_qi_fw_version_valid = 1U;
       g_qi_ver_q_state      = 0U;
+      qi_ver_persist_if_changed();
       qi_ver_send_full_response();
       return;
     }
@@ -2892,6 +2972,7 @@ void can_protocol_poll(void)
   qi_ver_query_poll();
   qi_ver_refresh_poll();
   ota_dl_poll();
+  qi_power_cfg_poll();
 
   /* Qi IAP auto-complete: if all data sent and no ACK within timeout,
    * assume success — but only if Qi chip has not reported FAILED.
@@ -3341,7 +3422,32 @@ void can_proto_qi_version_probe(void)
 {
   uint32_t t0;
 
-  /* 如果 Flash 中已有缓存版本，直接加载到 RAM */
+  /* PB2 上电给 Qi 芯片供电 */
+  board_5v_set(1U);
+
+  /* Qi 芯片上电启动时间 */
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < QI_VER_PROBE_POWERUP_MS)
+  { __NOP(); }
+
+  /* 上电后给 Qi 芯片下发功率配置（NVM 档位，chip 掉电丢失配置须重发） */
+  qi_apply_power_cfg();
+
+  /* 被动监听 CMD 0x01 上报（不主动发 CMD 0x03）。
+   * 监听期间 g_qi_fw_version_valid 只由帧回调置 1 = 实时上报到达；
+   * 切勿预先加载 Flash 版本置 valid，否则此循环立即退出，实时
+   * 版本永远收不到、Flash 也不会更新（升级后断电读回旧版本的根因）。 */
+  t0 = timer_get_tick();
+  while ((timer_get_tick() - t0) < QI_VER_PROBE_LISTEN_MS)
+  {
+    qi_protocol_poll();
+    if (g_qi_fw_version_valid != 0U)
+    {
+      break;
+    }
+  }
+
+  /* 无实时上报：回退加载 Flash 缓存版本（仅作 UDS 应答兜底） */
   if (g_qi_fw_version_valid == 0U)
   {
     uint8_t cmaj, cmin, cpk;
@@ -3353,35 +3459,10 @@ void can_proto_qi_version_probe(void)
       g_qi_fw_version_valid = 1U;
     }
   }
-
-  /* PB2 上电给 Qi 芯片供电 */
-  board_5v_set(1U);
-
-  /* Qi 芯片上电启动时间 */
-  t0 = timer_get_tick();
-  while ((timer_get_tick() - t0) < QI_VER_PROBE_POWERUP_MS)
-  { __NOP(); }
-
-  /* 被动监听 CMD 0x01 上报（不主动发 CMD 0x03）*/
-  t0 = timer_get_tick();
-  while ((timer_get_tick() - t0) < QI_VER_PROBE_LISTEN_MS)
+  else
   {
-    qi_protocol_poll();
-    if (g_qi_fw_version_valid != 0U)
-    {
-      break;
-    }
-  }
-
-  /* 持久化到 Flash（仅当 RAM 版本有效且与 Flash 不同时写入） */
-  if (g_qi_fw_version_valid != 0U)
-  {
-    uint8_t cmaj, cmin, cpk;
-    if ((device_info_read_qi_version(&cmaj, &cmin, &cpk) != 0) ||
-        (cmaj != g_qi_ver_major) || (cmin != g_qi_ver_minor) || (cpk != g_qi_ver_patch))
-    {
-      (void)device_info_write_qi_version(g_qi_ver_major, g_qi_ver_minor, g_qi_ver_patch);
-    }
+    /* 实时上报已到：版本变化则持久化（升级后的首次上电在此落盘） */
+    qi_ver_persist_if_changed();
   }
 
   /* 清空残余 UART 数据 */
