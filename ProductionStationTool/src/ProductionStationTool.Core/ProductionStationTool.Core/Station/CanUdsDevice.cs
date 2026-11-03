@@ -192,9 +192,11 @@ public sealed class CanUdsDevice : IDisposable
 
     /// <summary>
     /// OTA 升级（通信设计对齐 QiChargerStationTool 的 RunUpgradeAsync）：
-    /// XATO 镜像解析 → 唤醒就绪 → 门禁（10 02 + SA + 2E 20 10，NRC 0x22/0x33
-    /// 会话/安全丢失时整套重做一次）→ 31 擦除备份区 → 34/36 传输（进度回调
-    /// + 逐块耗时遥测）→ 37 收尾（设备自复位搬运，异常容忍）。
+    /// XATO 镜像解析（magic/长度/CRC32 烧前校验）→ 唤醒就绪 → 门禁（10 02 +
+    /// SA + 2E 20 10，NRC 0x22/0x33 会话/安全丢失时整套重做一次）→ 31 擦除
+    /// 备份区 → 34/36 传输（进度回调 + 逐块耗时遥测）→ 37 收尾（设备自复位
+    /// 搬运，异常容忍）→ **版本回读验证**（等复位搬运后读 0xF195 比对镜像
+    /// 版本，验签失败回滚会在此暴露）。
     /// otaTarget：0x01=MCU1/APP（XATO 签名镜像），0x04=MCU2/Qi（原始 bin）。
     /// transferBlock：请求块长上限；0=按 0x34 应答宣告的 maxBlockLen 自适应
     /// （固件 MCU1=256 / MCU2=22，往返次数减半提速），工具侧封顶 256。
@@ -360,6 +362,29 @@ public sealed class CanUdsDevice : IDisposable
                 Log?.Invoke($"37 异常（设备可能已自复位）: {ex.Message}");
             }
             progress?.Report(new OtaProgress(100, "完成"));
+
+            // 版本回读验证（闭环到 PASS/FAIL）：设备自复位后 BOOT 搬运
+            // 备份区→App 并验签，验签失败回滚旧 App——复位后读 0xF195
+            // 与镜像版本串比对，不符即暴露。等 5s 完成搬运再唤醒读取。
+            if (otaTarget == 0x01 && verHint.Length > 0)
+            {
+                Log?.Invoke("[验证] 等待设备自复位搬运（约 5s）…");
+                await Task.Delay(5000, ct);
+                if (!await WaitReadyAsync(ct))
+                    return (false, "OTA 传输完成，但复位后设备无应答（无法验证版本）");
+                var vs = await Task.Run(() => _uds.TryReadAllVersions(ct), ct);
+                var read = vs.Mcu1App;
+                if (string.Equals(read, verHint, StringComparison.Ordinal))
+                {
+                    Log?.Invoke($"[验证] 版本回读 {read} = 镜像版本，升级生效");
+                }
+                else
+                {
+                    return (false,
+                        $"OTA 后版本回读不符：镜像={verHint} 实际={read ?? "(空)"}" +
+                        "（疑验签失败已回滚，请重试或换镜像）");
+                }
+            }
             return (true, $"传输 {size}B 完成" + (verHint.Length > 0 ? $" ver={verHint}" : ""));
         }, ct);
     }

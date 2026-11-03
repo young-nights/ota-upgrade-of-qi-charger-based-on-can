@@ -433,8 +433,6 @@ public partial class Station1Control : UserControl, IStationPage
             var (ok, detail) = await _can.OtaUpgradeAsync(path, 0x01, 0, progress);
             TxtOtaStatus.Text = ok ? $"完成：{detail}" : $"失败：{detail}";
             LogPanel.Append(ok ? $"[OTA] 升级成功：{detail}" : $"[OTA] 升级失败：{detail}");
-            if (ok)
-                LogPanel.Append("[OTA] 设备自复位搬运中，稍候可「开始测试」读版本验证");
         }
         catch (Exception ex)
         {
