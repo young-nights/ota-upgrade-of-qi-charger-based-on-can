@@ -191,16 +191,18 @@ public sealed class CanUdsDevice : IDisposable
     }
 
     /// <summary>
-    /// OTA 升级（设计对齐 QiChargerStationTool 的 RunUpgradeAsync）：
+    /// OTA 升级（通信设计对齐 QiChargerStationTool 的 RunUpgradeAsync）：
     /// XATO 镜像解析 → 唤醒就绪 → 门禁（10 02 + SA + 2E 20 10，NRC 0x22/0x33
-    /// 会话/安全丢失时整套重做一次）→ 31 擦除备份区 → 34/36 传输（进度回调）
-    /// → 37 收尾（设备自复位搬运，异常容忍）。
+    /// 会话/安全丢失时整套重做一次）→ 31 擦除备份区 → 34/36 传输（进度回调
+    /// + 逐块耗时遥测）→ 37 收尾（设备自复位搬运，异常容忍）。
     /// otaTarget：0x01=MCU1/APP（XATO 签名镜像），0x04=MCU2/Qi（原始 bin）。
+    /// transferBlock：请求块长上限；0=按 0x34 应答宣告的 maxBlockLen 自适应
+    /// （固件 MCU1=256 / MCU2=22，往返次数减半提速），工具侧封顶 256。
     /// </summary>
     public async Task<(bool Ok, string Detail)> OtaUpgradeAsync(
         string imagePath,
         byte otaTarget = 0x01,
-        int transferBlock = 128,
+        int transferBlock = 0,
         IProgress<OtaProgress>? progress = null,
         CancellationToken ct = default)
     {
@@ -295,15 +297,30 @@ public sealed class CanUdsDevice : IDisposable
             }, timeoutMs: 8000, ct: ct);
             if (!rd.Ok)
                 return (false, $"34 RequestDownload 失败: {rd.Error}");
-            Log?.Invoke($"34 RequestDownload {size}B @ 0x08010000 block={transferBlock}");
+
+            // 34 正响应 74 20 <maxBlockLen:2B>：按设备宣告取块长（固件
+            // MCU1=256 / MCU2=22）——块长翻倍则 0x36 往返次数减半，传输
+            // 近似提速一倍；请求块长只作上限（0=自适应）。工具侧封顶 256。
+            ushort advertised = 128;
+            if (rd.Data.Length >= 4)
+            {
+                ushort m = (ushort)((rd.Data[2] << 8) | rd.Data[3]);
+                if (m > 0) advertised = m;
+            }
+            int block = transferBlock > 0 ? Math.Min(transferBlock, advertised) : advertised;
+            if (block > 256) block = 256;
+            if (block < 1) block = 1;
+            Log?.Invoke($"34 RequestDownload {size}B @ 0x08010000 block={block}（设备宣告 {advertised}）");
 
             int off = 0, seq = 1, blk = 0;
-            int nblocks = (size + transferBlock - 1) / transferBlock;
+            int nblocks = (size + block - 1) / block;
             int lastPct = -1;
+            long sumSend = 0, sumRecv = 0, sumFc = 0;
+            var swTr = System.Diagnostics.Stopwatch.StartNew();
             while (off < size)
             {
                 ct.ThrowIfCancellationRequested();
-                int n = Math.Min(transferBlock, size - off);
+                int n = Math.Min(block, size - off);
                 var payload = new byte[1 + n];
                 payload[0] = (byte)(seq & 0xFF);
                 Buffer.BlockCopy(raw, off, payload, 1, n);
@@ -311,18 +328,26 @@ public sealed class CanUdsDevice : IDisposable
                     timeoutMs: 8000, waitPendingMs: 30_000, ct: ct);
                 if (!t.Ok)
                     return (false, $"36 块 {blk + 1}/{nblocks} 失败: {t.Error}");
+                sumSend += _uds.LastSendMs;
+                sumRecv += _uds.LastRecvMs;
+                sumFc += _uds.LastFcTries;
                 off += n;
                 blk++;
                 seq = (seq + 1) & 0xFF;
 
-                // 每 2% 或首尾报一次进度
+                // 每 2% 或首尾报一次进度（带均速，便于判读传输效率）
                 int pct = size > 0 ? (int)(off * 100L / size) : 100;
                 if (pct != lastPct && (pct % 2 == 0 || off >= size))
                 {
                     lastPct = pct;
-                    progress?.Report(new OtaProgress(pct, $"传输中 {blk}/{nblocks} 块 {off}/{size}B"));
+                    progress?.Report(new OtaProgress(pct,
+                        $"传输中 {blk}/{nblocks} 块  {off}/{size}B  " +
+                        $"均 {swTr.Elapsed.TotalMilliseconds / blk:F1}ms/块"));
                 }
             }
+            Log?.Invoke($"[计时] 传输 {swTr.Elapsed.TotalSeconds:F1}s / {nblocks} 块 = " +
+                        $"{swTr.Elapsed.TotalMilliseconds / nblocks:F1}ms/块" +
+                        $"（发 {sumSend / nblocks} + 等 {sumRecv / nblocks}ms，FC重试 {sumFc}/{nblocks}）");
 
             try
             {

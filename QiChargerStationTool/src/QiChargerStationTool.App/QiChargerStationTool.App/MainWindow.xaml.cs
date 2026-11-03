@@ -627,13 +627,13 @@ public partial class MainWindow : Window
             return !fail;
         });
 
-    /// <summary>OTA：MCU1 APP，块 128B，使用 AT32 OTA 固件路径。</summary>
+    /// <summary>OTA：MCU1 APP，块长按 0x34 宣告自适应（固件 256B，往返减半），使用 AT32 OTA 固件路径。</summary>
     private async void OnOtaUpgrade(object sender, RoutedEventArgs e)
-        => await RunUpgradeAsync("OTA 升级", otaTarget: 0x01, transferBlock: 128,
+        => await RunUpgradeAsync("OTA 升级", otaTarget: 0x01, transferBlock: 0,
                                  fwPath: TxtOtaFirmware.Text.Trim(),
                                  timeout: TimeSpan.FromMinutes(20));
 
-    /// <summary>IAP：Qi 芯片 MCU2，块 22B（QI_IAP_MAX_CHUNK），使用 QI IAP 固件路径。</summary>
+    /// <summary>IAP：Qi 芯片 MCU2，块 22B 封顶（QI_IAP_MAX_CHUNK，0x34 亦宣告 22），使用 QI IAP 固件路径。</summary>
     private async void OnIapUpgrade(object sender, RoutedEventArgs e)
         => await RunUpgradeAsync("IAP 升级", otaTarget: 0x04, transferBlock: 22,
                                  fwPath: TxtIapFirmware.Text.Trim(),
@@ -806,13 +806,26 @@ public partial class MainWindow : Window
                     return false;
                 AppendLog("31 擦除完成");
 
-                if (!await MustStep(await Task.Run(() => uds.TryRequest(ProtoIds.SidRd, new byte[]
+                var rdResp = await Task.Run(() => uds.TryRequest(ProtoIds.SidRd, new byte[]
                 {
                     0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
                     (byte)(size >> 24), (byte)(size >> 16), (byte)(size >> 8), (byte)size,
-                }, timeoutMs: 8000), ct), "34 RequestDownload"))
+                }, timeoutMs: 8000), ct);
+                if (!await MustStep(rdResp, "34 RequestDownload"))
                     return false;
-                AppendLog($"34 RequestDownload {size}B @ 0x08010000 block={transferBlock}");
+                // 34 正响应 74 20 <maxBlockLen:2B>：按设备宣告取块长（固件
+                // MCU1=256 / MCU2=22）——块长翻倍则 0x36 往返次数减半；
+                // transferBlock 只作上限（0=自适应）。工具侧封顶 256。
+                ushort advertised = 128;
+                if (rdResp.Data.Length >= 4)
+                {
+                    ushort m = (ushort)((rdResp.Data[2] << 8) | rdResp.Data[3]);
+                    if (m > 0) advertised = m;
+                }
+                transferBlock = transferBlock > 0 ? Math.Min(transferBlock, advertised) : advertised;
+                if (transferBlock > 256) transferBlock = 256;
+                if (transferBlock < 1) transferBlock = 1;
+                AppendLog($"34 RequestDownload {size}B @ 0x08010000 block={transferBlock}（设备宣告 {advertised}）");
 
                 int off = 0, seq = 1, blk = 0;
                 int nblocks = (size + transferBlock - 1) / transferBlock;
