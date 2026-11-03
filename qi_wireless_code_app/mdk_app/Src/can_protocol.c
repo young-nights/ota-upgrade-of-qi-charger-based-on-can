@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.53";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.54";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2597,16 +2597,19 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
 
     /* 帧布局（docs/4. IAP数据通信协议规范.md §2.1，0 基帧偏移）：
      *   data[0-1] = status1/status2（帧偏移 4-5）
-     *   data[2-3] = 实时功率 LE mW（帧偏移 6-7）
+     *   data[2-3] = 实时功率 大端 mW（帧偏移 6-7）
      *   data[4-6] = 版本号 major.minor.patch（帧偏移 8-10，三字节）
      * 扩展帧 (≥13B) 额外字段：
      *   data[7]   = voltage, data[8] = current, data[9] = temp
      *   data[10]  = FOD, data[11] = reserved, data[12] = fault
      *   data[13]  = thermal derate
      *
-     * NOTE: 版本从 2 字节 BE 整数改为 3 字节 major.minor.patch（2026-10-16）。 */
-    g_qi_output_power_mw = (uint16_t)frame->data[2]
-                         | ((uint16_t)frame->data[3] << 8);
+     * NOTE: 版本从 2 字节 BE 整数改为 3 字节 major.minor.patch（2026-10-16）。
+     * NOTE: 实时功率为 2 字节**大端**（协议表 IAP 大小/地址明写高八位在前，
+     *       版本字段 1.1.20 实测同为大端）；此前按小端拼导致字节颠倒
+     *       （小功率被放大，如 826mW 读成 14851mW）。 */
+    g_qi_output_power_mw = ((uint16_t)frame->data[2] << 8)
+                         | (uint16_t)frame->data[3];
     g_qi_ver_major = frame->data[4];
     g_qi_ver_minor = frame->data[5];
     g_qi_ver_patch = frame->data[6];

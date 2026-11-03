@@ -36,7 +36,7 @@ public sealed class OtaUpgradeStep : ITestStep
                 return new TestStepResult { Name = Name, Status = TestStepStatus.Failed, Message = "SA 解锁失败" };
 
             // 2E 20 10 01 MCU1
-            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x20, 0x10, 0x01 }, expectSub: 0x20);
+            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x20, 0x10, 0x01 }, expectSub: 0x20, expectDid: ProtoIds.DidFwType);
             ctx.Log("目标 MCU1");
 
             // 31 erase backup
@@ -108,10 +108,10 @@ public sealed class ChargeTestStep : ITestStep
             ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }, expectSub: 0x03); // extended
             ctx.Uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x80 });
             // enable
-            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x01 }, expectSub: 0x21);
+            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x01 }, expectSub: 0x21, expectDid: ProtoIds.DidChargerEnable);
             await Task.Delay(1000, ct);
             // disable
-            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x00 }, expectSub: 0x21);
+            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x00 }, expectSub: 0x21, expectDid: ProtoIds.DidChargerEnable);
             return new TestStepResult { Name = Name, Status = TestStepStatus.Passed, Message = "启停正常" };
         }
         catch (Exception ex)

@@ -65,7 +65,8 @@ public sealed class UdsClient
     /// </summary>
     public UdsResult TryRequest(byte sid, byte[] payload, int timeoutMs = 3000,
                                 int waitPendingMs = 45_000, byte? expectSub = null,
-                                CancellationToken ct = default)
+                                CancellationToken ct = default,
+                                ushort? expectDid = null)
     {
         try
         {
@@ -90,6 +91,11 @@ public sealed class UdsClient
                             return d.Length >= 2 && d[1] == sid;
                         if (d[0] != sid + ProtoIds.SidPr) return false;
                         if (expectSub is { } sub && (d.Length < 2 || d[1] != sub)) return false;
+                        // RDBI/WDBI 必须核对回显 DID（d[1..2]）：只匹配 SID 会把
+                        // 慢应答/残留应答错配成当前请求的结果（实测请求 40ms 一个、
+                        // 应答 ~110ms 一个，值整体错位，功率吃到电压/电流字节）
+                        if (expectDid is { } ed && (d.Length < 3 || (d[1] << 8 | d[2]) != ed))
+                            return false;
                         return true;
                     },
                     timeoutMs, ct);
@@ -136,9 +142,9 @@ public sealed class UdsClient
     /// <summary>需要正响应的封装：失败抛 <see cref="UdsException"/>（供 Station 步骤用）。</summary>
     public byte[] Request(byte sid, byte[] payload, int timeoutMs = 3000,
                           int waitPendingMs = 45_000, byte? expectSub = null,
-                          CancellationToken ct = default)
+                          CancellationToken ct = default, ushort? expectDid = null)
     {
-        var r = TryRequest(sid, payload, timeoutMs, waitPendingMs, expectSub, ct);
+        var r = TryRequest(sid, payload, timeoutMs, waitPendingMs, expectSub, ct, expectDid);
         if (r.Ok) return r.Data;
         throw new UdsException(sid, r.Nrc, r.Error);
     }
@@ -164,7 +170,8 @@ public sealed class UdsClient
     /// <summary>读软件版本；失败返回 (false, 错误信息)。</summary>
     public (bool Ok, string Version, string Error) TryReadSwVersion(CancellationToken ct = default)
     {
-        var r = TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 3000, ct: ct);
+        var r = TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 }, timeoutMs: 3000, ct: ct,
+                           expectDid: ProtoIds.DidSwVersion);
         if (!r.Ok) return (false, "", r.Error);
         if (r.Data.Length < 4) return (false, "", "F195 响应过短");
         return (true, DecodeAscii32(r.Data), "");
@@ -207,7 +214,7 @@ public sealed class UdsClient
     public (bool Ok, string Text, string Error) TryReadAsciiDid(ushort did, CancellationToken ct = default)
     {
         var r = TryRequest(ProtoIds.SidRdbi,
-            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs: 6000, ct: ct);
+            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs: 6000, ct: ct, expectDid: did);
         if (!r.Ok) return (false, "", r.Error);
         if (r.Data.Length < 4) return (false, "", $"0x{did:X4} 响应过短");
         return (true, DecodeAscii32(r.Data), "");
@@ -218,7 +225,7 @@ public sealed class UdsClient
     {
         var r = TryRequest(ProtoIds.SidRdbi,
             new byte[] { (byte)(ProtoIds.DidQiFwVersion >> 8), (byte)(ProtoIds.DidQiFwVersion & 0xFF) },
-            timeoutMs: 4000, ct: ct);
+            timeoutMs: 4000, ct: ct, expectDid: ProtoIds.DidQiFwVersion);
         if (!r.Ok) return (false, "", r.Error);
         if (r.Data.Length < 6) return (false, "", "2133 响应过短");
         return (true, $"QC_JYF_MCU2_FW_{r.Data[3]}.{r.Data[4]}.{r.Data[5]}", "");
@@ -241,7 +248,7 @@ public sealed class UdsClient
 
     public byte ReadSlot()
     {
-        var rx = Request(ProtoIds.SidRdbi, new byte[] { 0x21, 0x13 });
+        var rx = Request(ProtoIds.SidRdbi, new byte[] { 0x21, 0x13 }, expectDid: ProtoIds.DidSlot);
         return rx.Length >= 4 ? rx[3] : (byte)0xFF;
     }
 
@@ -249,13 +256,13 @@ public sealed class UdsClient
     public UdsResult TryWriteDid(ushort did, byte[] data, int timeoutMs = 4000)
         => TryRequest(ProtoIds.SidWdbi,
             new byte[] { (byte)(did >> 8), (byte)did }.Concat(data).ToArray(), timeoutMs,
-            expectSub: (byte)(did >> 8));
+            expectSub: (byte)(did >> 8), expectDid: did);
 
     /// <summary>ReadDataByIdentifier → 数据区；失败返回 (null, error)。</summary>
     public (byte[]? Data, string Error) TryReadDid(ushort did, int timeoutMs = 3000)
     {
         var r = TryRequest(ProtoIds.SidRdbi,
-            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs);
+            new byte[] { (byte)(did >> 8), (byte)did }, timeoutMs, expectDid: did);
         if (!r.Ok) return (null, r.Error);
         if (r.Data.Length < 3) return (null, $"DID 0x{did:X4} 响应过短");
         return (r.Data[3..], "");

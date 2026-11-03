@@ -15,7 +15,7 @@ public sealed class ReadSnStep : ITestStep
         await Task.Yield();
         try
         {
-            var rx = ctx.Uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000);
+            var rx = ctx.Uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000, expectDid: ProtoIds.DidSn);
             if (rx.Length < 4)
                 return new TestStepResult { Name = Name, Status = TestStepStatus.Failed, Message = "F18C 响应过短" };
             // 32B ASCII, space-padded
@@ -76,11 +76,11 @@ public sealed class WriteSnStep : ITestStep
             payload[0] = 0xF1;
             payload[1] = 0x8C;
             body.CopyTo(payload, 2);
-            ctx.Uds.Request(ProtoIds.SidWdbi, payload, timeoutMs: 5000, expectSub: 0xF1);
+            ctx.Uds.Request(ProtoIds.SidWdbi, payload, timeoutMs: 5000, expectSub: 0xF1, expectDid: ProtoIds.DidSn);
             ctx.Log("2E F18C 写入完成");
 
             // read back
-            var rx = ctx.Uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000);
+            var rx = ctx.Uds.Request(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000, expectDid: ProtoIds.DidSn);
             int len = rx.Length - 3;
             while (len > 0 && (rx[3 + len - 1] is 0x00 or 0x20)) len--;
             var readBack = Encoding.ASCII.GetString(rx, 3, len);

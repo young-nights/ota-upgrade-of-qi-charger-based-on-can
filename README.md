@@ -172,7 +172,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.53** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.54** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -182,6 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-03 | **fix(qi/tool): 实时功率大端解析修正 + UDS 应答 DID 匹配修正**。①固件（can_protocol.c）：Qi 0x01 上报帧「实时功率」2 字节按**大端**解析（协议表 IAP 大小/地址明写高八位在前，版本字段 1.1.20 实测同为大端；此前按小端拼导致字节颠倒——826mW 读成 14851mW，"偶发大数"根源之一）；docs/4 功率字段注记同步。②上位机（UdsClient）：`TryRequest` 新增 `expectDid` 参数，RDBI/WDBI 应答必须核对回显 DID（d[1..2]）——此前只匹配 SID(0x62/0x6E)，设备应答慢（~110ms）而请求间隔快（~40ms）时每个读都吃掉上一个请求的应答、值整体错位（功率吃到 0x2105 电压/电流字节 = "偶发大数"主因）；TryReadDid/TryWriteDid/TryReadSwVersion/TryReadAsciiDid/TryReadQiFwVersion/ReadSlot 及产线步骤 OtaSteps/SnSteps 全部传 expectDid（新增 ProtoIds.DidChargerEnable 常量）。`SW_VERSION_STR` 1.1.53→1.1.54 |
 | 2026-11-03 | **fix(tool): 「Qi 状态检测」按钮门禁与命名调整**（仅 QiChargerStationTool）：按钮文案恒定「Qi 状态检测」，运行态仅橙底区分（不再换字）；未开启充电时按钮禁用并浮窗提示——含**初始态**（`_chargeEnabled` 初始 false，本会话点过「开启充电」成功后才可点），开启充电恢复、关闭充电禁用；`UpdateQiStatusButton` 统一管理文案/底色/浮窗/可用态（操作忙碌中不误恢复） |
 | 2026-11-03 | **feat(tool): Qi 状态检查改开关式持续检查**（仅 QiChargerStationTool，固件版本不变）：「Qi 状态查询」按钮改为「开始/停止状态检查」开关——点击进入持续检查，后台每 ~1s 读 Qi 全量状态（0x2132/0x2102/0x2104/…/0x210E/0x2111）静默刷新仪表盘（不刷日志/操作记录，连续失败仅打首条与每第 10 条），再次点击停止（按钮橙底示运行中）；新增 `_udsGate`（SemaphoreSlim）与 RunOpAsync body 互斥，OTA/写 SN 等操作与轮询不交叉占用 CAN，操作期间轮询自动跳拍；关闭充电/断开连接/异常时自动停止检查 |
 | 2026-11-03 | **feat(qi): 充电次数统计（DID 0x210E）+ 上位机展示与查询门禁**。①固件：监测 Qi 状态字节2 b0（30s 去抖充电触发标志，放机稳定 30s 置 1/移开稳定 30s 清 0）的 0→1 上升沿，计一次实际充电，`g_qi_charge_count` 写 NVM（`NVM_OFFSET_CHARGE_COUNT` 0x108，uint32 LE）并在 `qi_nvm_load_config` 上电恢复；新增只读 DID 0x210E 返回 uint32 LE；docs/4 状态字节2 位定义更正为充电触发标志。②QiChargerStationTool：Qi 状态仪表盘新增「充电次数」大字与摘要行；`QiChipStatus`/`UdsClient` 增 `ChargeCount`（0x210E u32 LE）读取。③关闭充电成功后禁用「Qi 状态查询」按钮并浮窗提示原因（Qi 芯片 PB2 断电无法查询，`ToolTipService.ShowOnDisabled`）；开启充电恢复。`SW_VERSION_STR` 1.1.52→1.1.53 |
