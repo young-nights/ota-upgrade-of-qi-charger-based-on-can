@@ -16,8 +16,9 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _cts;
     /// <summary>是否有操作在跑。IsBusyGuard 只看这个，不看 _cts（否则结束后永远 true）。</summary>
     private bool _busy;
-    /// <summary>充电使能状态（关闭充电后禁用 Qi 状态查询按钮）。</summary>
-    private bool _chargeEnabled = true;
+    /// <summary>充电使能状态。初始 false（本会话尚未点过「开启充电」），
+    /// 禁用「Qi 状态检测」；开启充电成功后置 true，关闭充电后回 false。</summary>
+    private bool _chargeEnabled = false;
     /// <summary>Qi 状态持续检查开关（按钮切换）。</summary>
     private volatile bool _pollRunning;
     /// <summary>持续检查轮询任务的取消源。</summary>
@@ -213,19 +214,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 充电关闭时禁用「Qi 状态检查」按钮并浮窗（ToolTip）提示原因：
-    /// Qi 芯片由 PB2 供电，关充电即断电，查询无意义。同时停掉持续检查。
+    /// 充电未开启/关闭时禁用「Qi 状态检测」按钮并浮窗（ToolTip）提示原因：
+    /// Qi 芯片由 PB2 供电，未开充电即断电，检测无意义。同时停掉持续检查。
     /// </summary>
     private void ApplyQiStatusGate()
     {
-        const string tipOn =
-            "点击开始持续检查（Qi 芯片持续上报，仪表盘约每 1s 刷新）；再次点击停止";
-        const string tipOff =
-            "充电已关闭：Qi 芯片已断电（PB2 关闭），无法查询状态。\n请先点击「开启充电」再检查。";
         if (!_chargeEnabled)
-            StopQiPoll("充电已关闭");
-        BtnQiStatus.IsEnabled = _chargeEnabled;
-        BtnQiStatus.ToolTip = _chargeEnabled ? tipOn : tipOff;
+            StopQiPoll("充电未开启");
+        UpdateQiStatusButton();
     }
 
     private void SetState(string text, Color color, string detail = "")
@@ -900,23 +896,24 @@ public partial class MainWindow : Window
         });
 
     /// <summary>
-    /// Qi 状态检查开关：点击开始持续检查（Qi 芯片持续上报，后台每 ~1s 刷新
-    /// 仪表盘），再次点击停止。充电关闭时按钮禁用（见 ApplyQiStatusGate）。
+    /// 「Qi 状态检测」开关：点击开始持续检测（Qi 芯片持续上报，后台每 ~1s 刷新
+    /// 仪表盘），再次点击停止（运行中橙底示意）。充电未开启时按钮禁用
+    /// （见 ApplyQiStatusGate）。
     /// </summary>
     private async void OnQiStatusQuery(object sender, RoutedEventArgs e)
     {
         if (_pollRunning)
         {
             StopQiPoll("用户停止");
-            SetState("就绪", Colors.DimGray, "状态检查已停止");
+            SetState("就绪", Colors.DimGray, "Qi 状态检测已停止");
             return;
         }
         if (!_chargeEnabled)
         {
-            AppendLog("[状态检查] 充电已关闭，Qi 芯片断电，无法检查（按钮已禁用）");
+            AppendLog("[状态检测] 充电未开启，Qi 芯片断电，无法检测（按钮已禁用）");
             return;
         }
-        await RunOpAsync("状态检查启动", TimeSpan.FromSeconds(20), async (uds, ct) =>
+        await RunOpAsync("Qi 状态检测启动", TimeSpan.FromSeconds(20), async (uds, ct) =>
         {
             // 真休眠=整板断电：先唤醒 burst + 等 UDS 就绪再进入轮询
             var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
@@ -924,7 +921,7 @@ public partial class MainWindow : Window
             {
                 await UiAsync(() =>
                 {
-                    AppendResult("FAIL", "状态检查启动", readyErr);
+                    AppendResult("FAIL", "Qi 状态检测启动", readyErr);
                     SetState("失败", Colors.Crimson, readyErr);
                 });
                 return false;
@@ -934,14 +931,14 @@ public partial class MainWindow : Window
         });
     }
 
-    /// <summary>进入持续检查态：置开关标志、按钮样式，启动后台轮询任务。</summary>
+    /// <summary>进入持续检测态：置开关标志、按钮样式，启动后台轮询任务。</summary>
     private void StartQiPollUi()
     {
         _pollRunning = true;
         _pollCts = new CancellationTokenSource();
-        UpdatePollButton();
-        AppendLog("[状态检查] 已开始：仪表盘约每 1s 刷新一次；再次点击「停止状态检查」结束");
-        SetState("状态检查中", Colors.DarkOrange, "持续读取 Qi 状态，再次点击按钮停止");
+        UpdateQiStatusButton();
+        AppendLog("[状态检测] 已开始：仪表盘约每 1s 刷新一次；再次点击「Qi 状态检测」结束");
+        SetState("状态检测中", Colors.DarkOrange, "持续读取 Qi 状态，再次点击按钮停止");
         _ = QiPollLoopAsync(_pollCts.Token);
     }
 
@@ -976,7 +973,7 @@ public partial class MainWindow : Window
                     // 连续失败只打首条与每第 10 条，避免刷屏
                     failStreak++;
                     if (failStreak == 1 || failStreak % 10 == 0)
-                        await UiAsync(() => AppendLog($"[状态检查] 读取失败（连续 {failStreak} 次）: {FormatOpError(ex)}"));
+                        await UiAsync(() => AppendLog($"[状态检测] 读取失败（连续 {failStreak} 次）: {FormatOpError(ex)}"));
                 }
                 finally
                 {
@@ -988,29 +985,42 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>停止持续检查（幂等）：取消轮询任务并恢复按钮。</summary>
+    /// <summary>停止持续检测（幂等）：取消轮询任务并恢复按钮。</summary>
     private void StopQiPoll(string reason)
     {
         if (_pollCts == null && !_pollRunning) return;
         _pollRunning = false;
         try { _pollCts?.Cancel(); } catch { /* ignore */ }
         _pollCts = null;
-        UpdatePollButton();
-        AppendLog($"[状态检查] 已停止（{reason}）");
+        UpdateQiStatusButton();
+        AppendLog($"[状态检测] 已停止（{reason}）");
     }
 
-    /// <summary>按开关状态刷新按钮文案/底色（运行中=橙底「停止状态检查」）。</summary>
-    private void UpdatePollButton()
+    /// <summary>
+    /// 刷新「Qi 状态检测」按钮：文案恒定，运行态仅以橙底区分；
+    /// 未开启充电时禁用并浮窗提示原因（ToolTipService.ShowOnDisabled）。
+    /// </summary>
+    private void UpdateQiStatusButton()
     {
-        if (_pollRunning)
+        BtnQiStatus.Content = "Qi 状态检测";
+        if (!_chargeEnabled)
         {
-            BtnQiStatus.Content = "停止状态检查";
+            BtnQiStatus.IsEnabled = false;
+            BtnQiStatus.Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xE8, 0xE8));
+            BtnQiStatus.ToolTip =
+                "充电未开启：Qi 芯片未供电（PB2 关闭），无法检测。\n请先点击「开启充电」。";
+        }
+        else if (_pollRunning)
+        {
+            BtnQiStatus.IsEnabled = !_busy;
             BtnQiStatus.Background = new SolidColorBrush(Color.FromRgb(0xFF, 0xCC, 0x80));
+            BtnQiStatus.ToolTip = "正在持续检测（仪表盘约每 1s 刷新）；点击停止";
         }
         else
         {
-            BtnQiStatus.Content = "开始状态检查";
+            BtnQiStatus.IsEnabled = !_busy;
             BtnQiStatus.Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xE8, 0xE8));
+            BtnQiStatus.ToolTip = "点击开始持续检测（Qi 芯片持续上报，仪表盘约每 1s 刷新）；再次点击停止";
         }
     }
 
@@ -1167,7 +1177,7 @@ public partial class MainWindow : Window
                 Pass(name, enable ? "已开启" : "已关闭");
                 ApplyQiStatusGate();
                 if (!enable)
-                    AppendLog("[充电] 已关闭：Qi 状态查询按钮已禁用（Qi 芯片断电，查询无意义）");
+                    AppendLog("[充电] 已关闭：Qi 状态检测按钮已禁用（Qi 芯片断电，检测无意义）");
             });
             return true;
         });
