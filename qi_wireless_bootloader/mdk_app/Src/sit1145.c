@@ -296,11 +296,25 @@ uint8_t sit1145_init(void)
   spi_enable(SPI1, TRUE);
   sit1145_delay_ms(1U);
 
-  /* ---- Step 6: SPI smoke check via identification register 0x7E ---- */
-  chip_id = sit1145_read_reg(SIT1145_REG_IDENTIFICATION);
-  if ((chip_id != SIT1145_ID_AQ) && (chip_id != SIT1145_ID_AQ_FD))
+  /* ---- Step 6: SPI smoke check via identification register 0x7E ----
+   * After cold power-on (replug) the SIT1145 may not be SPI-ready yet
+   * (reads 0xFF / wrong id). Bounded retry 25x2ms=50ms covers chip boot;
+   * only give up when the retry budget is exhausted. */
   {
-    return 0;
+    uint8_t tries;
+    for (tries = 0U; tries < 25U; tries++)
+    {
+      chip_id = sit1145_read_reg(SIT1145_REG_IDENTIFICATION);
+      if ((chip_id == SIT1145_ID_AQ) || (chip_id == SIT1145_ID_AQ_FD))
+      {
+        break;
+      }
+      sit1145_delay_ms(2U);
+    }
+    if ((chip_id != SIT1145_ID_AQ) && (chip_id != SIT1145_ID_AQ_FD))
+    {
+      return 0;
+    }
   }
 
   /* ---- Step 7: Configure CAN Control register ----

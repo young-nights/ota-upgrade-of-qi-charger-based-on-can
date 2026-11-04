@@ -331,6 +331,15 @@ uint8_t sit1145_sleep_enter(void)
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT,
                     SIT1145_CW | SIT1145_WUF);
 
+  /* 1.5) 重写数据速率 DATA_RATE(0x26)=250kbps（进睡前自愈）：
+   *    WUF 检测器按该值采样总线，速率错则选择性唤醒永不匹配=睡死。
+   *    此寄存器仅 sit1145_init 步骤8 写——冷上电 init 失败（SPI 未就绪）
+   *    或 SIT1145 单独复位后即丢失；CAN 照常通（收发器默认 Normal 直通
+   *    TXD/RXD）故平时无感，唯独进睡后唤不醒。0x26 属 PN 配置区
+   *    (0x20-0x2F)写入清 PNCOK——必须在 wuf_enable 锁定(PNCOK=1)之前写。 */
+  sit1145_write_reg(SIT1145_REG_DATA_RATE, SIT1145_DEFAULT_DRATE);
+  sit1145_delay_ms(1U);
+
   /* 2) 配置选择性唤醒过滤（ID=0x18DA0D03 + DLC=8 + 数据 02 3E 00 近似，
    *    PNDM=1 ID+DLC+数据评估）
    *    每次 SPI 写入后加延时，确保收发器配置生效 */
@@ -367,7 +376,8 @@ uint8_t sit1145_sleep_enter(void)
         sit1145_delay_ms(2U);
       }
 
-      /* 全量重配（内部顺序 ID→Mask→DM→FrameCtrl） */
+      /* 全量重配（内部顺序 ID→Mask→DM→FrameCtrl；DATA_RATE 一并重写自愈） */
+      sit1145_write_reg(SIT1145_REG_DATA_RATE, SIT1145_DEFAULT_DRATE);
       (void)sit1145_wuf_config_uds();
       sit1145_delay_ms(2U);
 
@@ -375,16 +385,19 @@ uint8_t sit1145_sleep_enter(void)
       sit1145_wuf_enable();
       sit1145_delay_ms(2U);
 
-      /* 只读验证：PNCOK=1 + frame_ctrl=0xC8(IDE|PNDM|DLC=8) + ID=0x18DA0D03 */
+      /* 只读验证：PNCOK=1 + frame_ctrl=0xC8(IDE|PNDM|DLC=8) + ID=0x18DA0D03
+       *            + DATA_RATE=250k（速率错则 WUF 检测器永不匹配） */
       {
         uint8_t rb   = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
         uint8_t fc   = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
         uint8_t id0  = sit1145_read_reg(SIT1145_REG_ID_REG0);
         uint8_t id3  = sit1145_read_reg(SIT1145_REG_ID_REG3);
+        uint8_t dr   = sit1145_read_reg(SIT1145_REG_DATA_RATE);
         uint8_t pncok_ok = (rb != 0xFFU) &&
                            ((rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) != 0U);
 
-        if (pncok_ok && (fc == 0xC8U) && (id0 == 0x03U) && (id3 == 0x18U))
+        if (pncok_ok && (fc == 0xC8U) && (id0 == 0x03U) && (id3 == 0x18U) &&
+            (dr == SIT1145_DEFAULT_DRATE))
         {
           wuf_ok = 1U;
           break;  /* 配置正确 */
@@ -1288,11 +1301,26 @@ uint8_t sit1145_init(void)
   spi_enable(SPI1, TRUE);
   sit1145_delay_ms(1U);  /* 等待 SPI 稳定 */
 
-  /* ---- 步骤6：读识别码寄存器 0x7E，验证 SPI 通信 ---- */
-  chip_id = sit1145_read_reg(SIT1145_REG_IDENTIFICATION);
-  if ((chip_id != SIT1145_ID_AQ) && (chip_id != SIT1145_ID_AQ_FD))
+  /* ---- 步骤6：读识别码寄存器 0x7E，验证 SPI 通信 ----
+   * 冷上电（插拔/触点抖动）后 SIT1145 可能尚未就绪（SPI 读回 0xFF/错值）。
+   * 单次读取即放弃会让芯片停在复位默认值（DATA_RATE 等全丢）——随后 CAN
+   * 照常（收发器默认 Normal 直通），但 WUF 检测器速率错=选择性唤醒永不
+   * 匹配，插拔后唤醒无反应。有界重试 25×2ms=50ms 覆盖芯片启动时间。 */
   {
-    return 0;  /* SPI 通信失败或芯片型号不匹配 */
+    uint8_t tries;
+    for (tries = 0U; tries < 25U; tries++)
+    {
+      chip_id = sit1145_read_reg(SIT1145_REG_IDENTIFICATION);
+      if ((chip_id == SIT1145_ID_AQ) || (chip_id == SIT1145_ID_AQ_FD))
+      {
+        break;
+      }
+      sit1145_delay_ms(2U);
+    }
+    if ((chip_id != SIT1145_ID_AQ) && (chip_id != SIT1145_ID_AQ_FD))
+    {
+      return 0;  /* SPI 通信失败或芯片型号不匹配 */
+    }
   }
 
   /* ---- 步骤6.5：快照唤醒残留事件位 ----

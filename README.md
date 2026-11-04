@@ -172,7 +172,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.57** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.58** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -182,6 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-04 | **fix(sit1145): 插拔后选择性唤醒无反应——冷上电 init 自愈 + 进睡前重写 DATA_RATE**。根因：插拔=SIT1145 整芯片断电重启，上电初期 SPI 未就绪 → `sit1145_init` 步骤6 读 ID 失败，而调用方的重试是无延时连打两次、同样失败后**静默继续**（CAN 照常通：收发器默认 Normal 直通 TXD/RXD）→ 芯片停在复位默认值（进睡前 E0~E3 回读 `CAN_CONTROL=0x01`/`EVENT_EN=0x00` 实证）。`sit1145_sleep_enter` 每次重配 WUF ID/掩码并锁定，但 **DATA_RATE(0x26) 只有 init 写**——WUF 检测器按 DATA_RATE 采样总线，速率错=选择性唤醒永不匹配，又因 CPNC=1 关了标准唤醒，车辆流量也唤不醒=睡死。修复：①init 步骤6 有界重试 25×2ms（app + bootloader 两份 sit1145.c 同改）；②`sleep_enter` 进睡前重写 DATA_RATE 并纳入 wuf_ok 校验（重试循环全量重配时一并重写）——不管 init 成败，进睡前自愈，校验不过则退化标准 WUP（宁可多醒不可睡死）。`SW_VERSION_STR` 1.1.57→1.1.58 |
 | 2026-11-03 | **revert(prodtool): 撤销工位1 的 OTA 升级 UI，界面恢复原样**（用户指令：ProductionStationTool 不要 OTA 升级 UI）。移除流程区「固件升级（OTA）」卡（固件选择/进度条）及其浏览/升级处理器与复位逻辑；**通信层保留**——`CanUdsDevice.OtaUpgradeAsync`（0x34 自适应块长/耗时遥测/版本回读验证）与 expectDid 对齐仍作为 Core 能力供调用。编译验证 0 错误、单测 19/19 通过 |
 | 2026-11-03 | **feat(prodtool): OTA 后版本回读验证——升级闭环 PASS/FAIL**（ProductionStationTool `OtaUpgradeAsync`）。37 收尾后等 ~5s 设备自复位搬运（BOOT 备份区→App + 验签）→ 唤醒就绪 → 读 0xF195 与镜像内版本串（`XatoImage.ExtractSwVersion`）比对：相符=升级生效；不符/读不到=**FAIL**（验签失败回滚旧 App 就在这里暴露），一行结论闭环到产测判定。镜像烧前校验确认已有（magic/长度/CRC32，`XatoImage.Parse`；ECDSA 验签在 BOOT 侧） |
 | 2026-11-03 | **perf(ota): 传输块长按 0x34 宣告自适应——往返次数减半**（ProductionStationTool + QiChargerStationTool 通信层对齐）。固件 `OTA_DL_MAX_BLOCK_LEN=256`（ISO-TP RX 缓冲 4095B）一直宣告 256，但两个工具都写死 128B 块：52KB 镜像 410 次 0x36 往返。现解析 0x34 正响应 `74 20 <maxBlockLen:2B>` 按设备宣告取块长（MCU1=256 / MCU2=22，MCU2 路径 0x34 本就回 22 约束逐包），块长翻倍→往返减半≈传输提速一倍；工具侧封顶 256，`transferBlock` 参数降级为上限（0=自适应）。ProductionStationTool `OtaUpgradeAsync` 同步补逐块耗时遥测（`LastSendMs/LastRecvMs/LastFcTries` 均值 + `[计时]` 汇总，对齐 RunUpgradeAsync） |
