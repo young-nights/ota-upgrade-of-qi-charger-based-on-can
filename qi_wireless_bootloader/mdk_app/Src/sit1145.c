@@ -322,22 +322,52 @@ uint8_t sit1145_init(void)
    *   PNCOK=0 (partial networking config invalid)
    *   CPNC=0 (selective wakeup disabled)
    *   CMC=01 (active with VCC undervoltage recovery)
-   * Must be done before switching to Normal Mode. */
+   * Must be done before switching to Normal Mode.
+   * Write + readback with bounded retry: a single cold-plug SPI
+   * write/readback glitch must not abort init (fw 1.1.59). */
   can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN
                | SIT1145_CAN_NETW_INVALID
                | SIT1145_SEL_WAKEUP_DIS
                | SIT1145_CAN_MODE_NORMAL;
-  sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
-  if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) != can_ctrl_val)
   {
-    return 0;
+    uint8_t tries;
+    uint8_t ok = 0U;
+    for (tries = 0U; tries < 10U; tries++)
+    {
+      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
+      sit1145_delay_ms(1U);
+      if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) == can_ctrl_val)
+      {
+        ok = 1U;
+        break;
+      }
+      sit1145_delay_ms(2U);
+    }
+    if (ok == 0U)
+    {
+      return 0;
+    }
   }
 
   /* ---- Step 8: Configure Data Rate (250kbps, partial-network CDR) ---- */
-  sit1145_write_reg(SIT1145_REG_DATA_RATE, SIT1145_DEFAULT_DRATE);
-  if (sit1145_read_reg(SIT1145_REG_DATA_RATE) != SIT1145_DEFAULT_DRATE)
   {
-    return 0;
+    uint8_t tries;
+    uint8_t ok = 0U;
+    for (tries = 0U; tries < 10U; tries++)
+    {
+      sit1145_write_reg(SIT1145_REG_DATA_RATE, SIT1145_DEFAULT_DRATE);
+      sit1145_delay_ms(1U);
+      if (sit1145_read_reg(SIT1145_REG_DATA_RATE) == SIT1145_DEFAULT_DRATE)
+      {
+        ok = 1U;
+        break;
+      }
+      sit1145_delay_ms(2U);
+    }
+    if (ok == 0U)
+    {
+      return 0;
+    }
   }
 
   /* ---- Step 9: Switch to Normal Mode ----

@@ -386,18 +386,21 @@ uint8_t sit1145_sleep_enter(void)
       sit1145_delay_ms(2U);
 
       /* 只读验证：PNCOK=1 + frame_ctrl=0xC8(IDE|PNDM|DLC=8) + ID=0x18DA0D03
-       *            + DATA_RATE=250k（速率错则 WUF 检测器永不匹配） */
+       *            + DATA_RATE=250k（速率错则 WUF 检测器永不匹配）
+       *            + EVENT_EN.CWE=1（CWE=0 时 WUF/标准 WUP 全被关断=睡死，
+       *            1.1.58 校验缺此项——wuf_enable 写丢失仍判 wuf_ok=1） */
       {
         uint8_t rb   = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
         uint8_t fc   = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
         uint8_t id0  = sit1145_read_reg(SIT1145_REG_ID_REG0);
         uint8_t id3  = sit1145_read_reg(SIT1145_REG_ID_REG3);
         uint8_t dr   = sit1145_read_reg(SIT1145_REG_DATA_RATE);
+        uint8_t en   = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
         uint8_t pncok_ok = (rb != 0xFFU) &&
                            ((rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) != 0U);
 
         if (pncok_ok && (fc == 0xC8U) && (id0 == 0x03U) && (id3 == 0x18U) &&
-            (dr == SIT1145_DEFAULT_DRATE))
+            (dr == SIT1145_DEFAULT_DRATE) && ((en & SIT1145_CWE) != 0U))
         {
           wuf_ok = 1U;
           break;  /* 配置正确 */
@@ -431,6 +434,24 @@ uint8_t sit1145_sleep_enter(void)
     sit1145_delay_ms(1U);
     we = sit1145_read_reg(SIT1145_REG_WAKE_ENABLE);
     (void)we;  /* 回读仅验证写通，不阻断（与官方一致由调用方看 MODE 回读） */
+  }
+
+  /* 3.95) 唤醒源最终门禁：EVENT_EN.CWE 必须为 1 才允许进睡。
+   *    CWE=0 时 CPNC 不论 1/0 都唤不醒（WUF 与标准 WUP 全被关断）
+   *    = 睡死。补救一次（wake_enable 自带回读重试）仍不生效则
+   *    return 0——调用方保持 CAN 在线，下轮空闲重试（宁可不睡，
+   *    不可睡死）。 */
+  {
+    uint8_t en = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
+    if ((en == 0xFFU) || ((en & SIT1145_CWE) == 0U))
+    {
+      sit1145_wake_enable();
+      en = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
+      if ((en == 0xFFU) || ((en & SIT1145_CWE) == 0U))
+      {
+        return 0U;
+      }
+    }
   }
 
   /* 4) 进 Sleep（官方序列：Mode_control=0x01 后回读验证）。
@@ -814,10 +835,24 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
 void sit1145_wuf_enable(void)
 {
   uint8_t can_ctrl;
+  uint8_t tries;
 
-  /* 1) 先写 Transceiver_event_enable (0x23)——非 PN 配置寄存器 */
-  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN,
-                    SIT1145_CWE | SIT1145_CFE);
+  /* 1) 先写 Transceiver_event_enable (0x23)——非 PN 配置寄存器
+   *    回读确认 + 重试（同 wake_enable）：CWE=0 时 WUF 匹配也唤不醒 */
+  for (tries = 0U; tries < 5U; tries++)
+  {
+    sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN,
+                      SIT1145_CWE | SIT1145_CFE);
+    sit1145_delay_ms(1U);
+    {
+      uint8_t rd = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
+      if ((rd != 0xFFU) && ((rd & SIT1145_CWE) != 0U))
+      {
+        break;
+      }
+    }
+    sit1145_delay_ms(2U);
+  }
 
   /* 2) 清残留事件 (0x24)——非 PN 配置寄存器 */
   sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT, SIT1145_CW | SIT1145_WUF);
@@ -1085,11 +1120,26 @@ uint8_t sit1145_is_spi_fault(void)
  */
 void sit1145_wake_enable(void)
 {
+  uint8_t tries;
   /* 官方 SIT1145.c SleepMode_Set: CAN_BUS_SILENCE_CONF | CAN_FAILURE_CONF | WEAK_PIN_EVEN
    * = CAN_FAILURE_EN | REMOTE_WEAKUP_EN = CFE(1) | CWE(0) = 0x03
-   * CBSE=0（总线静默检测禁用，官方配置） */
-  sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN,
-                    SIT1145_CWE | SIT1145_CFE);
+   * CBSE=0（总线静默检测禁用，官方配置）
+   * 写后回读确认 + 重试：CWE=0 时进睡后无任何 CAN 唤醒源（睡死），
+   * 冷上电单次 SPI 写偶发丢失，必须重试到寄存器实际生效（fw 1.1.59）。 */
+  for (tries = 0U; tries < 5U; tries++)
+  {
+    sit1145_write_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN,
+                      SIT1145_CWE | SIT1145_CFE);
+    sit1145_delay_ms(1U);
+    {
+      uint8_t rd = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
+      if ((rd != 0xFFU) && ((rd & SIT1145_CWE) != 0U))
+      {
+        return;
+      }
+    }
+    sit1145_delay_ms(2U);
+  }
 }
 
 /**
@@ -1336,24 +1386,56 @@ uint8_t sit1145_init(void)
    *   bit5 PNCOK=0：局部网络配置无效
    *   bit4 CPNC=0：选择性唤醒关闭（不用 WUF，只用标准 WUP）
    *   bit[1:0] CMC=01：正常模式，VCC 欠压自动恢复
-   *   必须在切换到 Normal 模式之前完成配置 */
+   *   必须在切换到 Normal 模式之前完成配置
+   *   写后回读不匹配即重写（冷上电 SPI 写偶发丢失/回读毛刺，
+   *   单次失败即放弃会让步骤9永不执行——EVENT_EN 停留 0x00，
+   *   进睡后无唤醒源=睡死，fw 1.1.59 实证修复）。 */
   can_ctrl_val = SIT1145_CAN_FD_TOLERANCE_EN    /* CFDC=1 */
                | SIT1145_CAN_NETW_INVALID       /* PNCOK=0 */
                | SIT1145_SEL_WAKEUP_DIS         /* CPNC=0 */
                | SIT1145_CAN_MODE_NORMAL;        /* CMC=01 */
-  sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
-  /* 回读验证 */
-  if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) != can_ctrl_val)
   {
-    return 0;  /* 寄存器写入失败 */
+    uint8_t tries;
+    uint8_t ok = 0U;
+    for (tries = 0U; tries < 10U; tries++)
+    {
+      sit1145_write_reg(SIT1145_REG_CAN_CONTROL, can_ctrl_val);
+      sit1145_delay_ms(1U);  /* 写后稳定再回读，避开冷上电毛刺 */
+      if (sit1145_read_reg(SIT1145_REG_CAN_CONTROL) == can_ctrl_val)
+      {
+        ok = 1U;
+        break;
+      }
+      sit1145_delay_ms(2U);
+    }
+    if (ok == 0U)
+    {
+      return 0;  /* 寄存器写入失败 */
+    }
   }
 
-  /* ---- 步骤8：配置 Data Rate 寄存器（0x26）= 250kbps ---- */
-  sit1145_write_reg(SIT1145_REG_DATA_RATE, SIT1145_DEFAULT_DRATE);
-  /* 回读验证 */
-  if (sit1145_read_reg(SIT1145_REG_DATA_RATE) != SIT1145_DEFAULT_DRATE)
+  /* ---- 步骤8：配置 Data Rate 寄存器（0x26）= 250kbps ----
+   *   同步骤7：写后回读不匹配即重写（1.1.58 时此步单次失败即
+   *   提前 return，实测插拔后 E0 显示 CAN_CONTROL=0x41 已写而
+   *   EVENT_EN=0x00（步骤9未跑到）——正是本步回读失败）。 */
   {
-    return 0;  /* 寄存器写入失败 */
+    uint8_t tries;
+    uint8_t ok = 0U;
+    for (tries = 0U; tries < 10U; tries++)
+    {
+      sit1145_write_reg(SIT1145_REG_DATA_RATE, SIT1145_DEFAULT_DRATE);
+      sit1145_delay_ms(1U);
+      if (sit1145_read_reg(SIT1145_REG_DATA_RATE) == SIT1145_DEFAULT_DRATE)
+      {
+        ok = 1U;
+        break;
+      }
+      sit1145_delay_ms(2U);
+    }
+    if (ok == 0U)
+    {
+      return 0;  /* 寄存器写入失败 */
+    }
   }
 
   /* ---- 步骤9：使能标准 CAN 唤醒（ISO 11898-2 WUP）----
