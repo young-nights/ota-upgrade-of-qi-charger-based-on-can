@@ -47,6 +47,28 @@
 - 旧 DID `0x2130`/`0x2131` 写路径已删除，不可再用。
 - 状态/版本查询保留：`0x2132`（IAP 状态）、`0x2133`（Qi 固件版本）。
 
+## CCU 联机升级通道（2026-11-04 实测）
+
+- **物理链接**：CCU 经 USB NCM（`1d6b:0104` UsbNcm Host Device）连 WSL，网卡 `enx*` 需手动起：
+  `sudo ip link set <if> up && sudo ip addr add 192.168.7.2/24 dev <if>`；CCU = `192.168.7.1`。
+  另有 FTDI USB Serial（`0403:6001`）。
+- **SSH**：`ssh root@192.168.7.1`（密钥直通免密）。CCU 为 aarch64 Linux / BusyBox：
+  `head -n N` 语法、无 `timeout`、`od -x`（无 -t/-A）。
+- **broodctl 是交互式 REPL，不是普通命令行**（逆向 main.run 确认：parseArgs 只吃 flags →
+  连 NATS `nats://127.0.0.1:4222` → 打印 help → bufio.Scanner 逐行读 stdin 派发）。
+  命令行上传子命令一律报 `unexpected argument(s)`——**这不是用法错误提示，是 REPL 设计**。
+  正确姿势：
+  `printf "qi_charger identity\nquit\n" | /data/local/bin/broodctl --target-imei=<15位IMEI>`
+  （`quit`/`exit` 退出；`help` 查命令表）
+- **Qi 升级**：`qi_charger mcu1_upgrade <CCU 本地文件路径>` → `transferring → OK`，
+  设备自复位搬运（BOOT 备份区→App + 验签）。**复位窗口 ~40s 内 `qi_charger identity`
+  超时属正常**，稍候重试回读 mcu1-app 版本验证。`qi_charger mcu2_upgrade <path>` 走 MCU1 升 MCU2。
+- **固件投放**：`python_tools/app bin/app_image_vX_Y_Z.bin`（XATO 镜像）→ scp 到 CCU
+  任意目录（如 `/data/qi/`，先 `mkdir -p`）→ mcu1_upgrade 用该路径。
+  `/data/local/firmware/qicharger/` 是 brood 发布仓（`QC_JYF_MCU1_FW_{ver}_{md5}.img` 命名），
+  与 mcu1_upgrade 的任意路径参数是两套东西。
+- MD5 校验一次：scp 后 `md5sum` 两侧比对再升级。
+
 ## WSL2 串口 CAN 监听（Boot 用例 M1–M4）
 
 其他智能体测 `docs/10. CAN-UDS OTA 测试用例表.md` 的 Boot 段时，**不要用 python-can slcan / SocketCAN / zcanpro**。当前盒子是智嵌 **ZQWL-CANFD**，设备管理器 **COM9**，VID:PID **`3562:0101`**，USB CDC 私有协议（配置帧 `49 3B … 45 2E`，CAN 帧 `5A … A5`）。WSL 内核没有 `can0`。
