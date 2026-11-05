@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using ProductionStationTool.App.Controls;
@@ -19,6 +20,10 @@ public partial class Station2Control : UserControl, IStationPage
     private static readonly Brush WarningBrush = new SolidColorBrush(Color.FromRgb(0xD9, 0x77, 0x06));
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
 
+    /// <summary>运行日志缓冲：主页面不占位，弹出日志窗（LogWindow）实时刷新。</summary>
+    private readonly LogBuffer _log = new();
+    private LogWindow? _logWin;
+
     public int StationNo => 2;
     public string Title => "工位2 — 老化测试";
 
@@ -35,12 +40,12 @@ public partial class Station2Control : UserControl, IStationPage
         ConnPanel.ConnectRequested += (can, pz) =>
         {
             ConnPanel.SetStatus($"已连接 CAN:{can} PowerZ:{pz}", true);
-            LogPanel.Append($"串口连接：CAN={can}，PowerZ={pz}");
+            _log.Append($"串口连接：CAN={can}，PowerZ={pz}");
         };
         ConnPanel.DisconnectRequested += () =>
         {
             ConnPanel.SetStatus("未连接", false);
-            LogPanel.Append("串口已断开");
+            _log.Append("串口已断开");
         };
     }
 
@@ -48,7 +53,7 @@ public partial class Station2Control : UserControl, IStationPage
     {
         FlowPanel.Reset();
         ListDetails.Items.Clear();
-        LogPanel.Append($"开始带载老化（{AgingMinutes} 分钟）");
+        _log.Append($"开始带载老化（{AgingMinutes} 分钟）");
 
         SetBadge("老化中", WarningBrush, Color.FromRgb(0xFE, 0xF3, 0xC7));
 
@@ -78,7 +83,7 @@ public partial class Station2Control : UserControl, IStationPage
 
         SetBadge("PASS", SuccessBrush, Color.FromRgb(0xDC, 0xFC, 0xE7));
         ListDetails.Items.Add($"带载老化 {AgingMinutes} 分钟完成");
-        LogPanel.Append("老化完成，PASS");
+        _log.Append("老化完成，PASS");
         // 占位：后续在此读老化后电压/电流并判限、入库
     }
 
@@ -91,8 +96,8 @@ public partial class Station2Control : UserControl, IStationPage
         TxtProgressPct.Text = "0%";
         TxtRemaining.Text = $"{AgingMinutes:00}:00";
         SetBadge("待老化", MutedBrush, Color.FromRgb(0xF1, 0xF5, 0xF9));
-        LogPanel.Clear();
-        LogPanel.Append("已切换下一台，串口保持连接，等待开始测试");
+        _log.Clear();
+        _log.Append("已切换下一台，串口保持连接，等待开始测试");
     }
 
     private void SetBadge(string text, Brush fg, Color bg)
@@ -100,5 +105,17 @@ public partial class Station2Control : UserControl, IStationPage
         TxtResult.Text = text;
         TxtResult.Foreground = fg;
         BadgeResult.Background = new SolidColorBrush(bg);
+    }
+
+    /// <summary>弹出运行日志窗（无模式，边测边看）；重复点击激活已开窗口。</summary>
+    private void BtnLog_Click(object sender, RoutedEventArgs e)
+    {
+        if (_logWin is not null && _logWin.IsLoaded)
+        {
+            _logWin.Activate();
+            return;
+        }
+        _logWin = new LogWindow("运行日志 — 工位2", _log) { Owner = Window.GetWindow(this) };
+        _logWin.Show();
     }
 }

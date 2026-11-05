@@ -7,8 +7,6 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="12"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="12"/>
-            <RowDefinition Height="150"/>
         </Grid.RowDefinitions>
 
         <!-- ① 串口接入区 -->
@@ -27,8 +25,13 @@
             <!-- 流程区 -->
             <Border Grid.Column="0" Style="{StaticResource Card}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="老化流程" Style="{StaticResource SectionTitle}"
-                               Margin="0,0,0,12"/>
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <TextBlock Text="老化流程" Style="{StaticResource SectionTitle}"/>
+                        <Button Content="日志" Style="{StaticResource GhostButton}"
+                                Height="26" Padding="12,0" HorizontalAlignment="Right"
+                                Click="BtnLog_Click"
+                                ToolTip="弹出运行日志窗口（不占主页面）"/>
+                    </Grid>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <controls:FlowStepsPanel x:Name="FlowPanel"/>
                     </ScrollViewer>
@@ -92,14 +95,5 @@
                 </ScrollViewer>
             </Border>
         </Grid>
-
-        <!-- ④ 日志区 -->
-        <Border Grid.Row="4" Style="{StaticResource Card}">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="运行日志" Style="{StaticResource SectionTitle}"
-                           Margin="0,0,0,8"/>
-                <controls:LogPanel x:Name="LogPanel"/>
-            </DockPanel>
-        </Border>
     </Grid>
 </UserControl>

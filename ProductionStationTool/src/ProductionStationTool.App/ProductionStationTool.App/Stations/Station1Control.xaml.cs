@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using ProductionStationTool.App.Controls;
@@ -24,6 +25,9 @@ public partial class Station1Control : UserControl, IStationPage
     private CoilTestOptions BuildCoilOptions() => MachineConfig.LoadCoilOptions();
 
     private readonly ITestRecordStore _store = new SqliteTestRecordStore();
+    /// <summary>运行日志缓冲：主页面不占位，弹出日志窗（LogWindow）实时刷新。</summary>
+    private readonly LogBuffer _log = new();
+    private LogWindow? _logWin;
     private readonly Station1Workflow _workflow;
 
     private CanUdsDevice? _can;
@@ -51,13 +55,13 @@ public partial class Station1Control : UserControl, IStationPage
     private void RaiseAvailability() => AvailabilityChanged?.Invoke();
 
     private void LogSafe(string msg)
-        => Dispatcher.Invoke(() => LogPanel.Append(msg));
+        => _log.Append(msg);
 
     public Station1Control(StationIdentity identity)
     {
         InitializeComponent();
         _workflow = new Station1Workflow(_store, identity: identity);
-        LogPanel.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
+        _log.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
         FlowPanel.SetSteps(
             "连接设备（串口/CAN 自动检测）",
             "生成 SN 码",
@@ -83,8 +87,8 @@ public partial class Station1Control : UserControl, IStationPage
                 _can = null;
                 _connected = false;
                 ConnPanel.SetStatus($"PowerZ 不可用：{pzDetail}", false);
-                LogPanel.Append($"PowerZ 校验失败：{pzDetail}");
-                LogPanel.Append("提示：若设备已 usbipd 挂载到 WSL，请先 usbipd detach 后重试");
+                _log.Append($"PowerZ 校验失败：{pzDetail}");
+                _log.Append("提示：若设备已 usbipd 挂载到 WSL，请先 usbipd detach 后重试");
                 RaiseAvailability();
                 return;
             }
@@ -95,7 +99,7 @@ public partial class Station1Control : UserControl, IStationPage
             await _can.OpenAsync();
             _connected = true;
             ConnPanel.SetStatus($"已连接 CAN:{can} PowerZ:{pz}", true);
-            LogPanel.Append($"串口连接：CAN={can}，PowerZ={pz}（{pzDetail}）");
+            _log.Append($"串口连接：CAN={can}，PowerZ={pz}（{pzDetail}）");
         }
         catch (Exception ex)
         {
@@ -103,7 +107,7 @@ public partial class Station1Control : UserControl, IStationPage
             _can = null;
             _connected = false;
             ConnPanel.SetStatus($"连接失败：{ex.Message}", false);
-            LogPanel.Append($"CAN 打开失败：{ex.Message}");
+            _log.Append($"CAN 打开失败：{ex.Message}");
         }
         RaiseAvailability();
     }
@@ -116,18 +120,18 @@ public partial class Station1Control : UserControl, IStationPage
             try
             {
                 var (ok, detail) = await _can.DisableChargingAsync();
-                LogPanel.Append(ok ? $"断开前停止充电：{detail}" : $"断开前停充失败：{detail}");
+                _log.Append(ok ? $"断开前停止充电：{detail}" : $"断开前停充失败：{detail}");
             }
             catch (Exception ex)
             {
-                LogPanel.Append($"断开前停充异常：{ex.Message}");
+                _log.Append($"断开前停充异常：{ex.Message}");
             }
         }
         try { _can?.Dispose(); } catch { /* 忽略 */ }
         _can = null;
         _connected = false;
         ConnPanel.SetStatus("未连接", false);
-        LogPanel.Append("串口已断开");
+        _log.Append("串口已断开");
         RaiseAvailability();
     }
 
@@ -138,7 +142,7 @@ public partial class Station1Control : UserControl, IStationPage
 
         if (!_connected || _can is null)
         {
-            LogPanel.Append("串口未接入（CAN/PowerZ），无法开始测试");
+            _log.Append("串口未接入（CAN/PowerZ），无法开始测试");
             return;
         }
 
@@ -147,36 +151,36 @@ public partial class Station1Control : UserControl, IStationPage
 
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
-        LogPanel.Append("开始工位 1 测试流程");
+        _log.Append("开始工位 1 测试流程");
 
         // ① 连接设备：先唤醒 + 等 UDS 就绪（设备空闲 10s 会真休眠/整板断电，
         //    首帧请求会丢在重新供电的冷启动窗口里——必须先唤醒探活），
         //    然后读全套版本，再往下走
         FlowPanel.Mark(0, StepStatus.Running);
-        LogPanel.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
+        _log.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
         var ready = await _can.WaitReadyAsync(ct);
         if (!ready)
         {
             FlowPanel.Mark(0, StepStatus.Failed);
             ListAbnormal.Items.Add("步骤 1「连接设备」失败：设备无应答（未上电？）");
             SetResultBadge(false);
-            LogPanel.Append("设备 8s 内无应答——请检查供电后重试");
+            _log.Append("设备 8s 内无应答——请检查供电后重试");
             _running = false;
             _flowCompleted = true;
             RaiseAvailability();
             return;
         }
-        LogPanel.Append("设备已就绪，读取版本…");
+        _log.Append("设备已就绪，读取版本…");
         var vs = await _can.TryReadAllVersionsAsync();
-        LogPanel.Append("设备版本：");
-        LogPanel.Append($"  APP  = {vs.Mcu1App}");
-        LogPanel.Append($"  BL   = {vs.Bootloader}");
-        LogPanel.Append($"  HW   = {vs.Hardware}");
-        LogPanel.Append($"  Qi   = {vs.Mcu2Qi}");
+        _log.Append("设备版本：");
+        _log.Append($"  APP  = {vs.Mcu1App}");
+        _log.Append($"  BL   = {vs.Bootloader}");
+        _log.Append($"  HW   = {vs.Hardware}");
+        _log.Append($"  Qi   = {vs.Mcu2Qi}");
         if (vs.Errors.Count > 0)
-            LogPanel.Append("版本读取告警：" + string.Join("；", vs.Errors));
+            _log.Append("版本读取告警：" + string.Join("；", vs.Errors));
         FlowPanel.Mark(0, StepStatus.Passed);
-        LogPanel.Append("步骤 1 完成");
+        _log.Append("步骤 1 完成");
 
         // ⑤ 的数据源：HID 先静默就绪，等流程走到采样步再点亮「进行中」
         HidPowerZSource? powerZ = null;
@@ -196,12 +200,12 @@ public partial class Station1Control : UserControl, IStationPage
                 {
                     writtenSn = sn;
                     TxtSn.Text = sn;
-                    LogPanel.Append($"生成 SN：{sn}");
+                    _log.Append($"生成 SN：{sn}");
                     FlowPanel.Mark(1, StepStatus.Passed);      // ② 生成 SN：完成
 
                     FlowPanel.Mark(2, StepStatus.Running);     // ③ 写入并回读：开始
                     var (ok, detail) = await _can.WriteSnAsync(sn, ct);
-                    LogPanel.Append(ok ? $"步骤 3：写 SN 成功 {detail}" : $"步骤 3：写 SN 失败 {detail}");
+                    _log.Append(ok ? $"步骤 3：写 SN 成功 {detail}" : $"步骤 3：写 SN 失败 {detail}");
                     writeOk = ok;
                     if (!ok)
                         FlowPanel.Mark(2, StepStatus.Failed);  // 写失败即定格，不再回读
@@ -211,7 +215,7 @@ public partial class Station1Control : UserControl, IStationPage
                 {
                     var back = await _can.TryReadSnAsync(ct);
                     readOk = back is not null && string.Equals(back, writtenSn, StringComparison.Ordinal);
-                    LogPanel.Append($"步骤 3：回读 SN = {back ?? "(空)"}");
+                    _log.Append($"步骤 3：回读 SN = {back ?? "(空)"}");
                     FlowPanel.Mark(2, readOk ? StepStatus.Passed : StepStatus.Failed);  // ③ 完成定格
                     return back;
                 },
@@ -219,13 +223,13 @@ public partial class Station1Control : UserControl, IStationPage
                 {
                     FlowPanel.Mark(3, StepStatus.Running);     // ④ 开充电：开始
                     var (ok, detail) = await _can.EnableChargingAsync(ct);
-                    LogPanel.Append(ok ? $"步骤 4：{detail}" : $"步骤 4：开启充电失败 {detail}");
+                    _log.Append(ok ? $"步骤 4：{detail}" : $"步骤 4：开启充电失败 {detail}");
                     chargeOk = ok;
                     FlowPanel.Mark(3, ok ? StepStatus.Passed : StepStatus.Failed);      // ④ 完成定格
                     if (!ok)
                         throw new InvalidOperationException(detail);
                     FlowPanel.Mark(4, StepStatus.Running);     // ⑤ 采样：开始（充电完成才到）
-                    LogPanel.Append("步骤 5：打开 PowerZ HID 采样…");
+                    _log.Append("步骤 5：打开 PowerZ HID 采样…");
                     try
                     {
                         await powerZ!.StartAsync(ct);
@@ -233,7 +237,7 @@ public partial class Station1Control : UserControl, IStationPage
                     catch (Exception ex)
                     {
                         // HID 打开失败不抛：交给⑤等采样超时 →「无有效采样」定格
-                        LogPanel.Append($"[PowerZ] 打开失败：{ex.Message}");
+                        _log.Append($"[PowerZ] 打开失败：{ex.Message}");
                     }
                 },
                 powerZ: powerZ,
@@ -243,7 +247,7 @@ public partial class Station1Control : UserControl, IStationPage
         }
         catch (Exception ex)
         {
-            LogPanel.Append($"流程异常：{ex.Message}");
+            _log.Append($"流程异常：{ex.Message}");
             ListAbnormal.Items.Add($"流程异常：{ex.Message}");
         }
         finally
@@ -271,17 +275,17 @@ public partial class Station1Control : UserControl, IStationPage
                 // ⑤ A/B 线圈检测：含判定（B 超时/A 均值不足 = ⑤ Fail）
                 FlowPanel.Mark(4, c.IsNormal ? StepStatus.Passed : StepStatus.Failed,
                     c.IsNormal ? null : string.Join("；", c.AbnormalItems));
-                LogPanel.Append($"步骤 5：A 均值 {c.CoilACurrent:F3}A / B 均值 {c.CoilBCurrent:F3}A" +
+                _log.Append($"步骤 5：A 均值 {c.CoilACurrent:F3}A / B 均值 {c.CoilBCurrent:F3}A" +
                                 $" → {(c.IsNormal ? "正常" : "异常：" + string.Join("；", c.AbnormalItems))}");
 
                 // ⑥ 停充并入库（线圈判 FAIL 也入库为 FAIL 记录）
                 FlowPanel.Mark(5, StepStatus.Running);
                 var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
-                LogPanel.Append(offOk ? $"步骤 6：停止充电（{offDetail}）" : $"步骤 6：停止充电失败 {offDetail}");
+                _log.Append(offOk ? $"步骤 6：停止充电（{offDetail}）" : $"步骤 6：停止充电失败 {offDetail}");
                 if (!offOk)
                     ListAbnormal.Items.Add("停止充电指令失败");
                 FlowPanel.Mark(5, offOk ? StepStatus.Passed : StepStatus.Failed);
-                LogPanel.Append(c.IsNormal
+                _log.Append(c.IsNormal
                     ? "步骤 6：已入库（PASS）"
                     : $"步骤 6：已入库（FAIL 记录：{string.Join("；", c.AbnormalItems)}）");
             }
@@ -292,7 +296,7 @@ public partial class Station1Control : UserControl, IStationPage
                 TxtPowerJudge.Text = "—";
                 FlowPanel.Mark(4, StepStatus.Failed, "无有效采样");
                 FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
-                LogPanel.Append("步骤 6：未执行（无有效采样），不入库");
+                _log.Append("步骤 6：未执行（无有效采样），不入库");
             }
         }
         else
@@ -305,14 +309,14 @@ public partial class Station1Control : UserControl, IStationPage
             TxtPowerJudge.Text = "—";
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
-            LogPanel.Append("步骤 6：未执行（前序失败），不入库");
+            _log.Append("步骤 6：未执行（前序失败），不入库");
         }
 
         // 安全关充：流程中途出错（无采样/前序失败）时充电可能仍开着，补发停充
         if (chargeOk && (result?.Coil is null || result.Coil.NoValidSample))
         {
             var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
-            LogPanel.Append(offOk ? $"安全停充：{offDetail}" : $"安全停充失败：{offDetail}");
+            _log.Append(offOk ? $"安全停充：{offDetail}" : $"安全停充失败：{offDetail}");
         }
 
         if (result is not null)
@@ -320,7 +324,7 @@ public partial class Station1Control : UserControl, IStationPage
                 ListAbnormal.Items.Add(item);
 
         SetResultBadge(result?.Passed == true);
-        LogPanel.Append(result?.Passed == true
+        _log.Append(result?.Passed == true
             ? "全部检测项正常，PASS"
             : $"存在 {ListAbnormal.Items.Count} 项异常，FAIL");
 
@@ -342,8 +346,8 @@ public partial class Station1Control : UserControl, IStationPage
         TxtResult.Text = "待测试";
         TxtResult.Foreground = MutedBrush;
         BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
-        LogPanel.Clear();
-        LogPanel.Append("已切换下一台，串口保持连接，等待开始测试");
+        _log.Clear();
+        _log.Append("已切换下一台，串口保持连接，等待开始测试");
         RaiseAvailability();
     }
 
@@ -367,7 +371,7 @@ public partial class Station1Control : UserControl, IStationPage
         foreach (var item in result.AbnormalItems)
             ListAbnormal.Items.Add(item);
 
-        LogPanel.Append(result.Passed
+        _log.Append(result.Passed
             ? "全部检测项正常，PASS"
             : $"存在 {result.AbnormalItems.Count} 项异常，FAIL");
     }
@@ -379,5 +383,17 @@ public partial class Station1Control : UserControl, IStationPage
         BadgeResult.Background = passed
             ? new SolidColorBrush(Color.FromRgb(0xDC, 0xFC, 0xE7))
             : new SolidColorBrush(Color.FromRgb(0xFE, 0xE2, 0xE2));
+    }
+
+    /// <summary>弹出运行日志窗（无模式，边测边看）；重复点击激活已开窗口。</summary>
+    private void BtnLog_Click(object sender, RoutedEventArgs e)
+    {
+        if (_logWin is not null && _logWin.IsLoaded)
+        {
+            _logWin.Activate();
+            return;
+        }
+        _logWin = new LogWindow("运行日志 — 工位1", _log) { Owner = Window.GetWindow(this) };
+        _logWin.Show();
     }
 }
