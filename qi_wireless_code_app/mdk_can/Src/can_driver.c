@@ -62,6 +62,9 @@ static volatile can_busoff_recovery_callback_t busoff_recovery_cb = (can_busoff_
 /** @brief  flag set by error ISR when bus-off recovery is needed */
 static volatile uint8_t busoff_recovery_pending = 0;
 
+/** @brief RX 丢帧粘滞标志（FIFO 满 / 硬件溢出），复位清零 */
+static volatile uint8_t rx_drop_flag = 0;
+
 /** @brief  rolling per-frame TX handle, stamped into CAN tx buffer (wraps at 255) */
 static uint8_t g_tx_handle_seq = 0U;
 
@@ -670,6 +673,15 @@ int8_t can_driver_wait_tx_frame(uint8_t handle, uint32_t timeout_ms)
       return -1;
     }
 
+    /* current 槽的终态失败同样立即返回：帧被 ABORTED/REJECTED 后
+     * 不保证会搬到 final 槽，空等只会把上层补发拖到超时 */
+    if ((tx_status.current_handle == handle) &&
+        ((tx_status.current_tstat == CAN_TSTAT_ABORTED) ||
+         (tx_status.current_tstat == CAN_TSTAT_REJECTED)))
+    {
+      return -1;
+    }
+
     /* 其他帧/其他 handle 的状态一律不作为本帧完成证据 */
   } while ((timer_get_tick() - start) < timeout_ms);
 
@@ -714,10 +726,8 @@ int8_t can_driver_wait_tx_all_idle(uint32_t timeout_ms)
  * @param  none
  * @retval none
  */
-void can_driver_poll(void)
+void can_driver_tx_pump(void)
 {
-  can_rx_frame_t frame;
-
   /* STB 滞留帧补触发（SF 应答迟到 ~3s 的根因）：can_txbuf_transmit
    * (STB_*) 在上一次触发位（tsone/tsall/tsa）未清时返回 ERROR——帧
    * 已写入 STB FIFO 却拿不到触发信号，滞留到下一次 can_driver_send
@@ -732,6 +742,13 @@ void can_driver_poll(void)
   {
     (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
   }
+}
+
+void can_driver_poll(void)
+{
+  can_rx_frame_t frame;
+
+  can_driver_tx_pump();
 
   while (rx_fifo_count > 0)
   {
@@ -806,6 +823,11 @@ void can_driver_rx_irq_handler(void)
         rx_fifo_head = (rx_fifo_head + 1) % CAN_DRIVER_RX_FIFO_SIZE;
         rx_fifo_count++;
       }
+      else
+      {
+        /* 软 FIFO 满：静默丢帧会让「UDS 无应答」无从定位，置粘滞标志 */
+        rx_drop_flag = 1;
+      }
     }
 
     /* release RX buffer */
@@ -818,8 +840,14 @@ void can_driver_rx_irq_handler(void)
   /* handle RX overflow */
   if (can_flag_get(CAN1, CAN_ROIF_FLAG) != RESET)
   {
+    rx_drop_flag = 1;
     can_flag_clear(CAN1, CAN_ROIF_FLAG);
   }
+}
+
+uint8_t can_driver_rx_dropped(void)
+{
+  return (rx_drop_flag != 0U) ? 1U : 0U;
 }
 
 /**

@@ -67,6 +67,8 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
     start = timer_get_tick();
     while ((timer_get_tick() - start) < ISOTP_N_AS_TIMEOUT_MS)
     {
+      /* 阻塞发送期间维持 STB 补触发，防滞留帧拖回迟到 3s 老问题 */
+      can_driver_tx_pump();
       have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
       if (can_driver_send(can_id, frame, len) == 0)
       {
@@ -74,8 +76,14 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
             ((have_prev == 0U) || (h_after != h_before)))
         {
           /* 确认窗口 50ms 即可（帧上总线 ~0.5ms）；1000ms 会在
-           * handle 确认偶尔丢失时把主循环卡死，拖垮后续 FC/应答。 */
-          (void)can_driver_wait_tx_frame(h_after, 50U);
+           * handle 确认偶尔丢失时把主循环卡死，拖垮后续 FC/应答。
+           * 确认失败视为未发出并重试：FF 没上总线时主机等不到 FC，
+           * 整个多帧响应必死；重复 FF 对主机幂等（与 FC 重试同权衡）。 */
+          if (can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS) == 0)
+          {
+            return 0;
+          }
+          continue;
         }
         return 0;
       }
@@ -495,6 +503,8 @@ static int8_t isotp_wait_cts(uint8_t *out_bs, uint8_t *out_stmin)
 
     if (can_driver_recv(&id, data, &n) != 0)
     {
+      /* 空转等待窗：维持 STB 补触发，滞留帧不能因多帧应答阻塞而迟到 */
+      can_driver_tx_pump();
       continue;
     }
     /* Ignore non-UDS IDs (lifecycle, own TX echo). A raw SF PCI 0x02

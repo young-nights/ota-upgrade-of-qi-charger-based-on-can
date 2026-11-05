@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.59";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.60";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -705,8 +705,10 @@ static void proto_send_response(uint8_t *data, uint16_t len)
       while ((timer_get_tick() - t0) < 1U)
       { __NOP(); }
     }
-    /* 单槽保护：keep-alive 应答（7E）不得覆盖在途真实应答 */
-    if ((g_tx_pend_len != 0U) && (len >= 1U) && (data[0] == 0x7EU))
+    /* 单槽 prefer-old：槽内有未发应答时新应答一律丢弃（含 keep-alive
+     * 7E 与真实应答）。覆盖旧应答会让主机永远等不到在途答案；丢弃新
+     * 应答可由主机超时重发恢复。 */
+    if (g_tx_pend_len != 0U)
     {
       return;
     }
@@ -716,6 +718,12 @@ static void proto_send_response(uint8_t *data, uint16_t len)
     g_tx_pend_len = len;
     g_tx_pend_retries = 0U;
     g_uds_mf_pending = 1U;
+    return;
+  }
+  /* MF: always defer (isotp_wait_cts would block can_driver_poll callback).
+   * 同样 prefer-old：槽忙不覆盖（见上方单槽注释） */
+  if (g_tx_pend_len != 0U)
+  {
     return;
   }
   memcpy(g_tx_pend, data, len);
@@ -1501,9 +1509,11 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       return 0;
     case DID_SIT1145_LP_STATUS:
       /* [0] bit0=ever_sleep bit1=last_wake_was_wup bit2=sleep_fail(sticky)
+       *     bit3=rx_drop(sticky，CAN RX 丢帧，can_driver_rx_dropped)
        * [1] wup_count  [2-3] last_sleep_sec LE */
       out[0] = (uint8_t)((g_lp_ever_sleep != 0U) | ((g_lp_woke_from_sleep != 0U) << 1) |
                          ((g_lp_sleep_fail != 0U) << 2) |
+                         ((can_driver_rx_dropped() != 0U) << 3) |
                          ((g_lp_last_wake_src & 0x0FU) << 4));
       out[1] = g_lp_wup_count;
       out[2] = (uint8_t)(g_lp_last_sleep_sec & 0xFFU);

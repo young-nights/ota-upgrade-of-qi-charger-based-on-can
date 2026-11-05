@@ -163,6 +163,23 @@ void can_driver_register_rx_callback(can_rx_callback_t cb);
 void can_driver_poll(void);
 
 /**
+ * @brief  STB 滞留帧补触发（可独立于 can_driver_poll 调用）
+ * @note   STB FIFO 非空且无触发位挂起即补发 STB_ALL，滞留帧立即出队。
+ *         can_driver_poll 每轮调用；isotp_wait_cts / CF 发送等阻塞窗口
+ *         也应调用，避免补触发停摆把 SF 应答重新拖回迟到 3s 的老问题。
+ * @param  none
+ * @retval none
+ */
+void can_driver_tx_pump(void);
+
+/**
+ * @brief  查询自复位以来是否发生过 RX 丢帧（FIFO 满 / 硬件溢出）
+ * @note   粘滞标志，仅在复位时清零；供 DID 0x2119 bit3 诊断位读取。
+ * @retval 1=发生过丢帧，0=无
+ */
+uint8_t can_driver_rx_dropped(void);
+
+/**
  * @brief  CAN1 RX interrupt handler (called from CAN1_RX_IRQHandler)
  * @note   reads frame from hardware RX buffer into software FIFO,
  *         clears interrupt flag.
