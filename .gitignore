@@ -31,7 +31,7 @@
 # Executables
 *.exe
 *.out
-*.app
+# 勿加 *.app：core.ignorecase 下会误伤 *.App 的 C# 工程目录，吞掉新增源码（如 MachineConfig.cs）
 *.i*86
 *.x86_64
 *.hex
