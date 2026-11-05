@@ -109,4 +109,27 @@ public class Station1WorkflowTests
         Assert.Single(store.Rows);                   // SN 写成功了，仍入库（FAIL 记录）
         Assert.Equal("FAIL", store.Rows[0].Result);
     }
+
+    [Fact]
+    public async Task RecordCarriesMachineIdentity()
+    {
+        // 机位数动态（每工位 1~N 台）：记录必须带本机工位号+机位号，多机位可追溯
+        var store = new FakeStore();
+        var wf = new Station1Workflow(store,
+            snGenerate: (_, s) => $"SN-{s:D4}",
+            identity: new StationIdentity(2, "3"));
+        var pz = new FakePowerZ(5.0, 1.0);
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult("SN-0001"),
+            () => Task.CompletedTask, pz,
+            new PowerLimits { VoltageMin = 4.7, VoltageMax = 5.3, CurrentMin = 0.5, CurrentMax = 2 });
+        _ = Task.Run(pz.Emit);
+        var r = await run;
+
+        Assert.True(r.Passed);
+        Assert.Single(store.Rows);
+        Assert.Equal(2, store.Rows[0].StationNo);
+        Assert.Equal("3", store.Rows[0].MachineId);
+        Assert.Equal("ST-02-3", wf.Identity.Code);
+    }
 }

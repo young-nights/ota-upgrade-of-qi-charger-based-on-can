@@ -62,11 +62,29 @@ public sealed class UdsClient
 
     /// <summary>
     /// 发送并等待正响应。失败返回 <see cref="UdsResult"/>（Ok=false），不抛异常。
+    /// requestRetries：应答超时时原样重发请求的次数（NRC 是设备明确答复不重发，
+    /// 取消不重发）。0x36 依赖固件 BSC 幂等去重（重复包直接回 76），
+    /// 应答丢失 / 组包丢失都能靠重发自愈——单发即放弃会把一次瞬时丢包
+    /// 放大成整个升级 FAIL（2026-11-04 块 345 实测）。
     /// </summary>
     public UdsResult TryRequest(byte sid, byte[] payload, int timeoutMs = 3000,
                                 int waitPendingMs = 45_000, byte? expectSub = null,
                                 CancellationToken ct = default,
-                                ushort? expectDid = null)
+                                ushort? expectDid = null, int requestRetries = 0)
+    {
+        var r = TryRequestOnce(sid, payload, timeoutMs, waitPendingMs, expectSub, ct, expectDid);
+        for (int i = 0; i < requestRetries && !r.Ok && r.Nrc == 0
+                        && !ct.IsCancellationRequested; i++)
+        {
+            Log($"[RETRY] 无应答，重发 0x{sid:X2}（{i + 1}/{requestRetries}）");
+            r = TryRequestOnce(sid, payload, timeoutMs, waitPendingMs, expectSub, ct, expectDid);
+        }
+        return r;
+    }
+
+    private UdsResult TryRequestOnce(byte sid, byte[] payload, int timeoutMs,
+                                     int waitPendingMs, byte? expectSub,
+                                     CancellationToken ct, ushort? expectDid)
     {
         try
         {
@@ -142,9 +160,11 @@ public sealed class UdsClient
     /// <summary>需要正响应的封装：失败抛 <see cref="UdsException"/>（供 Station 步骤用）。</summary>
     public byte[] Request(byte sid, byte[] payload, int timeoutMs = 3000,
                           int waitPendingMs = 45_000, byte? expectSub = null,
-                          CancellationToken ct = default, ushort? expectDid = null)
+                          CancellationToken ct = default, ushort? expectDid = null,
+                          int requestRetries = 0)
     {
-        var r = TryRequest(sid, payload, timeoutMs, waitPendingMs, expectSub, ct, expectDid);
+        var r = TryRequest(sid, payload, timeoutMs, waitPendingMs, expectSub, ct, expectDid,
+                           requestRetries);
         if (r.Ok) return r.Data;
         throw new UdsException(sid, r.Nrc, r.Error);
     }

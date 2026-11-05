@@ -216,6 +216,7 @@ public sealed class IsoTpClient
         int seen = 0, dropped = 0;
         var noiseIds = new Dictionary<uint, int>();
         _sawBootup = false;
+        _sawAa55 = false;
 
         // 半包看门狗：FF 已收但 5s 内没凑齐 → 丢弃半包，防下一次误拼
         if (_ffBuf is not null && Environment.TickCount64 > _ffDeadline)
@@ -242,6 +243,10 @@ public sealed class IsoTpClient
                         && (f.Data[1] == 0x00  // 新格式 01 00×7（1.1.41+，[1..7] 全零）
                             || (f.Data[1] == 0x41 && f.Data[2] == 0x00)))  // legacy 01 41 00
                         _sawBootup = true;
+                    // AA55 组包标记（18FF270D AA 55 …）：设备已完整组包并派发 UDS 请求
+                    if (nid == ProtoIds.LpDiagId && f.Data.Length >= 2
+                        && f.Data[0] == 0xAA && f.Data[1] == 0x55)
+                        _sawAa55 = true;
                     string diag = DecodeDiag(nid, f.Data);
                     if (noiseIds[nid] <= 3)
                         Log($"[RX?] id={nid:X8} {Hex(f.Data)}{(diag.Length > 0 ? "  → " + diag : "")}");
@@ -327,6 +332,8 @@ public sealed class IsoTpClient
             hint = "；仅见生命周期帧，APP 可能刚上电或 UDS 未就绪，请重试";
         else if (dropped == 0 && seen == 0)
             hint = "；总线无任何回包，查 CANH/CANL/终端电阻/盒子 TX";
+        if (_sawAa55)
+            hint += "；见 AA55 组包标记=设备已完整收到并派发请求，应答在回程丢失（重发同一块可自愈）";
 
         Log($"[RX] 超时: 收 {seen} 帧/噪声 {dropped}，目标 0x{_rxId:X8}" +
             (noise.Length > 0 ? $"，噪声ID: {noise}" : "，无任何帧") + hint);
@@ -338,6 +345,9 @@ public sealed class IsoTpClient
 
     /// <summary>本次等待中是否见过 APP BOOTUP（01 41 00）。</summary>
     private bool _sawBootup;
+
+    /// <summary>本次等待中是否见过 AA55 组包标记（18FF270D AA 55…）。</summary>
+    private bool _sawAa55;
 
     /// <summary>最近一次 <see cref="TryReceive"/> 超时的诊断摘要。</summary>
     public string LastTimeoutDetail { get; private set; } = "";

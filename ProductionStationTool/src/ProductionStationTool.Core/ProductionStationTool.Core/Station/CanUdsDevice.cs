@@ -327,7 +327,7 @@ public sealed class CanUdsDevice : IDisposable
                 payload[0] = (byte)(seq & 0xFF);
                 Buffer.BlockCopy(raw, off, payload, 1, n);
                 var t = _uds.TryRequest(ProtoIds.SidTd, payload,
-                    timeoutMs: 8000, waitPendingMs: 30_000, ct: ct);
+                    timeoutMs: 8000, waitPendingMs: 30_000, ct: ct, requestRetries: 2);
                 if (!t.Ok)
                     return (false, $"36 块 {blk + 1}/{nblocks} 失败: {t.Error}");
                 sumSend += _uds.LastSendMs;

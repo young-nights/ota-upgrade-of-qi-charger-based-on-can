@@ -1,25 +1,32 @@
 using System.Windows;
 using System.Windows.Controls;
 using ProductionStationTool.App.Stations;
+using ProductionStationTool.App.Utilities;
+using ProductionStationTool.Core.Station;
 
 namespace ProductionStationTool.App;
 
 /// <summary>
 /// 工位外壳：一个 App 集成多个工位页面，左侧列表自主切换。
 /// 「开始测试」「下一个」作用于当前选中工位。
+/// 本机身份（工位号+机位号）来自 machine.json——每工位机位数随产量动态增减，
+/// 增减机位只改配置文件，代码零改动。
 /// </summary>
 public partial class MainWindow : Window
 {
     private readonly IStationPage[] _pages;
+    private readonly StationIdentity _identity;
     private IStationPage? _currentPage;
     private bool _isRunning;
 
     public MainWindow()
     {
         InitializeComponent();
+        _identity = MachineConfig.Load();
+        Title = $"产线测试上位机 — {_identity.Code}";
         _pages = new IStationPage[]
         {
-            new Station1Control(),
+            new Station1Control(_identity),
             new Station2Control(),
             new PlaceholderStationControl(3),
             new PlaceholderStationControl(4),
@@ -43,7 +50,7 @@ public partial class MainWindow : Window
         _currentPage = _pages[index];
         _currentPage.AvailabilityChanged += OnPageAvailabilityChanged;
         PageHost.Content = _currentPage;
-        TxtCurrent.Text = $"当前：{_currentPage.Title}";
+        TxtCurrent.Text = $"当前：{_currentPage.Title}（本机：{_identity.Label}）";
         UpdateButtons();
     }
 

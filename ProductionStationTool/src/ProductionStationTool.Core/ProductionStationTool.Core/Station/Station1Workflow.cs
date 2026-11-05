@@ -25,14 +25,19 @@ public sealed class Station1Workflow
     private readonly Func<DateTime, int, string> _snGenerate; // 可注入以便测试
     private int _nextSequence;
 
+    /// <summary>本机身份（工位号 + 机位号），入库记录按此标记来源。</summary>
+    public StationIdentity Identity { get; }
+
     public Station1Workflow(
         ITestRecordStore store,
         int startSequence = 1,
-        Func<DateTime, int, string>? snGenerate = null)
+        Func<DateTime, int, string>? snGenerate = null,
+        StationIdentity? identity = null)
     {
         _store = store;
         _nextSequence = startSequence;
         _snGenerate = snGenerate ?? ((d, s) => SnGenerator.Generate(d, s));
+        Identity = identity ?? new StationIdentity(1, "1");
     }
 
     /// <summary>执行一次工位 1 测试。snWrite/snRead/device 由上位机 CAN 层提供。</summary>
@@ -76,7 +81,8 @@ public sealed class Station1Workflow
         _store.Add(new TestRecord
         {
             Sn = sn,
-            StationNo = 1,
+            StationNo = Identity.StationNo,
+            MachineId = Identity.MachineId,
             Result = passed ? "PASS" : "FAIL",
             Voltage = sample.Value.Voltage,
             Current = sample.Value.Current,

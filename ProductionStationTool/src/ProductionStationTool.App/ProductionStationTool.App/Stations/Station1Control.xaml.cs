@@ -58,10 +58,11 @@ public partial class Station1Control : UserControl, IStationPage
     private void LogSafe(string msg)
         => Dispatcher.Invoke(() => LogPanel.Append(msg));
 
-    public Station1Control()
+    public Station1Control(StationIdentity identity)
     {
         InitializeComponent();
-        _workflow = new Station1Workflow(_store);
+        _workflow = new Station1Workflow(_store, identity: identity);
+        LogPanel.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
         FlowPanel.SetSteps(
             "连接设备（串口/CAN 自动检测）",
             "生成 SN 码",

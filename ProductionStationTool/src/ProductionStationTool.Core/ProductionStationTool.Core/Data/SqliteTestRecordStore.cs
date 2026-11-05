@@ -24,6 +24,7 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 sn             TEXT    NOT NULL UNIQUE,
                 station_no     INTEGER NOT NULL,
+                machine_id     TEXT    NOT NULL DEFAULT '',
                 result         TEXT    NOT NULL,
                 voltage        REAL    NOT NULL,
                 current        REAL    NOT NULL,
@@ -32,6 +33,18 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
             )
             """;
         cmd.ExecuteNonQuery();
+
+        // 旧库升级：补 machine_id 列（列已存在则忽略）
+        try
+        {
+            using var mig = _conn.CreateCommand();
+            mig.CommandText =
+                "ALTER TABLE test_records ADD COLUMN machine_id TEXT NOT NULL DEFAULT ''";
+            mig.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+        }
     }
 
     public void Add(TestRecord r)
@@ -39,11 +52,12 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
             """
-            INSERT INTO test_records (sn, station_no, result, voltage, current, abnormal_items, test_time)
-            VALUES ($sn, $st, $res, $v, $i, $ab, $t)
+            INSERT INTO test_records (sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time)
+            VALUES ($sn, $st, $mid, $res, $v, $i, $ab, $t)
             """;
         cmd.Parameters.AddWithValue("$sn", r.Sn);
         cmd.Parameters.AddWithValue("$st", r.StationNo);
+        cmd.Parameters.AddWithValue("$mid", r.MachineId);
         cmd.Parameters.AddWithValue("$res", r.Result);
         cmd.Parameters.AddWithValue("$v", r.Voltage);
         cmd.Parameters.AddWithValue("$i", r.Current);
@@ -56,7 +70,7 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
-            "SELECT id, sn, station_no, result, voltage, current, abnormal_items, test_time " +
+            "SELECT id, sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time " +
             "FROM test_records WHERE sn = $sn";
         cmd.Parameters.AddWithValue("$sn", sn);
         using var rd = cmd.ExecuteReader();
@@ -67,7 +81,7 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
-            "SELECT id, sn, station_no, result, voltage, current, abnormal_items, test_time " +
+            "SELECT id, sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time " +
             "FROM test_records ORDER BY id DESC LIMIT $n";
         cmd.Parameters.AddWithValue("$n", n);
         using var rd = cmd.ExecuteReader();
@@ -82,11 +96,12 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
         Id = rd.GetInt64(0),
         Sn = rd.GetString(1),
         StationNo = rd.GetInt32(2),
-        Result = rd.GetString(3),
-        Voltage = rd.GetDouble(4),
-        Current = rd.GetDouble(5),
-        AbnormalItems = rd.GetString(6),
-        TestTime = DateTime.Parse(rd.GetString(7)),
+        MachineId = rd.GetString(3),
+        Result = rd.GetString(4),
+        Voltage = rd.GetDouble(5),
+        Current = rd.GetDouble(6),
+        AbnormalItems = rd.GetString(7),
+        TestTime = DateTime.Parse(rd.GetString(8)),
     };
 
     public void Dispose() => _conn.Dispose();

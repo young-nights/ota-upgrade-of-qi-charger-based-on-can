@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.60";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.61";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -3447,10 +3447,20 @@ void can_protocol_poll(void)
   /* 有符号比较（同 g_announce_due_ms 判定风格）：同轮 poll 内 mark_uds（响应发送 /
    * 唤醒 enter_normal）刷新 g_uds_last_ms 后，过期 now 参与无符号减法会下溢成
    * 巨大值导致误进 Sleep */
-  if ((int32_t)(now - g_uds_last_ms) >= (int32_t)CAN_LP_IDLE_TIMEOUT_MS)
+  /* IAP 进行中把空闲超时放宽到 30s：上位机 8s 等待超时 + 重发节奏贴着 10s
+   * 空闲线，设备先睡 = INH 断电、Qi 芯片中途断写（2026-11-04 块 345 实测
+   * 失败后 10s 即入睡）。30s 上界保证工具真消失后仍会回收休眠。 */
   {
-    can_lp_go_sleep();
-    return;
+    int32_t idle_limit = (int32_t)CAN_LP_IDLE_TIMEOUT_MS;
+    if (g_qi_iap_state != QI_IAP_IDLE)
+    {
+      idle_limit = 30000;
+    }
+    if ((int32_t)(now - g_uds_last_ms) >= idle_limit)
+    {
+      can_lp_go_sleep();
+      return;
+    }
   }
 #endif
 

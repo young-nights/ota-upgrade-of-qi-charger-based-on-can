@@ -6,6 +6,8 @@ public sealed class TestRecord
     public long Id { get; set; }
     public string Sn { get; set; } = "";
     public int StationNo { get; set; }
+    /// <summary>机位号（同工位多机位时区分来源，如 "1"/"3"）。</summary>
+    public string MachineId { get; set; } = "";
     public string Result { get; set; } = "";        // PASS / FAIL
     public double Voltage { get; set; }
     public double Current { get; set; }

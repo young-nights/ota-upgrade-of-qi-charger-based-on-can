@@ -172,7 +172,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.60** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.61** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -182,6 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-04 | **fix(tool/fw): IAP 块 345 无应答中止——上位机 0x36 补超时重发 + 固件 IAP 睡眠门禁**。实测（QiChargerStationTool MCU2 IAP，22B/块）：块 345 请求发出后 8s 无任何应答（噪声仅 8×OPERATIONAL + 1×0x18FF270D），整单升级 FAIL；10.4s 后设备照常进睡。定位：固件 0x36 派发后必有应答（76 或 2s 内 NRC 0x72，且 BSC 幂等去重为上位机重发设计），纯静默 = 应答回程丢失（SF 发后不管）或 CF 组包丢失（N_Cr 静默超时）；而上位机 `UdsClient.TryRequest` **单发无重试**，一次瞬时丢包即整单 FAIL。修复：①工具 `TryRequest/Request` 新增 `requestRetries`（仅对「应答超时」原样重发，NRC/取消不重发），0x36 三个发送点（StationTool MainWindow / OtaSteps / ProductionStationTool `CanUdsDevice`）统配 2 次重发——重复包走固件 BSC 幂等直接回 76，应答丢失与组包丢失均自愈；②`IsoTpClient` 超时诊断识别 AA55 组包标记（18FF270D AA 55）：有=设备已派发、应答回程丢；无=组包未完成，下次故障自判因；③固件：IAP 进行中空闲超时 10s→30s（上界，工具消失仍回收），防工具重发节奏撞上睡眠线（断电=Qi 芯片中途断写）。`SW_VERSION_STR` 1.1.60→1.1.61 |
 | 2026-11-04 | **fix(comm): 通信层风险加固（CAN 驱动 + ISO-TP + UDS 应答槽）**。①`can_driver`：RX 丢帧粘滞标志——软 FIFO 满/硬件溢出原为静默丢弃（主循环被长操作阻塞时突发请求帧丢失，主机侧只见「UDS 无应答」无从定位），现置标志经 DID `0x2119` `[0]` bit3 暴露（保持 4B SF 可发，不加长）；`can_driver_wait_tx_frame` 补 current 槽 ABORTED/REJECTED 终态判定（原只看 final 槽，帧不搬 final 时空等到超时，上层补发被拖慢）；STB 滞留补触发抽出 `can_driver_tx_pump()`。②`isotp`：FF 发送「确认超时」不再假成功——原 wait_tx_frame 超时仍 return 0，主机等不到 FF 没有 FC，整个多帧应答白等 2s 超时；现确认失败视为未发出按 N_As 重试（重复 FF 主机幂等，与 FC 重试同权衡）；`isotp_wait_cts`/FF 发送阻塞窗口内补跑 `can_driver_tx_pump()`（原 STB 补触发只在 can_driver_poll 跑，多帧应答阻塞窗口内停摆）。③`can_protocol`：`g_tx_pend` 单槽统一 prefer-old——SF 落槽后被后续 MF 应答无条件覆盖（主机永远等不到在途应答）；现槽忙一律丢新应答（含 7E keep-alive），主机超时重发可恢复。`SW_VERSION_STR` 1.1.59→1.1.60 |
 | 2026-11-04 | **fix(sit1145): 插拔后入睡仍睡死（1.1.58 残留）——EVENT_EN.CWE 未武装即入睡**。CCU 实测（fw 1.1.58 在装）：插拔冷启动→10s 空闲入睡→WUF burst 8×250ms 与车辆流量均唤不醒；记录仪 E0=`07 00 00 41 00 00`（`CAN_CONTROL=0x41`=init 步骤7 已写，`EVENT_EN=0x00`=步骤9 未执行）→ init 在**步骤8 DATA_RATE 回读失败提前 return**（1.1.58 只给步骤6 加了重试，7/8 仍是单次写+回读）。随后 `sleep_enter` 的 wuf_ok 校验**不查 EVENT_EN**：`wuf_enable` 那一笔 CWE 写丢失仍判成功 → CPNC=1 关标准唤醒、CWE=0 关一切 CAN 唤醒 = 睡死（暖机正常因 SIT1145 不断电、EVENT_EN 残留 0x03 兜底）。修复：①init 步骤7/8 有界重试 10×(写+1ms+回读)（app + bootloader）；②`wake_enable`/`wuf_enable` 的 EVENT_EN 写改回读确认+重试 5 次；③wuf_ok 校验加 `EVENT_EN.CWE=1` 项；④进睡前最终门禁：CWE 仍为 0 则补救一次，仍不生效 return 0 不入睡（宁可不睡不可睡死），下轮空闲重试。`SW_VERSION_STR` 1.1.58→1.1.59 |
 | 2026-11-04 | **fix(sit1145): 插拔后选择性唤醒无反应——冷上电 init 自愈 + 进睡前重写 DATA_RATE**。根因：插拔=SIT1145 整芯片断电重启，上电初期 SPI 未就绪 → `sit1145_init` 步骤6 读 ID 失败，而调用方的重试是无延时连打两次、同样失败后**静默继续**（CAN 照常通：收发器默认 Normal 直通 TXD/RXD）→ 芯片停在复位默认值（进睡前 E0~E3 回读 `CAN_CONTROL=0x01`/`EVENT_EN=0x00` 实证）。`sit1145_sleep_enter` 每次重配 WUF ID/掩码并锁定，但 **DATA_RATE(0x26) 只有 init 写**——WUF 检测器按 DATA_RATE 采样总线，速率错=选择性唤醒永不匹配，又因 CPNC=1 关了标准唤醒，车辆流量也唤不醒=睡死。修复：①init 步骤6 有界重试 25×2ms（app + bootloader 两份 sit1145.c 同改）；②`sleep_enter` 进睡前重写 DATA_RATE 并纳入 wuf_ok 校验（重试循环全量重配时一并重写）——不管 init 成败，进睡前自愈，校验不过则退化标准 WUP（宁可多醒不可睡死）。`SW_VERSION_STR` 1.1.57→1.1.58 |
