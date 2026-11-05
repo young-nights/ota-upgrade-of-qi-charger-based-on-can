@@ -105,4 +105,10 @@ public partial class MainWindow : Window
         UpdateButtons();
         TxtStatus.Text = $"{page.Title}：已切换下一台，串口保持连接，等待开始测试";
     }
+
+    private void BtnSettings_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new SettingsWindow { Owner = this };
+        win.ShowDialog();
+    }
 }
