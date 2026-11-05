@@ -8,16 +8,18 @@ namespace ProductionStationTool.Core.Station;
 public sealed record Station1Result(
     string Sn,
     bool Passed,
-    PowerJudgement? Power,
+    CoilJudgement? Coil,
     IReadOnlyList<string> AbnormalItems);
 
 /// <summary>
 /// 工位 1 流程编排（构想文档）：
-///   生成 SN → 写入 SN → 回读验证 → 开充电 → PowerZ 采样判限 → 入库
+///   生成 SN → 写入 SN → 回读验证 → 开充电 → PowerZ A/B 线圈检测 → 入库
 ///
 /// 关键约定：
 ///  - SN 写入失败 → **不入库**，流水号不消耗（下次生成仍用同一序号）；
-///  - 任何异常项 → 页面显示异常原因；全正常才 PASS。
+///  - 任何异常项 → 页面显示异常原因；全正常才 PASS；
+///  - 步骤 5 双线圈检测见 <see cref="CoilCheck"/>：A 线圈 10s 均值 ≥ 1A、
+///    换线圈跌落（正常不判失败）、B 线圈恢复 ≥ 1A 并持续；整体超时判 FAIL。
 /// </summary>
 public sealed class Station1Workflow
 {
@@ -46,7 +48,8 @@ public sealed class Station1Workflow
         Func<Task<string?>> snReadAsync,            // 回读 SN
         Func<Task> chargeStartAsync,                // 开启无线充电
         IPowerZSource powerZ,
-        PowerLimits limits,
+        CoilTestOptions coils,
+        Action<string>? log = null,
         CancellationToken ct = default)
     {
         // 1. 生成 SN
@@ -62,57 +65,31 @@ public sealed class Station1Workflow
             return new Station1Result(sn, false, null,
                 new[] { $"SN 回读不一致：写入 {sn}，读回 {readBack ?? "(空)"}" });
 
-        // 3. 开充电 + PowerZ 采样判限（等一个采样）
+        // 3. 开充电 + PowerZ 双线圈检测
+        //    A 线圈 10s 均值 ≥ 阈值 → 跌落过渡（正常不判失败）→ B 线圈恢复并持续；整体限时
         await chargeStartAsync();
-        var sample = await WaitSampleAsync(powerZ, ct);
-        if (sample is null)
-        {
-            // 采样失败 = 流程错误（非判限结果）：停止，不判限、不入库
-            return new Station1Result(sn, false, null,
+        var coil = await CoilCheck.RunAsync(powerZ, coils, log, ct);
+
+        // 4. 无有效采样 = 流程错误：停止，不判限、不入库
+        if (coil.NoValidSample)
+            return new Station1Result(sn, false, coil,
                 new[] { "PowerZ 无有效采样" });
-        }
-        var fails = limits.Judge(sample.Value.Voltage, sample.Value.Current);
 
-        // 4. 结论
-        var passed = fails.Count == 0;
-        var judgement = new PowerJudgement(sample.Value.Voltage, sample.Value.Current, passed, fails);
-
-        // 5. 入库（SN 写入成功 + 采样成功才会走到这里；判限 FAIL 也入库为 FAIL 记录）
+        // 5. 入库（SN 写入成功 + 有采样才走到这里；线圈判 FAIL 也入库为 FAIL 记录）
+        var passed = coil.IsNormal;
         _store.Add(new TestRecord
         {
             Sn = sn,
             StationNo = Identity.StationNo,
             MachineId = Identity.MachineId,
             Result = passed ? "PASS" : "FAIL",
-            Voltage = sample.Value.Voltage,
-            Current = sample.Value.Current,
-            AbnormalItems = string.Join("；", fails),
+            Voltage = coil.CoilAVoltage,
+            Current = coil.CoilACurrent,
+            AbnormalItems = string.Join("；", coil.AbnormalItems),
             TestTime = DateTime.Now,
         });
         _nextSequence++;
 
-        return new Station1Result(sn, passed, judgement, fails);
-    }
-
-    private static async Task<PowerSample?> WaitSampleAsync(IPowerZSource src, CancellationToken ct)
-    {
-        var tcs = new TaskCompletionSource<PowerSample>();
-        Action<PowerSample> handler = s => tcs.TrySetResult(s);
-        src.SampleReceived += handler;
-        try
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            await using var reg = timeout.Token.Register(() => tcs.TrySetCanceled());
-            return await tcs.Task;
-        }
-        catch
-        {
-            return null;
-        }
-        finally
-        {
-            src.SampleReceived -= handler;
-        }
+        return new Station1Result(sn, passed, coil, coil.AbnormalItems);
     }
 }

@@ -1,0 +1,185 @@
+using System.Diagnostics;
+using ProductionStationTool.PowerZ;
+
+namespace ProductionStationTool.Core.Station;
+
+/// <summary>
+/// 双线圈（A/B）电流检测参数。整体限时覆盖「A 采集 + 换线圈 + B 判定」全过程，
+/// 超时即步骤 5 判 FAIL。
+/// </summary>
+public sealed class CoilTestOptions
+{
+    /// <summary>A 线圈采集窗口（ms），均值滤波。</summary>
+    public int CoilACollectMs { get; init; } = 10_000;
+
+    /// <summary>A 线圈均值电流阈值（A）。</summary>
+    public double CoilAThresholdA { get; init; } = 1.0;
+
+    /// <summary>换线圈过渡确认时长（ms）：电流低于 B 阈值持续该时长视为「已取下 A 夹子」。</summary>
+    public int TransitionMs { get; init; } = 300;
+
+    /// <summary>B 线圈恢复后持续达标时长（ms）。</summary>
+    public int CoilBSustainMs { get; init; } = 3_000;
+
+    /// <summary>B 线圈均值电流阈值（A）。</summary>
+    public double CoilBThresholdA { get; init; } = 1.0;
+
+    /// <summary>步骤 5 整体超时（ms）：超时默认 FAIL。</summary>
+    public int OverallTimeoutMs { get; init; } = 60_000;
+}
+
+/// <summary>双线圈检测结论。</summary>
+public sealed record CoilJudgement(
+    double CoilAVoltage,           // A 窗口均值电压（记录/显示用）
+    double CoilACurrent,           // A 窗口均值电流
+    double CoilBCurrent,           // B 恢复期均值电流（未测到为 0）
+    bool CoilAPassed,
+    bool CoilBPassed,
+    bool NoValidSample,            // A 窗口无任何采样（PowerZ 流程错误，不入库）
+    IReadOnlyList<string> AbnormalItems)
+{
+    public bool IsNormal => CoilAPassed && CoilBPassed && AbnormalItems.Count == 0;
+}
+
+/// <summary>
+/// 双线圈采样与判定流程（工位 1 步骤 5）：
+///   ① A 线圈：开充前已接入，固定窗口采集均值滤波，均值 ≥ 阈值即 A 正常；
+///   ② 过渡：操作员取下 A 夹子，电流跌落（低于 B 阈值持续 TransitionMs）——
+///      属正常行为，只识别切换、不判失败；
+///   ③ B 线圈：电流恢复到 B 阈值以上并持续 CoilBSustainMs（均值）即 B 正常；
+///   ④ 整体限时：从进入本流程起算，超时（如 B 一直低电流）判 FAIL。
+/// </summary>
+public static class CoilCheck
+{
+    public static async Task<CoilJudgement> RunAsync(
+        IPowerZSource src,
+        CoilTestOptions opt,
+        Action<string>? log = null,
+        CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        var samples = new List<(double V, double I, long T)>();
+        var gate = new object();
+        void OnSample(PowerSample s)
+        {
+            lock (gate) samples.Add((s.Voltage, s.Current, sw.ElapsedMilliseconds));
+        }
+        src.SampleReceived += OnSample;
+
+        try
+        {
+            // ── 阶段 A：固定窗口采集 + 均值滤波 ──
+            while (sw.ElapsedMilliseconds < opt.CoilACollectMs &&
+                   sw.ElapsedMilliseconds <= opt.OverallTimeoutMs)
+            {
+                ct.ThrowIfCancellationRequested();
+                await Task.Delay(50, ct);
+            }
+
+            List<(double V, double I, long T)> winA;
+            lock (gate)
+                winA = samples.Where(s => s.T <= opt.CoilACollectMs).ToList();
+
+            if (winA.Count == 0)
+            {
+                log?.Invoke("A 线圈：窗口内无采样");
+                return new CoilJudgement(0, 0, 0, false, false, true, new[] { "PowerZ 无有效采样" });
+            }
+
+            var avgI = winA.Average(s => s.I);
+            var avgV = winA.Average(s => s.V);
+            log?.Invoke($"A 线圈：{winA.Count} 点，均值 {avgI:F3}A / {avgV:F3}V" +
+                        $"（阈值 {opt.CoilAThresholdA:F2}A，窗口 {opt.CoilACollectMs} ms）");
+
+            if (avgI < opt.CoilAThresholdA)
+            {
+                return new CoilJudgement(avgV, avgI, 0, false, false, false,
+                    new[] { $"A 线圈均值电流 {avgI:F3}A 低于阈值 {opt.CoilAThresholdA:F2}A" });
+            }
+
+            // ── 阶段 B：识别换线圈跌落（不判失败）→ 恢复到阈值并持续 ──
+            var cursor = 0;
+            var transition = false;
+            var lowStart = -1L;
+            var recStart = -1L;      // B 恢复到阈值以上的起点
+            var dipMin = double.MaxValue;
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                var now = sw.ElapsedMilliseconds;
+                if (now > opt.OverallTimeoutMs)
+                {
+                    List<(double V, double I, long T)> tail;
+                    lock (gate)
+                        tail = samples.Where(s => s.T > opt.CoilACollectMs).ToList();
+                    var tailAvg = tail.Count > 0 ? tail.Average(s => s.I) : 0;
+                    var reason = transition
+                        ? $"B 线圈电流未恢复到 {opt.CoilBThresholdA:F2}A（尾段均值 {tailAvg:F3}A），整体超时 {now / 1000.0:F1}s"
+                        : $"未检测到换线圈跌落（B 线圈未接入？尾段均值 {tailAvg:F3}A），整体超时 {now / 1000.0:F1}s";
+                    return new CoilJudgement(avgV, avgI, tailAvg, true, false, false, new[] { reason });
+                }
+
+                lock (gate)
+                {
+                    while (cursor < samples.Count)
+                    {
+                        var s = samples[cursor++];
+                        if (s.T <= opt.CoilACollectMs)
+                            continue;
+
+                        if (!transition)
+                        {
+                            // 跌落确认：低于 B 阈值持续 TransitionMs → 判为已取下 A 夹子
+                            if (s.I < opt.CoilBThresholdA)
+                            {
+                                if (lowStart < 0) lowStart = s.T;
+                                if (s.I < dipMin) dipMin = s.I;
+                                if (s.T - lowStart >= opt.TransitionMs)
+                                {
+                                    transition = true;
+                                    log?.Invoke($"检测到换线圈跌落（最低 {dipMin:F3}A），等待 B 线圈接入…");
+                                }
+                            }
+                            else
+                            {
+                                lowStart = -1;
+                            }
+                        }
+                        else
+                        {
+                            // 恢复跟踪：≥ 阈值起算，中途再跌落则重新计
+                            if (s.I >= opt.CoilBThresholdA)
+                            {
+                                if (recStart < 0) recStart = s.T;
+                            }
+                            else
+                            {
+                                recStart = -1;
+                            }
+                        }
+                    }
+
+                    if (transition && recStart >= 0 && now - recStart >= opt.CoilBSustainMs)
+                    {
+                        var winB = samples.Where(s => s.T >= recStart).ToList();
+                        var bAvg = winB.Average(s => s.I);
+                        if (bAvg >= opt.CoilBThresholdA)
+                        {
+                            log?.Invoke($"B 线圈：{winB.Count} 点，均值 {bAvg:F3}A ≥ {opt.CoilBThresholdA:F2}A" +
+                                        $"，持续 {now - recStart} ms → 正常");
+                            return new CoilJudgement(avgV, avgI, bAvg, true, true, false, Array.Empty<string>());
+                        }
+                        recStart = -1;   // 均值不足（噪声），重新累积
+                    }
+                }
+
+                await Task.Delay(50, ct);
+            }
+        }
+        finally
+        {
+            src.SampleReceived -= OnSample;
+        }
+    }
+}

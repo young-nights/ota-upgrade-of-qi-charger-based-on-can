@@ -19,14 +19,24 @@ public partial class Station1Control : UserControl, IStationPage
     private static readonly Brush DangerBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
 
-    /// <summary>占位判限阈值（5V 档）；页面阈值配置接入后替换。</summary>
-    private static readonly PowerLimits DefaultPowerLimits = new()
+    /// <summary>从「线圈检测参数」输入框读取 CoilTestOptions（解析失败回落默认值）。</summary>
+    private CoilTestOptions BuildCoilOptions()
     {
-        VoltageMin = 4.75,
-        VoltageMax = 5.25,
-        CurrentMin = 0.0,
-        CurrentMax = 3.0,
-    };
+        var d = new CoilTestOptions();
+        double ParseD(TextBox box, double fallback)
+            => double.TryParse(box.Text.Trim(), out var v) ? v : fallback;
+        int ParseMs(TextBox box, int fallbackMs)
+            => double.TryParse(box.Text.Trim(), out var v) && v > 0 ? (int)(v * 1000) : fallbackMs;
+
+        return new CoilTestOptions
+        {
+            CoilAThresholdA = ParseD(BoxAThreshold, d.CoilAThresholdA),
+            CoilBThresholdA = ParseD(BoxBThreshold, d.CoilBThresholdA),
+            CoilACollectMs = ParseMs(BoxAWindowSec, d.CoilACollectMs),
+            CoilBSustainMs = ParseMs(BoxBSustainSec, d.CoilBSustainMs),
+            OverallTimeoutMs = ParseMs(BoxTimeoutSec, d.OverallTimeoutMs),
+        };
+    }
 
     private readonly ITestRecordStore _store = new SqliteTestRecordStore();
     private readonly Station1Workflow _workflow;
@@ -68,8 +78,8 @@ public partial class Station1Control : UserControl, IStationPage
             "生成 SN 码",
             "写入 SN 并回读验证",
             "开启无线充电",
-            "PowerZ 采样电流/电压",
-            "判限并入库");
+            "PowerZ：A 线圈 10s 均值 + B 线圈接入检测",
+            "停充并入库");
 
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
@@ -242,7 +252,8 @@ public partial class Station1Control : UserControl, IStationPage
                     }
                 },
                 powerZ: powerZ,
-                limits: DefaultPowerLimits,
+                coils: BuildCoilOptions(),
+                log: LogSafe,
                 ct);
         }
         catch (Exception ex)
@@ -264,27 +275,30 @@ public partial class Station1Control : UserControl, IStationPage
 
         if (snOk && chargeOk)
         {
-            // ⑤ PowerZ 采样：拿到采样即本步完成（判限归⑥）
-            if (result?.Power is { } p)
+            if (result?.Coil is { NoValidSample: false } c)
             {
-                TxtVoltage.Text = $"{p.Voltage:F3}";
-                TxtCurrent.Text = $"{p.Current:F3}";
-                FlowPanel.Mark(4, StepStatus.Passed);
+                TxtVoltage.Text = $"{c.CoilAVoltage:F3}";
+                TxtCurrent.Text = $"{c.CoilACurrent:F3}";
+                TxtPowerJudge.Text =
+                    $"{(c.CoilAPassed ? "A✓" : "A✗")} {c.CoilACurrent:F2}A · {(c.CoilBPassed ? "B✓" : "B✗")} {c.CoilBCurrent:F2}A";
+                TxtPowerJudge.Foreground = c.IsNormal ? SuccessBrush : DangerBrush;
 
-                // ⑥ 判限并入库：判限入库时发停止充电指令（2E 21 01 00）
+                // ⑤ A/B 线圈检测：含判定（B 超时/A 均值不足 = ⑤ Fail）
+                FlowPanel.Mark(4, c.IsNormal ? StepStatus.Passed : StepStatus.Failed,
+                    c.IsNormal ? null : string.Join("；", c.AbnormalItems));
+                LogPanel.Append($"步骤 5：A 均值 {c.CoilACurrent:F3}A / B 均值 {c.CoilBCurrent:F3}A" +
+                                $" → {(c.IsNormal ? "正常" : "异常：" + string.Join("；", c.AbnormalItems))}");
+
+                // ⑥ 停充并入库（线圈判 FAIL 也入库为 FAIL 记录）
                 FlowPanel.Mark(5, StepStatus.Running);
                 var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
                 LogPanel.Append(offOk ? $"步骤 6：停止充电（{offDetail}）" : $"步骤 6：停止充电失败 {offDetail}");
-
-                TxtPowerJudge.Text = p.IsNormal ? "正常" : "异常";
-                TxtPowerJudge.Foreground = p.IsNormal ? SuccessBrush : DangerBrush;
-                bool step6Ok = p.IsNormal && offOk;
-                FlowPanel.Mark(5, step6Ok ? StepStatus.Passed : StepStatus.Failed);
-                LogPanel.Append(step6Ok
-                    ? "步骤 6：判限正常，已入库（PASS）"
-                    : $"步骤 6：判限/停充异常（{string.Join("；", p.AbnormalItems)}{(offOk ? "" : "；停充失败")}），已入库（FAIL）");
                 if (!offOk)
                     ListAbnormal.Items.Add("停止充电指令失败");
+                FlowPanel.Mark(5, offOk ? StepStatus.Passed : StepStatus.Failed);
+                LogPanel.Append(c.IsNormal
+                    ? "步骤 6：已入库（PASS）"
+                    : $"步骤 6：已入库（FAIL 记录：{string.Join("；", c.AbnormalItems)}）");
             }
             else
             {
@@ -293,7 +307,7 @@ public partial class Station1Control : UserControl, IStationPage
                 TxtPowerJudge.Text = "—";
                 FlowPanel.Mark(4, StepStatus.Failed, "无有效采样");
                 FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
-                LogPanel.Append("步骤 6：未执行（无有效采样），不判限不入库");
+                LogPanel.Append("步骤 6：未执行（无有效采样），不入库");
             }
         }
         else
@@ -306,11 +320,11 @@ public partial class Station1Control : UserControl, IStationPage
             TxtPowerJudge.Text = "—";
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
-            LogPanel.Append("步骤 6：未执行（前序失败），不判限不入库");
+            LogPanel.Append("步骤 6：未执行（前序失败），不入库");
         }
 
         // 安全关充：流程中途出错（无采样/前序失败）时充电可能仍开着，补发停充
-        if (chargeOk && result?.Power is null)
+        if (chargeOk && (result?.Coil is null || result.Coil.NoValidSample))
         {
             var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
             LogPanel.Append(offOk ? $"安全停充：{offDetail}" : $"安全停充失败：{offDetail}");
@@ -356,12 +370,13 @@ public partial class Station1Control : UserControl, IStationPage
 
         SetResultBadge(result.Passed);
 
-        if (result.Power is not null)
+        if (result.Coil is { NoValidSample: false } c)
         {
-            TxtVoltage.Text = $"{result.Power.Voltage:F3}";
-            TxtCurrent.Text = $"{result.Power.Current:F3}";
-            TxtPowerJudge.Text = result.Power.IsNormal ? "正常" : "异常";
-            TxtPowerJudge.Foreground = result.Power.IsNormal ? SuccessBrush : DangerBrush;
+            TxtVoltage.Text = $"{c.CoilAVoltage:F3}";
+            TxtCurrent.Text = $"{c.CoilACurrent:F3}";
+            TxtPowerJudge.Text =
+                $"{(c.CoilAPassed ? "A✓" : "A✗")} {c.CoilACurrent:F2}A · {(c.CoilBPassed ? "B✓" : "B✗")} {c.CoilBCurrent:F2}A";
+            TxtPowerJudge.Foreground = c.IsNormal ? SuccessBrush : DangerBrush;
         }
 
         foreach (var item in result.AbnormalItems)
