@@ -3,37 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="产线测试上位机" Height="780" Width="1280"
         Background="{StaticResource BgBrush}">
-    <!-- 自绘标题栏：⋯ 设置 + 最小化/最大化/关闭 -->
-    <WindowChrome.WindowChrome>
-        <WindowChrome CaptionHeight="36" ResizeBorderThickness="6"
-                      GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
-    </WindowChrome.WindowChrome>
-    <DockPanel>
-        <Border DockPanel.Dock="Top" Height="36" Background="Transparent"
-                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="TxtTitle" Grid.Column="0" Text="产线测试上位机"
-                           FontSize="13" Foreground="{StaticResource TextSecondaryBrush}"
-                           VerticalAlignment="Center" Margin="12,0,0,0"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button x:Name="BtnTitleSettings" Content="⋯" FontSize="18" Margin="0,0,4,0"
-                            Style="{StaticResource TitleBarButton}"
-                            Click="BtnSettings_Click"
-                            ToolTip="设置：机位命名 / 本机 IP / 服务器连通"/>
-                    <Button Content="—" Style="{StaticResource TitleBarButton}"
-                            Click="BtnMinimize_Click" ToolTip="最小化"/>
-                    <Button x:Name="BtnMaximize" Content="□" Style="{StaticResource TitleBarButton}"
-                            Click="BtnMaximize_Click" ToolTip="最大化/还原"/>
-                    <Button Content="✕" Style="{StaticResource TitleBarCloseButton}"
-                            Click="BtnClose_Click" ToolTip="关闭"/>
-                </StackPanel>
-            </Grid>
-        </Border>
-        <Grid Margin="16">
+    <Grid Margin="16">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="240"/>
             <ColumnDefinition Width="16"/>
@@ -131,6 +101,11 @@
                                 IsEnabled="False"
                                 Click="BtnNext_Click"
                                 ToolTip="完整跑通一次流程后可点：切换下一台，刷新状态，串口保持连接"/>
+                        <Button x:Name="BtnSettings" Content="设置" Width="90" Height="52"
+                                FontSize="18" Margin="12,0,0,0"
+                                Style="{StaticResource GhostButton}"
+                                Click="BtnSettings_Click"
+                                ToolTip="机位命名 / 查看本机 IP / 服务器连通检测"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -160,6 +135,5 @@
                            Text="ProductionStationTool"/>
             </Grid>
         </Border>
-        </Grid>
-    </DockPanel>
+    </Grid>
 </Window>
