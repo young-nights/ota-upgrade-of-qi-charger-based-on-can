@@ -101,31 +101,10 @@
                             </Border>
                         </Grid>
 
-                        <!-- 线圈检测参数 -->
-                        <TextBlock Text="线圈检测参数（可现场修改）" Style="{StaticResource SectionTitle}"
-                                   Margin="0,0,0,8"/>
-                        <UniformGrid Columns="5">
-                            <StackPanel Margin="0,0,8,0">
-                                <TextBlock Text="A 阈值 (A)" Style="{StaticResource FieldLabel}"/>
-                                <TextBox x:Name="BoxAThreshold" Style="{StaticResource FieldBox}" Text="1.0"/>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,8,0">
-                                <TextBlock Text="B 阈值 (A)" Style="{StaticResource FieldLabel}"/>
-                                <TextBox x:Name="BoxBThreshold" Style="{StaticResource FieldBox}" Text="1.0"/>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,8,0">
-                                <TextBlock Text="A 窗口 (s)" Style="{StaticResource FieldLabel}"/>
-                                <TextBox x:Name="BoxAWindowSec" Style="{StaticResource FieldBox}" Text="10"/>
-                            </StackPanel>
-                            <StackPanel Margin="0,0,8,0">
-                                <TextBlock Text="B 持续 (s)" Style="{StaticResource FieldLabel}"/>
-                                <TextBox x:Name="BoxBSustainSec" Style="{StaticResource FieldBox}" Text="3"/>
-                            </StackPanel>
-                            <StackPanel>
-                                <TextBlock Text="整体超时 (s)" Style="{StaticResource FieldLabel}"/>
-                                <TextBox x:Name="BoxTimeoutSec" Style="{StaticResource FieldBox}" Text="60"/>
-                            </StackPanel>
-                        </UniformGrid>
+                        <!-- 检测参数只读提示（修改入口在「设置」页） -->
+                        <TextBlock Text="检测参数（A/B 阈值、窗口、超时）在右上角「设置 → 检测参数」中修改"
+                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                   Margin="0,0,0,12"/>
 
                         <!-- 异常项 -->
                         <TextBlock Text="异常项" Style="{StaticResource SectionTitle}" Margin="0,16,0,8"/>

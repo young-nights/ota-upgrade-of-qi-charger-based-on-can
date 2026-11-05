@@ -1,6 +1,7 @@
 using System.Windows.Controls;
 using System.Windows.Media;
 using ProductionStationTool.App.Controls;
+using ProductionStationTool.App.Utilities;
 using ProductionStationTool.Core.Data;
 using ProductionStationTool.Core.Station;
 using ProductionStationTool.PowerZ;
@@ -19,24 +20,8 @@ public partial class Station1Control : UserControl, IStationPage
     private static readonly Brush DangerBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
 
-    /// <summary>从「线圈检测参数」输入框读取 CoilTestOptions（解析失败回落默认值）。</summary>
-    private CoilTestOptions BuildCoilOptions()
-    {
-        var d = new CoilTestOptions();
-        double ParseD(TextBox box, double fallback)
-            => double.TryParse(box.Text.Trim(), out var v) ? v : fallback;
-        int ParseMs(TextBox box, int fallbackMs)
-            => double.TryParse(box.Text.Trim(), out var v) && v > 0 ? (int)(v * 1000) : fallbackMs;
-
-        return new CoilTestOptions
-        {
-            CoilAThresholdA = ParseD(BoxAThreshold, d.CoilAThresholdA),
-            CoilBThresholdA = ParseD(BoxBThreshold, d.CoilBThresholdA),
-            CoilACollectMs = ParseMs(BoxAWindowSec, d.CoilACollectMs),
-            CoilBSustainMs = ParseMs(BoxBSustainSec, d.CoilBSustainMs),
-            OverallTimeoutMs = ParseMs(BoxTimeoutSec, d.OverallTimeoutMs),
-        };
-    }
+    /// <summary>步骤 5 检测参数统一在「设置 → 检测参数」页维护（machine.json），测试开始时读取。</summary>
+    private CoilTestOptions BuildCoilOptions() => MachineConfig.LoadCoilOptions();
 
     private readonly ITestRecordStore _store = new SqliteTestRecordStore();
     private readonly Station1Workflow _workflow;

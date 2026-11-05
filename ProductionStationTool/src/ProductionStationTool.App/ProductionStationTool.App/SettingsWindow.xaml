@@ -1,104 +1,160 @@
 <Window x:Class="ProductionStationTool.App.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="本机设置" Height="700" Width="540"
+        Title="本机设置" Height="720" Width="560"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Background="{StaticResource BgBrush}">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="16">
+    <TabControl Margin="16" Background="Transparent" BorderThickness="0">
 
-            <!-- 本机身份 -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <!-- ===== 页 1：机位与网络 ===== -->
+        <TabItem Header="机位与网络">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
                 <StackPanel>
-                    <TextBlock Text="本机身份（机位命名）" Style="{StaticResource SectionTitle}"/>
-                    <TextBlock x:Name="TxtCurrentCode" Text="当前编码：ST-01-1"
-                               FontSize="22" FontWeight="Bold" Margin="0,10,0,2"
-                               Foreground="{StaticResource AccentBrush}"/>
-                    <TextBlock Text="机位数随产量动态增减：改名只写 machine.json，代码/服务器零改动；保存后重启软件生效。"
-                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                               TextWrapping="Wrap" Margin="0,0,0,12"/>
 
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="110"/>
-                            <ColumnDefinition Width="16"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="工位号" Style="{StaticResource FieldLabel}"
-                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="CmbStationNo" Grid.Column="1" Style="{StaticResource FieldCombo}"
-                                  IsEditable="True" SelectionChanged="Identity_Changed">
-                            <ComboBoxItem Content="1"/>
-                            <ComboBoxItem Content="2"/>
-                            <ComboBoxItem Content="3"/>
-                            <ComboBoxItem Content="4"/>
-                        </ComboBox>
-                        <TextBlock Grid.Column="3" Text="机位号" Style="{StaticResource FieldLabel}"
-                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBox x:Name="TxtMachineId" Grid.Column="4" Style="{StaticResource FieldBox}"
-                                 TextChanged="Identity_Changed"/>
-                    </Grid>
-                    <TextBlock Text="机位号 1~8 位字母/数字，同工位内不重复（如 1、2、3…）"
-                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,10"/>
+                    <!-- 本机身份 -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="本机身份（机位命名）" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock x:Name="TxtCurrentCode" Text="当前编码：ST-01-1"
+                                       FontSize="22" FontWeight="Bold" Margin="0,10,0,2"
+                                       Foreground="{StaticResource AccentBrush}"/>
+                            <TextBlock Text="机位数随产量动态增减：改名只写 machine.json，代码/服务器零改动；保存后重启软件生效。"
+                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,12"/>
 
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="保存机位设置" Width="150" Height="40"
-                                Style="{StaticResource PrimaryButton}" Click="BtnSave_Click"/>
-                        <TextBlock x:Name="TxtSaveResult" VerticalAlignment="Center"
-                                   Margin="12,0,0,0" FontSize="12"
-                                   Foreground="{StaticResource TextSecondaryBrush}"/>
-                    </StackPanel>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="工位号" Style="{StaticResource FieldLabel}"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="CmbStationNo" Grid.Column="1" Style="{StaticResource FieldCombo}"
+                                          IsEditable="True" SelectionChanged="Identity_Changed">
+                                    <ComboBoxItem Content="1"/>
+                                    <ComboBoxItem Content="2"/>
+                                    <ComboBoxItem Content="3"/>
+                                    <ComboBoxItem Content="4"/>
+                                </ComboBox>
+                                <TextBlock Grid.Column="3" Text="机位号" Style="{StaticResource FieldLabel}"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="TxtMachineId" Grid.Column="4" Style="{StaticResource FieldBox}"
+                                         TextChanged="Identity_Changed"/>
+                            </Grid>
+                            <TextBlock Text="机位号 1~8 位字母/数字，同工位内不重复（如 1、2、3…）"
+                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,10"/>
+
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="保存机位设置" Width="150" Height="40"
+                                        Style="{StaticResource PrimaryButton}" Click="BtnSave_Click"/>
+                                <TextBlock x:Name="TxtSaveResult" VerticalAlignment="Center"
+                                           Margin="12,0,0,0" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 网络 -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="网络" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock Text="本机 IP（只读；修改 IP 请用「打开网络设置」）"
+                                       Style="{StaticResource FieldLabel}" Margin="0,10,0,4"/>
+                            <TextBlock x:Name="TxtIps" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="服务器" Style="{StaticResource FieldLabel}"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="TxtServerHost" Grid.Column="1" Style="{StaticResource FieldBox}"
+                                         VerticalAlignment="Center"/>
+                                <Button Grid.Column="2" Content="检测连通" Width="110" Height="36"
+                                        Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                        Click="BtnPing_Click"/>
+                            </Grid>
+                            <TextBlock x:Name="TxtPingResult" FontSize="12" Margin="0,0,0,12"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+
+                            <Button Content="打开网络设置（网卡/IPv4）" Width="230" Height="40"
+                                    Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                                    Click="BtnOpenNetwork_Click"
+                                    ToolTip="打开 Windows 网络连接面板，改 IP/掩码/网关需管理员权限"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 变更记录 -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="变更记录（machine_change.log）" Style="{StaticResource SectionTitle}"/>
+                            <TextBox x:Name="TxtLog" IsReadOnly="True" AcceptsReturn="True"
+                                     TextWrapping="Wrap" Height="110" Margin="0,10,0,0"
+                                     FontSize="11" FontFamily="Consolas"
+                                     Background="{StaticResource FieldBgBrush}"
+                                     BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
+                                     VerticalScrollBarVisibility="Auto"/>
+                        </StackPanel>
+                    </Border>
+
                 </StackPanel>
-            </Border>
+            </ScrollViewer>
+        </TabItem>
 
-            <!-- 网络 -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <!-- ===== 页 2：检测参数 ===== -->
+        <TabItem Header="检测参数">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
                 <StackPanel>
-                    <TextBlock Text="网络" Style="{StaticResource SectionTitle}"/>
-                    <TextBlock Text="本机 IP（只读；修改 IP 请用「打开网络设置」）"
-                               Style="{StaticResource FieldLabel}" Margin="0,10,0,4"/>
-                    <TextBlock x:Name="TxtIps" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"
-                               TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="步骤 5 双线圈检测参数" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock Text="A 线圈：采集窗口内均值电流 ≥ A 阈值即正常；摘 A 夹子后电流跌落属正常过渡（不判失败）；B 线圈：电流恢复到 B 阈值以上并持续规定时长即正常；整体超时（A 采集 + 换线圈 + B 判定）判 FAIL。保存后下次测试生效。"
+                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,10,0,12"/>
 
-                    <Grid Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="服务器" Style="{StaticResource FieldLabel}"
-                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBox x:Name="TxtServerHost" Grid.Column="1" Style="{StaticResource FieldBox}"
-                                 VerticalAlignment="Center"/>
-                        <Button Grid.Column="2" Content="检测连通" Width="110" Height="36"
-                                Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                                Click="BtnPing_Click"/>
-                    </Grid>
-                    <TextBlock x:Name="TxtPingResult" FontSize="12" Margin="0,0,0,12"
-                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                            <UniformGrid Columns="5">
+                                <StackPanel Margin="0,0,8,0">
+                                    <TextBlock Text="A 阈值 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxAThreshold" Style="{StaticResource FieldBox}" Text="1.0"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,8,0">
+                                    <TextBlock Text="B 阈值 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxBThreshold" Style="{StaticResource FieldBox}" Text="1.0"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,8,0">
+                                    <TextBlock Text="A 窗口 (s)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxAWindowSec" Style="{StaticResource FieldBox}" Text="10"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,8,0">
+                                    <TextBlock Text="B 持续 (s)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxBSustainSec" Style="{StaticResource FieldBox}" Text="3"/>
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="整体超时 (s)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxTimeoutSec" Style="{StaticResource FieldBox}" Text="60"/>
+                                </StackPanel>
+                            </UniformGrid>
 
-                    <Button Content="打开网络设置（网卡/IPv4）" Width="230" Height="40"
-                            Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
-                            Click="BtnOpenNetwork_Click"
-                            ToolTip="打开 Windows 网络连接面板，改 IP/掩码/网关需管理员权限"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                <Button Content="保存检测参数" Width="150" Height="40"
+                                        Style="{StaticResource PrimaryButton}" Click="BtnSaveCoil_Click"/>
+                                <Button Content="恢复默认" Width="110" Height="40" Margin="12,0,0,0"
+                                        Style="{StaticResource GhostButton}" Click="BtnCoilDefaults_Click"/>
+                                <TextBlock x:Name="TxtCoilSaveResult" VerticalAlignment="Center"
+                                           Margin="12,0,0,0" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
-            </Border>
+            </ScrollViewer>
+        </TabItem>
 
-            <!-- 变更记录 -->
-            <Border Style="{StaticResource Card}">
-                <StackPanel>
-                    <TextBlock Text="机位变更记录（machine_change.log）" Style="{StaticResource SectionTitle}"/>
-                    <TextBox x:Name="TxtLog" IsReadOnly="True" AcceptsReturn="True"
-                             TextWrapping="Wrap" Height="110" Margin="0,10,0,0"
-                             FontSize="11" FontFamily="Consolas"
-                             Background="{StaticResource FieldBgBrush}"
-                             BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
-                             VerticalScrollBarVisibility="Auto"/>
-                </StackPanel>
-            </Border>
-
-        </StackPanel>
-    </ScrollViewer>
+    </TabControl>
 </Window>
