@@ -310,19 +310,20 @@ uint8_t sit1145_sleep_mode_set(void)
 }
 
 /**
- * @brief  配置 CAN 唤醒并进入 Sleep 模式（完整序列）
- * @note   对齐官方 FAE SIT1145_SleepMode_Set() 序列：
+ * @brief  配置 CAN 唤醒（进睡前寄存器配置段，不含模式切换）
+ * @note   对齐官方 FAE SIT1145_SleepMode_Set() 序列前半段：
  *         1) 清事件标志 0x61/0x63/0x64（W1C）
  *         2) 配置 WUF 过滤（选择性唤醒 CPNC=1）或退化到标准 WUP
  *         3) CAN Control：CPNC=1+PNCOK=1（wuf_enable 内部一次写入）
  *            关键：写任何 PN 配置寄存器(0x20-0x2F)都会清 PNCOK，
  *            所以 wuf_enable 之后不能再写 0x20-0x2F！
- *         4) 进 Sleep：直接写 0x01（对齐 formal_LTS/Test_LTS）
- *         进入后 SPI 断开，唤醒由 CAN WUP 触发（芯片自动回 Standby），
- *         主循环通过 PA11/RXD 电平检测唤醒。
- * @retval 1=进入 Sleep（SPI 已断开，无法验证），0=进入前寄存器配置失败
+ *         与 sit1145_sleep_commit() 拆分的目的：调用方在两段之间
+ *         发「配置后」E0~E3 快照（1.1.63）——冷插拔 PN 写丢失曾被
+ *         「配置前」快照掩盖（E0 看着健康、实际 WUF ID 写丢，睡死后
+ *         无从定位）。本段结束时收发器仍在 Normal、SPI 可用。
+ * @retval 1=配置完成可进睡，0=配置失败（调用方勿睡）
  */
-uint8_t sit1145_sleep_enter(void)
+uint8_t sit1145_sleep_config(void)
 {
   /* 1) 清事件标志（官方 SleepMode_Set 顺序：0x61 → 0x63 → 0x64） */
   sit1145_write_reg(SIT1145_REG_SYSTEM_EVENT_STATUS, 0xFFU);
@@ -385,21 +386,33 @@ uint8_t sit1145_sleep_enter(void)
       sit1145_wuf_enable();
       sit1145_delay_ms(2U);
 
-      /* 只读验证：PNCOK=1 + frame_ctrl=0xC8(IDE|PNDM|DLC=8) + ID=0x18DA0D03
-       *            + DATA_RATE=250k（速率错则 WUF 检测器永不匹配）
+      /* 只读验证：PNCOK=1 + frame_ctrl=0xC8(IDE|PNDM|DLC=8) + ID 四字节
+       *            全等 0x18DA0D03 + MASK 全 0 + DM0/DM1 + DATA_RATE=250k
        *            + EVENT_EN.CWE=1（CWE=0 时 WUF/标准 WUP 全被关断=睡死，
-       *            1.1.58 校验缺此项——wuf_enable 写丢失仍判 wuf_ok=1） */
+       *            1.1.58 校验缺此项——wuf_enable 写丢失仍判 wuf_ok=1）。
+       *            ID 逐字节校验（1.1.63）：冷插拔 PN 写丢失曾只丢 id1/id2
+       *            中间字节，旧校验只查 id0/id3 照样通过 → WUF ID 错位
+       *            永不匹配 → 睡死（2026-11-05 实证）。 */
       {
         uint8_t rb   = sit1145_read_reg(SIT1145_REG_CAN_CONTROL);
         uint8_t fc   = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
         uint8_t id0  = sit1145_read_reg(SIT1145_REG_ID_REG0);
+        uint8_t id1  = sit1145_read_reg(SIT1145_REG_ID_REG1);
+        uint8_t id2  = sit1145_read_reg(SIT1145_REG_ID_REG2);
         uint8_t id3  = sit1145_read_reg(SIT1145_REG_ID_REG3);
+        uint8_t mk0  = sit1145_read_reg(SIT1145_REG_MASK_REG0);
+        uint8_t mk3  = sit1145_read_reg(SIT1145_REG_MASK_REG3);
+        uint8_t dm0  = sit1145_read_reg(SIT1145_REG_DATA_MASK0);
+        uint8_t dm1  = sit1145_read_reg(SIT1145_REG_DATA_MASK1);
         uint8_t dr   = sit1145_read_reg(SIT1145_REG_DATA_RATE);
         uint8_t en   = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT_EN);
         uint8_t pncok_ok = (rb != 0xFFU) &&
                            ((rb & (1U << SIT1145_CAN_CTRL_PNCOK_POS)) != 0U);
 
-        if (pncok_ok && (fc == 0xC8U) && (id0 == 0x03U) && (id3 == 0x18U) &&
+        if (pncok_ok && (fc == 0xC8U) &&
+            (id0 == 0x03U) && (id1 == 0x0DU) && (id2 == 0xDAU) && (id3 == 0x18U) &&
+            (mk0 == 0x00U) && (mk3 == 0x00U) &&
+            (dm0 == 0x02U) && (dm1 == 0x3EU) &&
             (dr == SIT1145_DEFAULT_DRATE) && ((en & SIT1145_CWE) != 0U))
         {
           wuf_ok = 1U;
@@ -454,7 +467,18 @@ uint8_t sit1145_sleep_enter(void)
     }
   }
 
-  /* 4) 进 Sleep（官方序列：Mode_control=0x01 后回读验证）。
+  return 1U;
+}
+
+/**
+ * @brief  提交 Sleep 模式（模式切换段，配置须先经 sit1145_sleep_config）
+ * @note   进 Sleep：直接写 0x01（对齐 formal_LTS/Test_LTS）。
+ *         进入后 SPI 断开，唤醒由 CAN WUP 触发（芯片自动回 Standby）。
+ * @retval 1=进入 Sleep（SPI 已断开，无法验证），0=写入被忽略（芯片没睡）
+ */
+uint8_t sit1145_sleep_commit(void)
+{
+  /* 进 Sleep（官方序列：Mode_control=0x01 后回读验证）。
    *    回读三态：
    *      MODE=0x01 / 0xFF → 写入被接受（0xFF=SPI 已断，视为真睡）
    *      MODE 仍 0x07/0x04 → 写入被忽略 → 走 CMC=00 兜底再试
@@ -784,32 +808,43 @@ uint8_t sit1145_wuf_config(const sit1145_wuf_cfg_t *cfg)
 
   /* 官方写入顺序：ID → 掩码 → 数据掩码 → 帧控制最后写
    * （帧控制最后写，避免被后续寄存器写入影响）
-   * 每组写入后加延时，确保收发器配置生效 */
+   * 每笔写入后加稳定延时（1.1.63）：冷插拔 SPI 写丢失实证发生在
+   * 背靠背 PN 写之间（id1/id2 静默丢、校验不过），逐写间隔消除该窗口。 */
 
   /* 1) 写入 ID 寄存器 */
   sit1145_write_reg(SIT1145_REG_ID_REG0, id0);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_ID_REG1, id1);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_ID_REG2, id2);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_ID_REG3, id3);
-  sit1145_delay_us();  /* tSPI：等 ID 配置生效 */
+  sit1145_delay_us();
 
   /* 2) 写入 ID 掩码寄存器 */
   sit1145_write_reg(SIT1145_REG_MASK_REG0, m0);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_MASK_REG1, m1);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_MASK_REG2, m2);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_MASK_REG3, m3);
-  sit1145_delay_us();  /* tSPI：等 Mask 配置生效 */
+  sit1145_delay_us();
 
   /* 3) 写入数据掩码寄存器 */
   sit1145_write_reg(SIT1145_REG_DATA_MASK0, cfg->data_mask[0]);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_DATA_MASK1, cfg->data_mask[1]);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_DATA_MASK2, cfg->data_mask[2]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK3, cfg->data_mask[3]);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_DATA_MASK4, cfg->data_mask[4]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK5, cfg->data_mask[5]);
+  sit1145_delay_us();
   sit1145_write_reg(SIT1145_REG_DATA_MASK6, cfg->data_mask[6]);
   sit1145_write_reg(SIT1145_REG_DATA_MASK7, cfg->data_mask[7]);
-  sit1145_delay_us();  /* tSPI：等 DataMask 配置生效 */
+  sit1145_delay_us();
 
   /* 4) 帧控制寄存器最后写（官方顺序） */
   sit1145_write_reg(SIT1145_REG_FRAME_CTRL, frame_ctrl);

@@ -506,7 +506,13 @@ uint8_t sit1145_normal_mode_set(void);
  */
 uint8_t sit1145_sleep_mode_set(void);
 
-uint8_t sit1145_sleep_enter(void);
+/** @brief  进睡前寄存器配置段（WUF/CWE/门禁），拆分自原 sleep_enter。
+ *          结束时收发器仍 Normal、SPI 可用；调用方可在本段与
+ *          sit1145_sleep_commit 之间发配置后诊断帧。@retval 1=可进睡 */
+uint8_t sit1145_sleep_config(void);
+
+/** @brief  提交 Sleep 模式（MODE=Sleep + CMC 兜底）。@retval 1=已进睡 */
+uint8_t sit1145_sleep_commit(void);
 
 /**
  * @brief  获取 SIT1145 当前工作模式

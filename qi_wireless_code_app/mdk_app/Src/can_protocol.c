@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.62";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.63";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -397,7 +397,7 @@ static void can_lp_enter_normal(void)
     {
       /* SIT1145 切 Normal 失败（3 次重试全败）：置 sticky 标志（DID 0x2119
        * bit2），继续走完收尾——CAN 控制器仍可尝试通信，但收发器可能
-       * 异常。下次进 Sleep 时 sit1145_sleep_enter 会重新配置 CAN Control。 */
+       * 异常。下次进 Sleep 时 sit1145_sleep_config 会重新配置 CAN Control。 */
       g_lp_sleep_fail = 1U;
     }
   }
@@ -435,7 +435,7 @@ static void can_lp_enter_normal(void)
 }
 
 /* 低功耗进入函数：受 CAN_LP_SLEEP_ENABLE 总开关控制（can_protocol.h）。
- * =1（含未定义，生产语义）：空闲超时进 Sleep（sit1145_sleep_enter）；
+ * =1（含未定义，生产语义）：空闲超时进 Sleep（sit1145_sleep_config+commit）；
  * =0：空闲停机整段不编译，唤醒/恢复路径不受影响。
  *
  * Sleep 模式（唯一，2026-10-16 起 Standby 路径已移除）：
@@ -443,19 +443,43 @@ static void can_lp_enter_normal(void)
 #if !defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)
 static void can_lp_enter_sleep(void)
 {
+  /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
+   * clear every wake/event register -> enable wake detection -> switch mode.
+   * 1) MCU CAN offline first: no ACK/TX while the transceiver is reconfigured.
+   *    Keep it before any GPIO change — moving TXD to GPIO while still in
+   *    Normal would drive the bus dominant. */
+  can_driver_offline();
+
+  /* ---- 低功耗配置段（WUF/CWE/门禁，不含模式切换）----
+   * 失败时不进 Sleep——CAN 唤醒不可靠，保持 CAN 在线等下次空闲超时重试。 */
+  if (sit1145_sleep_config() == 0U)
+  {
+    g_lp_sleep_fail = 1U;
+    /* 配置失败：恢复 CAN 在线，不进 Sleep。g_uds_last_ms 已过期，
+     * 下次 poll 空闲判定会再次触发 can_lp_go_sleep 重试。 */
+    can_driver_pins_active();
+    can_driver_online();
+    return;
+  }
+
 #if !defined(CAN_LP_EFRAME_ENABLE) || (CAN_LP_EFRAME_ENABLE != 0U)
   /* ---- 诊断帧：进低功耗前把 SIT1145 寄存器快照发到总线 ----
-   * CAN ID 0x18FF270D，8B payload:
+   * 1.1.63 起在 sit1145_sleep_config 之后发送 = 「配置后」真值快照：
+   * 旧版发在配置前，冷插拔 PN 写丢失（WUF ID 错位）被掩盖——E0 看着
+   * 健康、实际配置残缺，睡死后无从定位（2026-11-05 实证）。
+   * CAN ID 0x18FF270D，8B payload（1.1.63 起为配置后真值）:
    *   [0] 0xE0 标记
-   *   [1] MODE_CONTROL (0x01)     期望 Sleep=0x01
+   *   [1] MODE_CONTROL (0x01)     配置后仍 0x07 Normal（commit 在快照后）
    *   [2] TRANSCEIVER_EVENT_EN(0x23) 期望 bit0=1 (CWE)
    *   [3] TRANSCEIVER_EVENT (0x24)
-   *   [4] CAN_CONTROL (0x20)      CMC=[1:0], CPNC=[4], PNCOK=[5]
+   *   [4] CAN_CONTROL (0x20)      wuf_ok=0x71(PNCOK|CPNC) / 退化=0x41
    *   [5] TRX_EVENT_STATUS (0x63)
    *   [6] bit0=g_lp_sleep_fail bit1=g_lp_ever_sleep
    *   [7] 0xA5 结束标记
    * 发送用 handle 确认（同 can_lp_tx_marker），防止 wait_tx_idle
-   * 提前返回导致帧丢在邮箱被 offline 截断。 */
+   * 提前返回导致帧丢在邮箱被 offline 截断。
+   * 配置段在 CAN offline 下完成，此处短暂上线发帧，发完立刻离线进睡。 */
+  can_driver_online();
   {
     uint8_t diag[8];
     uint8_t mc, ce, ev24, ev63, cctl;
@@ -494,9 +518,9 @@ static void can_lp_enter_sleep(void)
     uint8_t wuf_diag[8];
     uint8_t handle;
 
-    /* E1: 帧控/MASK 寄存器回读（WUF 配置在 sit1145_sleep_enter 内做，这里只读） */
+    /* E1: 帧控/MASK 寄存器回读（1.1.63 起=配置后真值：wuf_ok 时 fc=0xC8、MASK 全 0） */
     wuf_diag[0] = 0xE1U;
-    wuf_diag[1] = 0U;  /* wuf_ok 在 sit1145_sleep_enter 内确定，此处预设 0 */
+    wuf_diag[1] = 0U;  /* wuf_ok 在 sit1145_sleep_config 内确定，此处预设 0 */
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
     wuf_diag[3] = sit1145_read_reg(SIT1145_REG_MASK_REG0);
     wuf_diag[4] = sit1145_read_reg(SIT1145_REG_MASK_REG1);
@@ -546,20 +570,13 @@ static void can_lp_enter_sleep(void)
     }
   }
 
+  can_driver_offline();
 #endif /* CAN_LP_EFRAME_ENABLE（E0~E3 诊断帧，app_config.h 宏屏蔽） */
 
-  /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
-   * clear every wake/event register -> enable wake detection -> switch mode.
-   * 1) MCU CAN offline first: no ACK/TX while the transceiver is reconfigured.
-   *    Keep it before any GPIO change — moving TXD to GPIO while still in
-   *    Normal would drive the bus dominant. */
-  can_driver_offline();
-
-  /* ---- Sleep 模式 ----
-   * sit1145_sleep_enter 内部完成：清事件 → CWE=1 → CAN Control（回读验证
-   * ×3）→ Normal→Standby→Sleep。失败时不进 Sleep——CAN 唤醒不可靠，
-   * 保持 CAN 在线等下次空闲超时重试。 */
-  if (sit1145_sleep_enter() == 0U)
+  /* ---- 提交 Sleep 模式 ----
+   * sit1145_sleep_commit：Mode=Sleep（回读验证 + CMC 兜底）。失败时不进
+   * Sleep——CAN 唤醒不可靠，保持 CAN 在线等下次空闲超时重试。 */
+  if (sit1145_sleep_commit() == 0U)
   {
     g_lp_sleep_fail = 1U;
     /* 配置失败：恢复 CAN 在线，不进 Sleep。g_uds_last_ms 已过期，
