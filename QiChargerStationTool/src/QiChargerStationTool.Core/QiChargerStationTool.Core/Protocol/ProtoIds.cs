@@ -30,6 +30,7 @@ public static class ProtoIds
     public const ushort DidSlot = 0x2113;
     public const ushort DidFwType = 0x2010;
     public const ushort DidChargerEnable = 0x2101;   // u8 0/1, write-only（掉电续充 NVM）
+    public const ushort DidClampState = 0x2118;      // u8 PA0 霍尔：0x00=磁铁/手机在位, 0x01=不在位
     public const ushort DidLpStatus = 0x2119;
 
     // ---- Qi chip (see qi_wireless_code_app can_protocol.h / zcanpro_qi_*.py) ----

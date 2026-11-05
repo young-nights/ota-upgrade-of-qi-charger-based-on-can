@@ -346,6 +346,7 @@ public sealed class UdsClient
             PowerLimit = TryU8(ProtoIds.DidPowerLimit),
             ChargeCount = TryU32(ProtoIds.DidChargeCount),
             StatusRaw = TryU8(ProtoIds.DidQiStatusRaw),
+            ClampState = TryU8(ProtoIds.DidClampState),
         };
     }
 

@@ -30,12 +30,19 @@ public sealed class QiChipStatus
     public uint? ChargeCount { get; init; }
     /// <summary>DID 0x2111 Qi 状态字节（含保护位，见 <see cref="QiChipStatusCodec.QiStatusBits"/>）。</summary>
     public byte? StatusRaw { get; init; }
+    /// <summary>DID 0x2118 PA0 霍尔：0x00=磁铁/手机在位，0x01=不在位。</summary>
+    public byte? ClampState { get; init; }
 
     public string IapStateName => QiChipStatusCodec.IapStateName(IapState);
     public string ChargeStateName => ChargeState is { } s ? QiChipStatusCodec.ChargeStateName(s) : "读取失败";
     public string FodName => FodStatus is { } f ? QiChipStatusCodec.FodName(f) : "读取失败";
     public string FaultName => FaultCode is { } f ? QiChipStatusCodec.FaultName(f) : "读取失败";
     public string PowerLimitName => PowerLimit is { } p ? QiChipStatusCodec.PowerLimitName(p) : "读取失败";
+    /// <summary>磁铁存在与否（霍尔触发）；读取失败为 null。</summary>
+    public bool? MagnetPresent => ClampState is { } s ? s == 0x00 : null;
+    public string MagnetName => QiChipStatusCodec.MagnetName(ClampState);
+    /// <summary>实际充电判定（与固件 board_charge_poll 门禁同逻辑）。</summary>
+    public string ChargingVerdict(bool chargeEnabled) => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState);
     /// <summary>激活的保护位名列表（如 [OVP, FOD]）；StatusRaw 读取失败返回 null。</summary>
     public IReadOnlyList<string>? ActiveProtections
         => StatusRaw is { } raw ? QiChipStatusCodec.ActiveProtectionNames(raw) : null;
@@ -59,6 +66,7 @@ public sealed class QiChipStatus
             $"热降额:   {(ThermalDerate is { } d ? $"{d}%" : "读取失败")}",
             $"功率档位: {PowerLimitName}",
             $"充电次数: {(ChargeCount is { } cc ? $"{cc} 次" : "读取失败")}",
+            $"磁铁状态: {MagnetName}",
             $"保护位:   {(ActiveProtections is { } ap ? (ap.Count > 0 ? string.Join(" / ", ap) : "无") : "读取失败")}",
         };
         return string.Join("\n", lines);
@@ -104,6 +112,33 @@ public static class QiChipStatusCodec
             if ((statusRaw & bit) != 0)
                 list.Add(name);
         return list;
+    }
+
+    // ---- DID 0x2118 PA0 霍尔 / 实际充电判定 ----
+    /// <summary>磁铁（霍尔）状态名。0x00=在位，0x01=不在位，null=读取失败。</summary>
+    public static string MagnetName(byte? clampState) => clampState switch
+    {
+        0x00 => "磁铁存在",
+        0x01 => "磁铁不存在",
+        null => "读取失败",
+        _ => $"未知(0x{clampState:X2})",
+    };
+
+    /// <summary>
+    /// 实际充电判定——与固件 board_charge_poll 门禁同逻辑（0x2101 已使能 且 霍尔在位）。
+    /// 开启充电指令只是使能；磁铁不在位时固件不会真正接通充电。
+    /// </summary>
+    public static string ChargingVerdict(bool chargeEnabled, byte? clampState)
+    {
+        if (!chargeEnabled)
+            return "实际充电未开启（充电未使能）";
+        return clampState switch
+        {
+            0x00 => "实际充电已开启（磁铁存在）",
+            0x01 => "实际充电未开启（磁铁不存在）",
+            null => "实际充电待确认（磁铁状态读取失败）",
+            _ => $"实际充电待确认（磁铁状态未知 0x{clampState:X2}）",
+        };
     }
     public static readonly IReadOnlyDictionary<byte, string> IapStates = new Dictionary<byte, string>
     {

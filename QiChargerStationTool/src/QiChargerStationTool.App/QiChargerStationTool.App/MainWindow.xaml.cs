@@ -1104,7 +1104,34 @@ public partial class MainWindow : Window
         var protText = active is null ? "保护位: —" :
             active.Count > 0 ? $"保护触发: {string.Join(" / ", active)}" : "保护位: 无";
         var countText = st.ChargeCount is { } c2 ? $"{c2} 次" : "—";
-        TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n{protText}";
+        TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
+                            $"{st.ChargingVerdict(_chargeEnabled)}   {protText}";
+        UpdateMagnetDisplay(st.ClampState);
+    }
+
+    /// <summary>
+    /// 刷新「磁铁 / 实际充电」大字显示（DID 0x2118 PA0 霍尔）：
+    /// 绿=实际开启（使能且磁铁在位），红=磁铁不存在未开启，灰=未使能/未知。
+    /// </summary>
+    private void UpdateMagnetDisplay(byte? clampState)
+    {
+        bool? magnet = clampState is { } s ? s == 0x00 : null;
+        if (magnet == true)
+        {
+            TxtMagnetState.Text = _chargeEnabled ? "磁铁存在 · 实际开启" : "磁铁存在 · 充电未使能";
+            TxtMagnetState.Foreground = new SolidColorBrush(_chargeEnabled
+                ? Color.FromRgb(0x2E, 0x7D, 0x32) : Color.FromRgb(0x15, 0x65, 0xC0));
+        }
+        else if (magnet == false)
+        {
+            TxtMagnetState.Text = "磁铁不存在 · 未开启充电";
+            TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
+        }
+        else
+        {
+            TxtMagnetState.Text = "磁铁状态未知 —";
+            TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+        }
     }
 
     /// <summary>单个保护位指示灯着色：null=未知(灰) / 置位=红 / 未置位=绿。</summary>
@@ -1219,12 +1246,32 @@ public partial class MainWindow : Window
                 return false;
             }
             _chargeEnabled = enable;
+
+            // 真充判定：0x2101 写成功只是「使能」，固件 board_charge_poll 还要
+            // PA0 霍尔在位才真正接通充电。读 0x2118 当场给出磁铁存在/不存在。
+            byte? clamp = null;
+            try
+            {
+                clamp = QiChipStatusCodec.ReadU8(uds.ReadDid(ProtoIds.DidClampState, timeoutMs: 3000));
+            }
+            catch { /* 霍尔读取失败不阻断充电操作本身 */ }
+
             await UiAsync(() =>
             {
-                Pass(name, enable ? "已开启" : "已关闭");
-                ApplyQiStatusGate();
-                if (!enable)
+                if (enable)
+                {
+                    var verdict = QiChipStatusCodec.ChargingVerdict(true, clamp);
+                    Pass(name, $"已开启 — {verdict}");
+                    if (clamp == 0x01)
+                        AppendLog("[充电] 提示：磁铁不存在，固件门禁（0x2101 使能且霍尔在位）未满足，不会真正接通充电");
+                }
+                else
+                {
+                    Pass(name, "已关闭");
                     AppendLog("[充电] 已关闭：Qi 状态检测按钮已禁用（Qi 芯片断电，检测无意义）");
+                }
+                UpdateMagnetDisplay(clamp);
+                ApplyQiStatusGate();
             });
             return true;
         });

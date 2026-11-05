@@ -166,6 +166,10 @@
             <TextBlock Text="充电次数" FontSize="11" Foreground="#5B7FA6" Margin="0,10,0,0"/>
             <TextBlock x:Name="TxtChargeCount" Text="— 次" FontSize="18" FontWeight="Bold"
                        Foreground="#0D47A1" Margin="0,2,0,0"/>
+            <TextBlock Text="磁铁 / 实际充电" FontSize="11" Foreground="#5B7FA6" Margin="0,10,0,0"/>
+            <TextBlock x:Name="TxtMagnetState" Text="—" FontSize="18" FontWeight="Bold"
+                       Foreground="#0D47A1" Margin="0,2,0,0"
+                       ToolTip="PA0 霍尔（DID 0x2118）：磁铁存在与否=固件是否真正接通充电（0x2101 使能且霍尔在位）"/>
           </StackPanel>
         </Border>
         <TextBlock Text="保护位" FontWeight="Bold" Foreground="#333" Margin="0,0,0,4"/>

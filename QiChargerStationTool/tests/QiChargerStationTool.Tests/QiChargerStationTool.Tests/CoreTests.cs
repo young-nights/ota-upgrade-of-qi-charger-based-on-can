@@ -123,6 +123,25 @@ public class QiChipStatusTests
     }
 
     [Fact]
+    public void MagnetName_And_ChargingVerdict_MatchHallGate()
+    {
+        // DID 0x2118：0x00=磁铁在位，0x01=不在位
+        Assert.Equal("磁铁存在", QiChipStatusCodec.MagnetName(0x00));
+        Assert.Equal("磁铁不存在", QiChipStatusCodec.MagnetName(0x01));
+        Assert.Equal("读取失败", QiChipStatusCodec.MagnetName(null));
+
+        // 真充判定 = 0x2101 使能 且 霍尔在位（与固件 board_charge_poll 门禁一致）
+        Assert.Equal("实际充电已开启（磁铁存在）",
+            QiChipStatusCodec.ChargingVerdict(true, 0x00));
+        Assert.Equal("实际充电未开启（磁铁不存在）",
+            QiChipStatusCodec.ChargingVerdict(true, 0x01));
+        Assert.Equal("实际充电未开启（充电未使能）",
+            QiChipStatusCodec.ChargingVerdict(false, 0x00));
+        Assert.Equal("实际充电待确认（磁铁状态读取失败）",
+            QiChipStatusCodec.ChargingVerdict(true, null));
+    }
+
+    [Fact]
     public void PowerLimitName_KnownAndUnknown()
     {
         Assert.Equal("5W (0x01)", QiChipStatusCodec.PowerLimitName(0x01));
