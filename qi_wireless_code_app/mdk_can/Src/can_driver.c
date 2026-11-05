@@ -388,7 +388,15 @@ static int8_t can_try_txbuf(can_txbuf_select_type sel, can_txbuf_type *tx_buf)
 
   if (sel == CAN_TXBUF_PTB)
   {
-    (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_PTB);
+    if (can_txbuf_transmit(CAN1, CAN_TRANSMIT_PTB) != SUCCESS)
+    {
+      /* 触发失败（tpe/tpa 未清）：帧已写入 PTB 但没有触发就不会上
+       * 总线，而 PTB 无补触发通道（can_driver_poll 只补 STB）——这正是
+       * 76/7F 应答"入队成功却静默消失"的根因路径。返回 -1 让调用方
+       * 双邮箱回退把同一帧经 STB 送出（poll 补触发兜底送达）；PTB
+       * 孤儿帧没有任何后续触发入口，不会重复上线。 */
+      return -1;
+    }
   }
   else
   {
@@ -645,7 +653,9 @@ int8_t can_driver_last_tx_handle(uint8_t *handle)
  * @param  handle: frame handle recorded at enqueue time
  *         (can_driver_last_tx_handle)
  * @param  timeout_ms: maximum wait in ms
- * @retval 0 = frame transmitted OK, -1 = timeout or terminal failure
+ * @retval  0 = frame transmitted OK
+ *         -1 = timeout（帧仍在发送中/触发待发，可能稍后自愈上线）
+ *         -2 = 终态失败（ABORTED/REJECTED，帧永不上总线，调用方应重发）
  */
 int8_t can_driver_wait_tx_frame(uint8_t handle, uint32_t timeout_ms)
 {
@@ -670,7 +680,7 @@ int8_t can_driver_wait_tx_frame(uint8_t handle, uint32_t timeout_ms)
         ((tx_status.final_tstat == CAN_TSTAT_ABORTED) ||
          (tx_status.final_tstat == CAN_TSTAT_REJECTED)))
     {
-      return -1;
+      return -2;
     }
 
     /* current 槽的终态失败同样立即返回：帧被 ABORTED/REJECTED 后
@@ -679,7 +689,7 @@ int8_t can_driver_wait_tx_frame(uint8_t handle, uint32_t timeout_ms)
         ((tx_status.current_tstat == CAN_TSTAT_ABORTED) ||
          (tx_status.current_tstat == CAN_TSTAT_REJECTED)))
     {
-      return -1;
+      return -2;
     }
 
     /* 其他帧/其他 handle 的状态一律不作为本帧完成证据 */

@@ -166,7 +166,13 @@ static int8_t isotp_send_fc_try(uint32_t can_id, uint8_t *fc_data)
   {
     return 0;
   }
-  /* 确认超时/终态失败都算已入队（帧可能已在总线上），返回 1 不重试。 */
+  if (wait_rc == -2)
+  {
+    /* 终态失败（ABORTED/REJECTED）：帧永不上总线，必须重发 */
+    return -1;
+  }
+  /* 确认超时：帧已入队可能仍在发送中（STB 有 poll 补触发兜底），
+   * 返回 1 不重试不清 RX 状态。 */
   return 1;
 }
 

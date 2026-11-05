@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.61";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.62";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -697,9 +697,33 @@ static void proto_send_response(uint8_t *data, uint16_t len)
      * 30ms 预算兜底连续占用。 */
     for (t = 0; t < 30U; t++)
     {
+      uint8_t h_before = 0U;
+      uint8_t h_after  = 0U;
+      uint8_t have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
       if (can_driver_send(CAN_PROTO_UDS_RESPONSE, frame, 8U) == 0)
       {
-        return;
+        /* 入队 ≠ 上总线：帧可被触发丢弃（PTB 孤儿）或总线竞争 ABORT，
+         * 发后不管会让 76/7F 静默消失（2026-11-04 块 345 无应答根因）。
+         * 按 handle 确认上总线：终态失败（-2）立即重发；确认超时视作
+         * 在途不重发（STB poll 补触发兜底送达，重发会造重复应答错配）。 */
+        if ((can_driver_last_tx_handle(&h_after) == 0) &&
+            ((have_prev == 0U) || (h_after != h_before)))
+        {
+          int8_t wc = can_driver_wait_tx_frame(h_after, 15U);
+          if (wc == 0)
+          {
+            return;
+          }
+          if (wc == -1)
+          {
+            return;  /* 在途，交给 STB 补触发 */
+          }
+          /* wc == -2 终态失败：落到下方重试 */
+        }
+        else
+        {
+          return;  /* handle 不可取证，维持旧语义 */
+        }
       }
       t0 = timer_get_tick();
       while ((timer_get_tick() - t0) < 1U)
@@ -2780,16 +2804,21 @@ static void isotp_message_received(uint8_t *data, uint16_t len)
 
   /* 传输层完成标记（0x18FF270D）：AA 55 <len> <sid0> <会话> <安全> <目标> A5
    * —— 组包到达 UDS 层的确认 + 派发瞬间的会话/安全快照（写门 NRC 0x22
-   * 排障：mk[4]=current_session mk[5]=security_unlocked mk[6]=fw_type）。 */
-  mk[0] = 0xAAU;
-  mk[1] = 0x55U;
-  mk[2] = (uint8_t)len;
-  mk[3] = (len > 0U) ? data[0] : 0U;
-  mk[4] = current_session;
-  mk[5] = security_unlocked;
-  mk[6] = g_fw_type_target;
-  mk[7] = 0xA5U;
-  (void)can_driver_send(0x18FF270DU, mk, 8U);
+   * 排障：mk[4]=current_session mk[5]=security_unlocked mk[6]=fw_type）。
+   * OTA 传输窗口内屏蔽：升级 588 块 = 588 帧诊断噪声，且与 UDS 应答
+   * 抢 TX 邮箱（2026-11-04 用户要求）。 */
+  if (ota_dl_active() == 0U)
+  {
+    mk[0] = 0xAAU;
+    mk[1] = 0x55U;
+    mk[2] = (uint8_t)len;
+    mk[3] = (len > 0U) ? data[0] : 0U;
+    mk[4] = current_session;
+    mk[5] = security_unlocked;
+    mk[6] = g_fw_type_target;
+    mk[7] = 0xA5U;
+    (void)can_driver_send(0x18FF270DU, mk, 8U);
+  }
 
   /* 请求到达即续 S3（ISO 14229）：本帧就是新的 tester 活动。先刷新再进
    * 派发——旧逻辑在此做超时检查，而 isotp_wait_cts 内联路径不经

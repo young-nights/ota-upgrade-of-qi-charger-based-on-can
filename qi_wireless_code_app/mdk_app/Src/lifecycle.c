@@ -29,6 +29,7 @@
 #include "can_protocol.h"
 #include "can_driver.h"
 #include "timer_drv.h"
+#include "ota_download.h"
 #include <string.h>
 
 /* ========================================================================== */
@@ -246,6 +247,14 @@ void lifecycle_poll(void)
   }
 
   if (!lifecycle_is_periodic(g_lifecycle_state))
+  {
+    return;
+  }
+
+  /* OTA/IAP 传输窗口内停发周期 OPERATIONAL：升级总线本就繁忙，周期
+   * 帧既抢设备 TX 邮箱（与 UDS 应答竞争）又给上位机制造噪声（每块
+   * 等待窗的干扰源，2026-11-04 用户要求屏蔽）。传输结束自然恢复。 */
+  if (ota_dl_active() != 0U)
   {
     return;
   }
