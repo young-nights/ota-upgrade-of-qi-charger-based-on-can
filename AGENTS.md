@@ -119,7 +119,7 @@ USB 读空、盒子哑了：先 `detach` 再 `attach`，然后重新开监听。
 
 `python_tools/wsl/` 与 `python_tools/zcanpro/` 全部脚本已删除（主机侧由
 QiChargerStationTool / ProductionStationTool 取代，唤醒/生命周期协议见
-`docs/19. CAN验证帧参考.md`）。ZQWL-CANFD 盒子硬件接入方式（上文 usbipd 表）
+`docs/12. CAN验证帧参考.md`）。ZQWL-CANFD 盒子硬件接入方式（上文 usbipd 表）
 仍有效；需要临时抓总线时用任意 ZQWL `5A…A5` 私有协议工具自行收帧，
 **不要**用 python-can slcan / SocketCAN，配置命令 `0x44` 禁止带系统复位，
 收包循环禁止 `sleep`，attach BUSID `7-4` 禁止，Boot 帧必须先开监听再上电。

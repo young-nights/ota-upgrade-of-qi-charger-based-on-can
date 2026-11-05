@@ -93,12 +93,19 @@ ota-upgrade-of-qi-charger-based-on-can/
 │
 └── docs/                                   ← 项目文档
     ├── 16. 功能需求文档.md                  ← ★ 架构 / 协议 / 需求 唯一权威来源
-    ├── 合并-CAN协议-UDS-OTA工作流.md        ← CAN 协议与 OTA 完整工作流
+    ├── 1. AT32F426KBU7-4_引脚定义.md        ← QFN32 全引脚功能定义
     ├── 2. Flash 分配方案.md                 ← Flash 分区细节
-    ├── 9. APP镜像打包与产线烧录.md          ← 打包脚本用法
+    ├── 3. 合并-CAN协议-UDS-OTA工作流.md     ← CAN 协议与 OTA 完整工作流
+    ├── 4. IAP数据通信协议规范.md            ← Qi 芯片 UART 通信协议
+    ├── 5. APP镜像打包与产线烧录.md          ← 打包脚本用法
+    ├── 6~9. 签名 / IAP 对比 / 宏定义        ← 专题文档
     ├── 10. CAN-UDS OTA 测试用例表.md        ← 95 条测试用例
-    ├── 11~14. 签名 / IAP 对比 / 宏定义      ← 专题文档
-    ├── 15. 计划安排表.md
+    ├── 11. 维修上位机使用与开发说明.md      ← 单机上位机工程结构
+    ├── 12. CAN验证帧参考.md                 ← CAN 帧格式与判读
+    ├── 18. 产线多工位数据同步与服务器配置.md ← QI-SERVER 设计
+    ├── 20. 休眠与选择性唤醒验证操作.md      ← 唤醒验证操作
+    ├── 21. 工位1多机并发SN联机分配方案.md   ← SN 联机取号 + 网络拓扑
+    ├── 22. QI-SERVER 服务器搭建手册.md      ← 服务器从零到跑通
     ├── keys/                               ← ECDSA P-256 密钥对
     └── pdf/                                ← 参考 PDF
 ```
@@ -318,18 +325,22 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 | 文档 | 内容 |
 |------|------|
 | **[16. 功能需求文档](docs/16.%20功能需求文档.md)** | ★ 系统架构、协议栈、Flash 布局、OTA 流程、UDS 服务、DID 列表、功能需求 OTA-REQ-001~015 |
-| [合并-CAN协议-UDS-OTA工作流](docs/合并-CAN协议-UDS-OTA工作流.md) | CAN 协议与 UDS OTA 完整工作流实操手册 |
-| [2. Flash 分配方案](docs/2.%20Flash%20分配方案.md) | 128KB Flash 分区、Metadata 结构、XATO 头 |
-| [9. APP镜像打包与产线烧录](docs/9.%20APP镜像打包与产线烧录.md) | 打包脚本用法、Keil IROM 配置 |
-| [10. CAN-UDS OTA 测试用例表](docs/10.%20CAN-UDS%20OTA%20测试用例表.md) | 95 条测试用例 (P0/P1/P2) |
-| [11. 签名校验与脚本使用](docs/11.%20签名校验与脚本使用.md) | 签名工具使用说明 |
-| [12. 签名原理与Seed机制](docs/12.%20签名原理与Seed机制.md) | ECDSA P-256 + SHA-256 原理 |
-| [13. 官方IAP例程vs自定义Bootloader对比](docs/13.%20官方IAP例程vs自定义Bootloader对比.md) | 官方 IAP 方案与本项目 Bootloader 对比 |
-| [14. 宏定义切换方式](docs/14.%20宏定义切换方式.md) | 编译宏配置与功能切换 |
-| [15. 计划安排表](docs/15.%20计划安排表.md) | 项目开发计划 |
-| [4. IAP数据通信协议规范](docs/4.%20IAP数据通信协议规范.md) | MCU ↔ Qi 芯片 UART 通信协议 |
-| [6. qi_charger_srs_zh](docs/6.%20qi_charger_srs_zh.md) | 软件需求规格说明书 |
 | [1. AT32F426KBU7-4_引脚定义](docs/1.%20AT32F426KBU7-4_引脚定义.md) | QFN32 全引脚功能定义 |
+| [2. Flash 分配方案](docs/2.%20Flash%20分配方案.md) | 128KB Flash 分区、Metadata 结构、XATO 头 |
+| [3. 合并-CAN协议-UDS-OTA工作流](docs/3.%20合并-CAN协议-UDS-OTA工作流.md) | CAN 协议与 UDS OTA 完整工作流实操手册 |
+| [4. IAP数据通信协议规范](docs/4.%20IAP数据通信协议规范.md) | MCU ↔ Qi 芯片 UART 通信协议 |
+| [5. APP镜像打包与产线烧录](docs/5.%20APP镜像打包与产线烧录.md) | 打包脚本用法、Keil IROM 配置 |
+| [6. 签名校验与脚本使用](docs/6.%20签名校验与脚本使用.md) | 签名工具使用说明 |
+| [7. 签名原理与Seed机制](docs/7.%20签名原理与Seed机制.md) | ECDSA P-256 + SHA-256 原理 |
+| [8. 官方IAP例程vs自定义Bootloader对比](docs/8.%20官方IAP例程vs自定义Bootloader对比.md) | 官方 IAP 方案与本项目 Bootloader 对比 |
+| [9. 宏定义切换方式](docs/9.%20宏定义切换方式.md) | 编译宏配置与功能切换 |
+| [10. CAN-UDS OTA 测试用例表](docs/10.%20CAN-UDS%20OTA%20测试用例表.md) | 95 条测试用例 (P0/P1/P2) |
+| [11. 维修上位机使用与开发说明](docs/11.%20维修上位机使用与开发说明.md) | 单机维修上位机工程结构与用法 |
+| [12. CAN验证帧参考](docs/12.%20CAN验证帧参考.md) | CAN 帧格式、生命周期帧、判读参考 |
+| [18. 产线多工位数据同步与服务器配置](docs/18.%20产线多工位数据同步与服务器配置.md) | QI-SERVER 设计、工位机上传配置 |
+| [20. 休眠与选择性唤醒验证操作](docs/20.%20休眠与选择性唤醒验证操作.md) | 休眠/唤醒验证操作步骤 |
+| [21. 工位1多机并发SN联机分配方案](docs/21.%20工位1多机并发SN联机分配方案.md) | SN 联机取号方案、网络拓扑与机位动态增减 |
+| [22. QI-SERVER 服务器搭建手册](docs/22.%20QI-SERVER%20服务器搭建手册（从零到跑通）.md) | 服务器从零到跑通（含完整 Program.cs） |
 
 ---
 
