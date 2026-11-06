@@ -151,6 +151,7 @@ public partial class Station1Control : UserControl, IStationPage
 
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
+        ShowCoilJudgement(null);
         _log.Append("开始工位 1 测试流程");
 
         // ① 连接设备：先唤醒 + 等 UDS 就绪（设备空闲 10s 会真休眠/整板断电，
@@ -268,9 +269,7 @@ public partial class Station1Control : UserControl, IStationPage
             {
                 TxtVoltage.Text = $"{c.CoilAVoltage:F3}";
                 TxtCurrent.Text = $"{c.CoilACurrent:F3}";
-                TxtPowerJudge.Text =
-                    $"{(c.CoilAPassed ? "A✓" : "A✗")} {c.CoilACurrent:F2}A · {(c.CoilBPassed ? "B✓" : "B✗")} {c.CoilBCurrent:F2}A";
-                TxtPowerJudge.Foreground = c.IsNormal ? SuccessBrush : DangerBrush;
+                ShowCoilJudgement(c);
 
                 // ⑤ A/B 线圈检测：含判定（B 超时/A 均值不足 = ⑤ Fail）
                 FlowPanel.Mark(4, c.IsNormal ? StepStatus.Passed : StepStatus.Failed,
@@ -293,7 +292,7 @@ public partial class Station1Control : UserControl, IStationPage
             {
                 TxtVoltage.Text = "—";
                 TxtCurrent.Text = "—";
-                TxtPowerJudge.Text = "—";
+                ShowCoilJudgement(result?.Coil);
                 FlowPanel.Mark(4, StepStatus.Failed, "无有效采样");
                 FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
                 _log.Append("步骤 6：未执行（无有效采样），不入库");
@@ -306,7 +305,7 @@ public partial class Station1Control : UserControl, IStationPage
                 FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
             TxtVoltage.Text = "—";
             TxtCurrent.Text = "—";
-            TxtPowerJudge.Text = "—";
+            ShowCoilJudgement(null);
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
             _log.Append("步骤 6：未执行（前序失败），不入库");
@@ -342,7 +341,7 @@ public partial class Station1Control : UserControl, IStationPage
         TxtSn.Text = "—";
         TxtVoltage.Text = "—";
         TxtCurrent.Text = "—";
-        TxtPowerJudge.Text = "—";
+        ShowCoilJudgement(null);
         TxtResult.Text = "待测试";
         TxtResult.Foreground = MutedBrush;
         BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
@@ -363,9 +362,7 @@ public partial class Station1Control : UserControl, IStationPage
         {
             TxtVoltage.Text = $"{c.CoilAVoltage:F3}";
             TxtCurrent.Text = $"{c.CoilACurrent:F3}";
-            TxtPowerJudge.Text =
-                $"{(c.CoilAPassed ? "A✓" : "A✗")} {c.CoilACurrent:F2}A · {(c.CoilBPassed ? "B✓" : "B✗")} {c.CoilBCurrent:F2}A";
-            TxtPowerJudge.Foreground = c.IsNormal ? SuccessBrush : DangerBrush;
+            ShowCoilJudgement(c);
         }
 
         foreach (var item in result.AbnormalItems)
@@ -374,6 +371,26 @@ public partial class Station1Control : UserControl, IStationPage
         _log.Append(result.Passed
             ? "全部检测项正常，PASS"
             : $"存在 {result.AbnormalItems.Count} 项异常，FAIL");
+    }
+
+    /// <summary>
+    /// 线圈 A/B 两卡片三态：未测灰 / 通过绿 / 未通过红。
+    /// B 未执行到（无有效采样、A 未通过提前结束）保持未测；
+    /// A 通过后 B 超时/未达标 = B 未通过。
+    /// </summary>
+    private void ShowCoilJudgement(CoilJudgement? c)
+    {
+        if (c is null || c.NoValidSample)
+        {
+            CardCoilA.Reset();
+            CardCoilB.Reset();
+            return;
+        }
+        CardCoilA.SetState(c.CoilAPassed ? CoilState.Passed : CoilState.Failed, c.CoilACurrent);
+        if (!c.CoilAPassed)
+            CardCoilB.Reset();
+        else
+            CardCoilB.SetState(c.CoilBPassed ? CoilState.Passed : CoilState.Failed, c.CoilBCurrent);
     }
 
     private void SetResultBadge(bool passed)

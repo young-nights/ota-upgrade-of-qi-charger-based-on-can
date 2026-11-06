@@ -26,7 +26,8 @@
                             Margin="8,0,0,0" Height="32" Click="BtnRefresh_Click"
                             ToolTip="刷新 CAN 与 PowerZ 两个串口列表并自动识别"/>
                     <Button x:Name="BtnDisconnect" Content="断开" Style="{StaticResource GhostButton}"
-                            Margin="8,0,0,0" Height="32" Click="BtnDisconnect_Click"/>
+                            Margin="8,0,0,0" Height="32" Click="BtnDisconnect_Click"
+                            IsEnabled="False"/>
                 </StackPanel>
             </StackPanel>
 

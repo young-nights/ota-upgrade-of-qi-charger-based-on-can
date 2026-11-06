@@ -32,6 +32,7 @@ public partial class MainWindow : Window
             new PlaceholderStationControl(4),
         };
         ShowPage(0);
+        SummaryView.ExitRequested += OnSummaryExitRequested;
     }
 
     private void ListStations_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -122,5 +123,20 @@ public partial class MainWindow : Window
     {
         var win = new AboutWindow { Owner = this };
         win.ShowDialog();
+    }
+
+    // ---- 汇总机页面（整页接管工作区，非弹窗）----
+
+    private void BtnSummary_Click(object sender, RoutedEventArgs e)
+    {
+        SummaryView.ResetToLocked();   // 每次进入都需输密码
+        WorkstationView.Visibility = Visibility.Collapsed;
+        SummaryView.Visibility = Visibility.Visible;
+    }
+
+    private void OnSummaryExitRequested()
+    {
+        SummaryView.Visibility = Visibility.Collapsed;
+        WorkstationView.Visibility = Visibility.Visible;
     }
 }

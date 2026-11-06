@@ -1,25 +1,30 @@
 <Window x:Class="ProductionStationTool.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ProductionStationTool.App"
         Title="产线测试上位机" Height="780" Width="1280"
         Background="{StaticResource BgBrush}">
-    <DockPanel>
-        <!-- 顶部横幅：下拉菜单（设置 / 关于 / 汇总机） -->
+    <Grid>
+    <DockPanel x:Name="WorkstationView">
+        <!-- 顶部横幅：下拉菜单（设置 / 关于）+ 汇总机入口 -->
         <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}"
                 BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1"
                 Padding="12,2">
-            <Menu Background="Transparent" FontSize="14">
-                <MenuItem Header="设置">
-                    <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
-                    <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
-                </MenuItem>
-                <MenuItem Header="关于">
-                    <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
-                </MenuItem>
-                <MenuItem Header="汇总机">
-                    <MenuItem Header="汇总数据（待接入）" IsEnabled="False"/>
-                </MenuItem>
-            </Menu>
+            <Grid>
+                <Menu Background="Transparent" FontSize="14">
+                    <MenuItem Header="设置">
+                        <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
+                        <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
+                    </MenuItem>
+                    <MenuItem Header="关于">
+                        <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
+                    </MenuItem>
+                </Menu>
+                <Button x:Name="BtnSummary" Content="汇总机" HorizontalAlignment="Right"
+                        VerticalAlignment="Center" Height="32" Padding="18,0"
+                        Style="{StaticResource PrimaryButton}" Click="BtnSummary_Click"
+                        ToolTip="进入汇总机管理页（服务器电脑：工位机接入与数据库管理，需密码）"/>
+            </Grid>
         </Border>
         <Grid Margin="16">
         <Grid.ColumnDefinitions>
@@ -150,4 +155,8 @@
         </Border>
         </Grid>
     </DockPanel>
+
+        <!-- 汇总机页面：整页接管工作区（非弹窗），密码解锁后管理工位机接入与数据库 -->
+        <local:SummaryMachinePage x:Name="SummaryView" Visibility="Collapsed"/>
+    </Grid>
 </Window>

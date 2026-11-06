@@ -1,0 +1,154 @@
+<UserControl x:Class="ProductionStationTool.App.SummaryMachinePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="12"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 顶部：标题 + 退出汇总机 -->
+        <Border Grid.Row="0" Style="{StaticResource Card}">
+            <Grid>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="汇总机 — 服务器管理" FontSize="20" FontWeight="Bold"
+                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                    <TextBlock Text="管理所有工位机的接入与数据库表格，仅限服务器电脑使用"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,4,0,0"/>
+                </StackPanel>
+                <Button x:Name="BtnExit" Content="退出汇总机" HorizontalAlignment="Right"
+                        VerticalAlignment="Center" Height="40" Padding="18,0"
+                        Style="{StaticResource GhostButton}"
+                        Click="BtnExit_Click"
+                        ToolTip="返回工位机工作区（下次进入需重新输密码）"/>
+            </Grid>
+        </Border>
+
+        <!-- 密码门（锁定态）：输对密码才进管理区 -->
+        <Border x:Name="LockPanel" Grid.Row="2" Style="{StaticResource Card}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Text="输入管理密码以进入汇总机" FontSize="18" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimaryBrush}"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="汇总机页用于服务器电脑管理工位机接入与数据库表格"
+                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                           HorizontalAlignment="Center" Margin="0,6,0,18"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <PasswordBox x:Name="TxtPassword" Width="240" Height="36" FontSize="15"
+                                 VerticalContentAlignment="Center" Padding="8,4"
+                                 KeyDown="TxtPassword_KeyDown"/>
+                    <Button x:Name="BtnUnlock" Content="进入汇总机" Margin="10,0,0,0"
+                            Height="36" Padding="18,0" FontSize="15"
+                            Style="{StaticResource PrimaryButton}"
+                            Click="BtnUnlock_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="TxtLockMsg" Text="" FontSize="13" Foreground="{StaticResource DangerBrush}"
+                           HorizontalAlignment="Center" Margin="0,10,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 管理区（解锁态）：工位机接入管理 + 数据库表格 -->
+        <Grid x:Name="MgmtPanel" Grid.Row="2" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 左：工位机接入管理 -->
+            <Border Grid.Column="0" Style="{StaticResource Card}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="工位机接入管理" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock DockPanel.Dock="Top" Text="维护允许接入服务器的工位机清单（编码如 ST-01-1）"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,2,0,10"/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBox x:Name="TxtNewCode" Width="110" Height="30" Style="{StaticResource FieldBox}"
+                                 ToolTip="工位机编码，如 ST-01-1"/>
+                        <TextBox x:Name="TxtNewNote" Width="150" Height="30" Margin="8,0,0,0"
+                                 Style="{StaticResource FieldBox}" ToolTip="备注（可空）"/>
+                        <Button x:Name="BtnAddStation" Content="添加" Margin="8,0,0,0" Height="30"
+                                Style="{StaticResource PrimaryButton}" Click="BtnAddStation_Click"/>
+                        <Button x:Name="BtnRemoveStation" Content="移除" Margin="8,0,0,0" Height="30"
+                                Style="{StaticResource GhostButton}" Click="BtnRemoveStation_Click"
+                                ToolTip="移除选中的工位机登记"/>
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="BtnAllow" Content="允许接入" Height="30"
+                                Style="{StaticResource GhostButton}" Click="BtnAllow_Click"
+                                ToolTip="选中的工位机允许接入服务器"/>
+                        <Button x:Name="BtnDeny" Content="禁止接入" Margin="8,0,0,0" Height="30"
+                                Style="{StaticResource GhostButton}" Click="BtnDeny_Click"
+                                ToolTip="选中的工位机禁止接入服务器"/>
+                        <TextBlock x:Name="TxtStationMsg" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <DataGrid x:Name="GridStations" AutoGenerateColumns="False" IsReadOnly="True"
+                              SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              FontSize="13" RowHeight="30">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="编码" Binding="{Binding Code}" Width="110"/>
+                            <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="*"/>
+                            <DataGridCheckBoxColumn Header="接入" Binding="{Binding Allowed}" Width="60"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Border>
+
+            <!-- 右：数据库表格 -->
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="数据库表格" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock DockPanel.Dock="Top" Text="station_records.db · test_records 表（本机测试记录）"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,2,0,10"/>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="BtnRefreshDb" Content="刷新" Height="30" Padding="14,0"
+                                Style="{StaticResource GhostButton}" Click="BtnRefreshDb_Click"/>
+                        <TextBlock x:Name="TxtDbStats" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <DataGrid x:Name="GridRecords" AutoGenerateColumns="False" IsReadOnly="True"
+                              SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                              FontSize="12" RowHeight="26">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="46"/>
+                            <DataGridTextColumn Header="SN" Binding="{Binding Sn}" Width="*"/>
+                            <DataGridTextColumn Header="工位" Binding="{Binding StationNo}" Width="46"/>
+                            <DataGridTextColumn Header="机位" Binding="{Binding MachineId}" Width="46"/>
+                            <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="52"/>
+                            <DataGridTextColumn Header="电压" Binding="{Binding Voltage, StringFormat=F3}" Width="60"/>
+                            <DataGridTextColumn Header="电流" Binding="{Binding Current, StringFormat=F3}" Width="60"/>
+                            <DataGridTextColumn Header="异常项" Binding="{Binding AbnormalItems}" Width="*"/>
+                            <DataGridTextColumn Header="测试时间" Binding="{Binding TestTime, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="130"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- 底部：修改密码（解锁态可见） -->
+        <Border x:Name="PwPanel" Grid.Row="4" Style="{StaticResource Card}" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="修改密码" Style="{StaticResource SectionTitle}"
+                           VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <PasswordBox x:Name="TxtOldPw" Width="130" Height="30" VerticalContentAlignment="Center"
+                             Padding="8,4" ToolTip="旧密码"/>
+                <PasswordBox x:Name="TxtNewPw" Width="130" Height="30" Margin="8,0,0,0"
+                             VerticalContentAlignment="Center" Padding="8,4" ToolTip="新密码（至少 6 位）"/>
+                <PasswordBox x:Name="TxtNewPw2" Width="130" Height="30" Margin="8,0,0,0"
+                             VerticalContentAlignment="Center" Padding="8,4" ToolTip="再输一遍新密码"/>
+                <Button x:Name="BtnSavePw" Content="保存新密码" Margin="8,0,0,0" Height="30"
+                        Style="{StaticResource PrimaryButton}" Click="BtnSavePw_Click"/>
+                <TextBlock x:Name="TxtPwMsg" VerticalAlignment="Center" Margin="12,0,0,0"
+                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

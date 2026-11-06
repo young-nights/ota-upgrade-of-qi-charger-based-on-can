@@ -27,12 +27,19 @@ public partial class ConnectionPanel : UserControl
     /// <summary>互斥刷新防重入（清空对方时会再次触发 SelectionChanged）。</summary>
     private bool _syncing;
 
+    /// <summary>已连接（CAN/PowerZ 已接入、未断开）。</summary>
+    private bool _connected;
+
+    /// <summary>连接/断开进行中（异步接入未回报前锁按钮防重入）。</summary>
+    private bool _busy;
+
     public ConnectionPanel()
     {
         InitializeComponent();
         Loaded += (_, _) => RefreshPorts();
         ComboCanPort.SelectionChanged += Combo_SelectionChanged;
         ComboPowerZPort.SelectionChanged += Combo_SelectionChanged;
+        ApplyButtonState();
     }
 
     /// <summary>
@@ -110,6 +117,11 @@ public partial class ConnectionPanel : UserControl
         }
     }
 
+    /// <summary>
+    /// 刷新状态徽章并驱动连接/断开按钮高亮反转：
+    /// ok=true = 已连接 → 「连接」禁用（暗）、「断开」高亮可按；
+    /// ok=false = 未连接 → 「连接」高亮可按、「断开」禁用（暗）。
+    /// </summary>
     public void SetStatus(string text, bool ok)
     {
         TxtConnStatus.Text = text;
@@ -117,6 +129,24 @@ public partial class ConnectionPanel : UserControl
         BadgeConn.Background = ok
             ? new SolidColorBrush(Color.FromRgb(0x16, 0xA3, 0x4A))
             : new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
+        _connected = ok;
+        _busy = false;
+        ApplyButtonState();
+    }
+
+    /// <summary>连接/断开按钮高亮反转：当前可执行的动作高亮（Primary），对侧禁用（Ghost+暗）。</summary>
+    private void ApplyButtonState()
+    {
+        if (_busy)
+        {
+            BtnConnect.IsEnabled = false;
+            BtnDisconnect.IsEnabled = false;
+            return;
+        }
+        BtnConnect.IsEnabled = !_connected;
+        BtnDisconnect.IsEnabled = _connected;
+        BtnConnect.Style = (Style)FindResource(_connected ? "GhostButton" : "PrimaryButton");
+        BtnDisconnect.Style = (Style)FindResource(_connected ? "PrimaryButton" : "GhostButton");
     }
 
     private void BtnRefresh_Click(object sender, RoutedEventArgs e) => RefreshPorts();
@@ -129,9 +159,15 @@ public partial class ConnectionPanel : UserControl
             SetStatus("请先选择 CAN 与 PowerZ 串口", false);
             return;
         }
+        _busy = true;
+        ApplyButtonState();
         ConnectRequested?.Invoke(CanPortName, PowerZPortName);
     }
 
     private void BtnDisconnect_Click(object sender, RoutedEventArgs e)
-        => DisconnectRequested?.Invoke();
+    {
+        _busy = true;
+        ApplyButtonState();
+        DisconnectRequested?.Invoke();
+    }
 }

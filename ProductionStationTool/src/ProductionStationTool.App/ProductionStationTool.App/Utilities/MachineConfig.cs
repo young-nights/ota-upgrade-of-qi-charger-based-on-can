@@ -1,4 +1,5 @@
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ProductionStationTool.Core.Station;
@@ -132,6 +133,35 @@ public static class MachineConfig
             $"  ({Environment.MachineName})\n");
     }
 
+    /// <summary>SHA-256 十六进制（小写）——汇总机管理密码存哈希不存明文。</summary>
+    public static string Sha256Hex(string text)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
+
+    /// <summary>
+    /// 汇总机管理密码哈希（machine.json `summaryPasswordSha256`）。
+    /// 未配置时默认密码 "admin123"（首次使用请在汇总机页「修改密码」中改掉）。
+    /// </summary>
+    public static string LoadSummaryPasswordHash()
+    {
+        var cfg = ReadCfgOrDefault();
+        return string.IsNullOrWhiteSpace(cfg.SummaryPasswordSha256)
+            ? Sha256Hex(DefaultSummaryPassword)
+            : cfg.SummaryPasswordSha256.Trim().ToLowerInvariant();
+    }
+
+    /// <summary>保存汇总机管理密码哈希；只记「已修改」留痕，不写哈希值。</summary>
+    public static void SaveSummaryPasswordHash(string hashHex)
+    {
+        var cfg = ReadCfgOrDefault();
+        cfg.SummaryPasswordSha256 = hashHex.Trim().ToLowerInvariant();
+        WriteCfg(cfg);
+        File.AppendAllText(ChangeLogPath,
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  汇总机管理密码已修改  ({Environment.MachineName})\n");
+    }
+
+    /// <summary>出厂默认管理密码（仅此处定义，存的是它的哈希）。</summary>
+    private const string DefaultSummaryPassword = "admin123";
+
     private static Cfg ReadCfgOrDefault()
     {
         try
@@ -177,6 +207,9 @@ public static class MachineConfig
         public int CoilACollectMs { get; set; } = 10_000;
         public int CoilBSustainMs { get; set; } = 3_000;
         public int OverallTimeoutMs { get; set; } = 60_000;
+
+        // 汇总机管理密码（SHA-256 十六进制；空 = 默认密码 admin123）
+        public string SummaryPasswordSha256 { get; set; } = "";
     }
 }
 
