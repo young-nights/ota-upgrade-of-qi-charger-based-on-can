@@ -105,7 +105,7 @@
                         </Grid>
 
                         <!-- 检测参数只读提示（修改入口在「设置」页） -->
-                        <TextBlock Text="检测参数（A/B 阈值、窗口、超时）在右上角「设置 → 检测参数」中修改"
+                        <TextBlock Text="检测参数（A/B 阈值、窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
                                    FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                    Margin="0,0,0,12"/>
 

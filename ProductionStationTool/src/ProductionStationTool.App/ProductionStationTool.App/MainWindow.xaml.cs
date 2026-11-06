@@ -106,9 +106,21 @@ public partial class MainWindow : Window
         TxtStatus.Text = $"{page.Title}：已切换下一台，串口保持连接，等待开始测试";
     }
 
-    private void BtnSettings_Click(object sender, RoutedEventArgs e)
+    // ---- 顶部横幅菜单 ----
+
+    private void MenuSettingsNetwork_Click(object sender, RoutedEventArgs e) => OpenSettings(0);
+
+    private void MenuSettingsCoil_Click(object sender, RoutedEventArgs e) => OpenSettings(1);
+
+    private void OpenSettings(int startTab)
     {
-        var win = new SettingsWindow { Owner = this };
+        var win = new SettingsWindow(startTab) { Owner = this };
+        win.ShowDialog();
+    }
+
+    private void MenuAbout_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new AboutWindow { Owner = this };
         win.ShowDialog();
     }
 }

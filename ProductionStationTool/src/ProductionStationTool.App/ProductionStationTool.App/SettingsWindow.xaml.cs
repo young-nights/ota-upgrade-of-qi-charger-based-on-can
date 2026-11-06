@@ -22,9 +22,13 @@ public partial class SettingsWindow : Window
     private static readonly Brush DangerBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
 
-    public SettingsWindow()
+    public SettingsWindow() : this(0) { }
+
+    /// <summary>startTab：0=机位与网络，1=检测参数（顶部菜单直达对应页）。</summary>
+    public SettingsWindow(int startTab)
     {
         InitializeComponent();
+        Tabs.SelectedIndex = startTab is 0 or 1 ? startTab : 0;
         // 可编辑 ComboBox 的文本变化是内部 TextBox 的路由事件，挂上以便实时预览编码
         CmbStationNo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
             new TextChangedEventHandler((_, _) => Identity_Changed(CmbStationNo, EventArgs.Empty)));

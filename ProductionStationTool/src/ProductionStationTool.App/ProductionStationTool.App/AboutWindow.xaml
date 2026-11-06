@@ -1,0 +1,26 @@
+<Window x:Class="ProductionStationTool.App.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="关于" Width="420" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}">
+    <Border Style="{StaticResource Card}" Margin="16">
+        <StackPanel>
+            <TextBlock Text="产线测试上位机" FontSize="22" FontWeight="Bold"
+                       Foreground="{StaticResource TextPrimaryBrush}"/>
+            <TextBlock Text="ProductionStationTool" FontSize="13"
+                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,12"/>
+            <TextBlock x:Name="TxtVersion" FontSize="13"
+                       Foreground="{StaticResource TextPrimaryBrush}"/>
+            <TextBlock x:Name="TxtIdentity" FontSize="13"
+                       Foreground="{StaticResource TextPrimaryBrush}" Margin="0,4,0,0"/>
+            <TextBlock Text="运行环境：.NET 8 · WPF" FontSize="13"
+                       Foreground="{StaticResource TextPrimaryBrush}" Margin="0,4,0,12"/>
+            <TextBlock Text="工位1 SN + 电流电压（A/B 双线圈检测）、工位2 老化测试；机位命名、网络与检测参数在「设置」中配置。"
+                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                       TextWrapping="Wrap" Margin="0,0,0,16"/>
+            <Button Content="关闭" Width="100" Height="36" HorizontalAlignment="Right"
+                    Style="{StaticResource PrimaryButton}" Click="BtnClose_Click"/>
+        </StackPanel>
+    </Border>
+</Window>

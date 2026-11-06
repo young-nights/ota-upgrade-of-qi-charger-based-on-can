@@ -3,7 +3,25 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="产线测试上位机" Height="780" Width="1280"
         Background="{StaticResource BgBrush}">
-    <Grid Margin="16">
+    <DockPanel>
+        <!-- 顶部横幅：下拉菜单（设置 / 关于 / 汇总机） -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}"
+                BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1"
+                Padding="12,2">
+            <Menu Background="Transparent" FontSize="14">
+                <MenuItem Header="设置">
+                    <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
+                    <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
+                </MenuItem>
+                <MenuItem Header="关于">
+                    <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
+                </MenuItem>
+                <MenuItem Header="汇总机">
+                    <MenuItem Header="汇总数据（待接入）" IsEnabled="False"/>
+                </MenuItem>
+            </Menu>
+        </Border>
+        <Grid Margin="16">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="240"/>
             <ColumnDefinition Width="16"/>
@@ -101,11 +119,6 @@
                                 IsEnabled="False"
                                 Click="BtnNext_Click"
                                 ToolTip="完整跑通一次流程后可点：切换下一台，刷新状态，串口保持连接"/>
-                        <Button x:Name="BtnSettings" Content="设置" Width="90" Height="52"
-                                FontSize="18" Margin="12,0,0,0"
-                                Style="{StaticResource GhostButton}"
-                                Click="BtnSettings_Click"
-                                ToolTip="机位命名 / 查看本机 IP / 服务器连通检测"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -135,5 +148,6 @@
                            Text="ProductionStationTool"/>
             </Grid>
         </Border>
-    </Grid>
+        </Grid>
+    </DockPanel>
 </Window>
