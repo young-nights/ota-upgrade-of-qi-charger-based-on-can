@@ -1,0 +1,37 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36811.4
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QiChargerStationTool.App", "QiChargerStationTool.App\QiChargerStationTool.App.csproj", "{90C21685-1BBF-42D3-9CDE-C3D3A74CDD9C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QiChargerStationTool.Core", "..\QiChargerStationTool.Core\QiChargerStationTool.Core\QiChargerStationTool.Core.csproj", "{1451EDAB-4D07-CE7C-74CD-673EE792FA60}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QiChargerStationTool.Tests", "..\..\tests\QiChargerStationTool.Tests\QiChargerStationTool.Tests\QiChargerStationTool.Tests.csproj", "{C59BB24C-AAC9-041D-5843-BFFEF86CB054}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{90C21685-1BBF-42D3-9CDE-C3D3A74CDD9C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{90C21685-1BBF-42D3-9CDE-C3D3A74CDD9C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{90C21685-1BBF-42D3-9CDE-C3D3A74CDD9C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90C21685-1BBF-42D3-9CDE-C3D3A74CDD9C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1451EDAB-4D07-CE7C-74CD-673EE792FA60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1451EDAB-4D07-CE7C-74CD-673EE792FA60}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1451EDAB-4D07-CE7C-74CD-673EE792FA60}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1451EDAB-4D07-CE7C-74CD-673EE792FA60}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C59BB24C-AAC9-041D-5843-BFFEF86CB054}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C59BB24C-AAC9-041D-5843-BFFEF86CB054}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C59BB24C-AAC9-041D-5843-BFFEF86CB054}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C59BB24C-AAC9-041D-5843-BFFEF86CB054}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8EDFBE56-5E82-4120-9997-8B8D3F64E0E9}
+	EndGlobalSection
+EndGlobal
