@@ -1074,6 +1074,14 @@ public partial class MainWindow : Window
     /// <summary>把 Qi 状态刷进左侧仪表盘（充电功率 + 保护位指示灯 + 摘要行）。</summary>
     private void UpdateQiPanel(QiChipStatus st)
     {
+        // 关闭充电后（含在途轮询迟到一拍）不回画状态：面板保持清除态，
+        // 避免已清除的磁铁/真充旧值被轮询刷回来。
+        if (!_chargeEnabled)
+        {
+            ResetMagnetDisplay();
+            return;
+        }
+
         // 充电功率大字（mW 原值 + W 换算）
         if (st.OutputPowerMw is { } mw)
         {
@@ -1132,6 +1140,17 @@ public partial class MainWindow : Window
             TxtMagnetState.Text = "磁铁状态未知 —";
             TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
         }
+    }
+
+    /// <summary>
+    /// 清除「磁铁 / 实际充电」状态显示并恢复占位（关闭充电后调用）：
+    /// Qi 芯片断电后面板数据失效，磁铁/真充状态不再有意义，必须清掉而非冻结旧值。
+    /// </summary>
+    private void ResetMagnetDisplay()
+    {
+        TxtMagnetState.Text = "—";
+        TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
+        TxtQiSummary.Text = "充电已关闭 — Qi 状态面板已失效";
     }
 
     /// <summary>单个保护位指示灯着色：null=未知(灰) / 置位=红 / 未置位=绿。</summary>
@@ -1250,11 +1269,14 @@ public partial class MainWindow : Window
             // 真充判定：0x2101 写成功只是「使能」，固件 board_charge_poll 还要
             // PA0 霍尔在位才真正接通充电。读 0x2118 当场给出磁铁存在/不存在。
             byte? clamp = null;
-            try
+            if (enable)
             {
-                clamp = QiChipStatusCodec.ReadU8(uds.ReadDid(ProtoIds.DidClampState, timeoutMs: 3000));
+                try
+                {
+                    clamp = QiChipStatusCodec.ReadU8(uds.ReadDid(ProtoIds.DidClampState, timeoutMs: 3000));
+                }
+                catch { /* 霍尔读取失败不阻断充电操作本身 */ }
             }
-            catch { /* 霍尔读取失败不阻断充电操作本身 */ }
 
             await UiAsync(() =>
             {
@@ -1264,13 +1286,15 @@ public partial class MainWindow : Window
                     Pass(name, $"已开启 — {verdict}");
                     if (clamp == 0x01)
                         AppendLog("[充电] 提示：磁铁不存在，固件门禁（0x2101 使能且霍尔在位）未满足，不会真正接通充电");
+                    UpdateMagnetDisplay(clamp);
                 }
                 else
                 {
                     Pass(name, "已关闭");
                     AppendLog("[充电] 已关闭：Qi 状态检测按钮已禁用（Qi 芯片断电，检测无意义）");
+                    // 关闭即清除磁铁/真充状态显示：Qi 面板失效，旧值不留在屏上
+                    ResetMagnetDisplay();
                 }
-                UpdateMagnetDisplay(clamp);
                 ApplyQiStatusGate();
             });
             return true;
