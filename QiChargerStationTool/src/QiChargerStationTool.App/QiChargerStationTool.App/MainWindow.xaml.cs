@@ -847,7 +847,7 @@ public partial class MainWindow : Window
                     if (!await MustStep(uds.TryRequest(ProtoIds.SidTd, payload,
                             timeoutMs: 8000, waitPendingMs: 30_000, expectSub: (byte)(seq & 0xFF),
                             requestRetries: 2,
-                            onRetry: _ =>
+                            onRetry: attempt =>
                             {
                                 // 诊断：读 0x2132 IAP 计数——sent 含本块=首帧已被
                                 // 设备处理（应答丢失）；未含=请求未完成（组包丢失）。
@@ -855,9 +855,9 @@ public partial class MainWindow : Window
                                 {
                                     var d = uds.ReadDid(ProtoIds.DidQiIapStatus, timeoutMs: 1000);
                                     QiChipStatusCodec.ParseIapStatus(d,
-                                        out var s, out _, out _, out _, out _,
+                                        out var st, out _, out _, out _, out _,
                                         out var sent, out var total);
-                                    AppendLog($"[RETRY] 诊断 0x2132: state=0x{s:X2} sent={sent}/{total}" +
+                                    AppendLog($"[RETRY] 诊断 0x2132(attempt {attempt}): state=0x{st:X2} sent={sent}/{total}" +
                                               $"（本块前应={blk * transferBlock}，含本块=首帧已处理·应答丢失）");
                                 }
                                 catch (Exception ex)
