@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.63";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.64";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -1045,6 +1045,23 @@ void can_proto_qi_iap_reset(void)
   g_qi_iap_pending_chunk = 0U;
   /* Qi 芯片 IAP 后重启丢配置：清标志让 qi_power_cfg_poll 补发功率档位 */
   g_qi_pwr_cfg_sent = 0U;
+}
+
+/**
+ * @brief  撤销在途的延迟 UDS 应答（仅 0x36 的 76 类）
+ * @note   重复 0x36（主机超时重发）走幂等路径立即回 76 时，首包挂起的
+ *         延迟应答（等 Qi ACK 后由 qi_iap_ack_poll 回 76）必须撤掉——
+ *         否则 ACK 到达后再回一个 76，双 76 会错配后续块的应答窗
+ *         （2026-11-05 实测重试 10ms 即回的路径即命中此场景）。
+ *         Qi 侧状态机不动（sent 计数照常走 ACK 记账）。
+ */
+void can_proto_qi_iap_resp_cancel(void)
+{
+  if (g_qi_iap_resp_type == QI_RESP_TXD)
+  {
+    g_qi_iap_resp_type = QI_RESP_NONE;
+    g_qi_iap_pending_chunk = 0U;
+  }
 }
 
 /**

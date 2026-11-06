@@ -580,6 +580,9 @@ void ota_dl_handle_transfer_data(uint8_t *data, uint16_t len)
    * 此时重复的 36 00 仍须被识别为重复包而非序号错误。 */
   if (bsc == g_block_seq)
   {
+    /* 重复包幂等回 76 前撤掉首包挂起的延迟应答：首包已回（本次 76）
+     * 或即将回（Qi ACK 后再回一个=双 76 错配后续块应答窗），撤掉防双发。 */
+    can_proto_qi_iap_resp_cancel();
     resp[0] = (uint8_t)(UDS_SID_TRANSFER_DATA + UDS_POSITIVE_RESPONSE_OFFSET);
     resp[1] = bsc;
     can_proto_send_response(resp, 2);

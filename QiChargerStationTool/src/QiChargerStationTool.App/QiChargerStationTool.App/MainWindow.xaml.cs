@@ -842,8 +842,29 @@ public partial class MainWindow : Window
                     Buffer.BlockCopy(img, off, payload, 1, n);
                     // 直接调用（整个 body 已在 Task.Run 线程池里），去掉每块一次
                     // Task.Run 的调度开销
+                    // expectSub=块序号：76 应答按 BSC 匹配——迟到/重复 76 不再
+                    // 错配后续块的应答窗（固件幂等去重可能产生双 76）。
                     if (!await MustStep(uds.TryRequest(ProtoIds.SidTd, payload,
-                            timeoutMs: 8000, waitPendingMs: 30_000, requestRetries: 2), $"36 块 {blk + 1}"))
+                            timeoutMs: 8000, waitPendingMs: 30_000, expectSub: (byte)(seq & 0xFF),
+                            requestRetries: 2,
+                            onRetry: _ =>
+                            {
+                                // 诊断：读 0x2132 IAP 计数——sent 含本块=首帧已被
+                                // 设备处理（应答丢失）；未含=请求未完成（组包丢失）。
+                                try
+                                {
+                                    var d = uds.ReadDid(ProtoIds.DidQiIapStatus, timeoutMs: 1000);
+                                    QiChipStatusCodec.ParseIapStatus(d,
+                                        out var s, out _, out _, out _, out _,
+                                        out var sent, out var total);
+                                    AppendLog($"[RETRY] 诊断 0x2132: state=0x{s:X2} sent={sent}/{total}" +
+                                              $"（本块前应={blk * transferBlock}，含本块=首帧已处理·应答丢失）");
+                                }
+                                catch (Exception ex)
+                                {
+                                    AppendLog($"[RETRY] 诊断 0x2132 读取失败: {FormatOpError(ex)}");
+                                }
+                            }), $"36 块 {blk + 1}"))
                         return false;
                     sumSend += uds.LastSendMs;
                     sumRecv += uds.LastRecvMs;

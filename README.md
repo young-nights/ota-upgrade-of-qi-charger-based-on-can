@@ -118,6 +118,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 
 | 工具 | 版本要求 |
 |------|----------|
+| 2026-11-05 | **fix(tool/fw): IAP 块偶发 8s 超时——76 按 BSC 匹配 + 重发诊断 + 双 76 撤销（fw 1.1.64）**。实测（QiChargerStationTool MCU2 IAP）：某块应答超时 8s（0 帧回包）后重发 **10ms** 即完成——24B 多帧完整往返至少 20ms+，10ms 只能命中固件 BSC 幂等去重即时 76 = **首帧已被设备处理、76 应答丢失**；且幂等立即回 76 时首包延迟应答（等 Qi ACK）还会再回一个 **76 双发**，错配后续块应答窗。修复：①工具 0x36 应答按 BSC 匹配（`expectSub=块序号`，三发送点统配）——迟到/重复 76 不再错配后续块；②`TryRequest/Request` 增 `onRetry` 诊断钩子，0x36 重发前读 0x2132 IAP 计数并记日志（sent 含本块=首帧已处理·应答丢失；未含=请求未完成·组包丢失）——下次故障自证根因；③固件 `can_proto_qi_iap_resp_cancel()`：重复 0x36 幂等回 76 前撤掉首包挂起的延迟应答，杀双 76。`SW_VERSION_STR` 1.1.63→1.1.64 |
 | 2026-11-05 | **docs(tool): 磁铁/实际充电显示加图例说明**：仪表盘磁铁大字下方常显四态说明（绿=磁铁存在·实际开启（充电使能+磁铁在位）／红=磁铁不存在·未开启充电／蓝=磁铁存在·充电未使能／灰=磁铁状态未知（读取失败）），与 `UpdateMagnetDisplay` 四种着色一一对应 |
 | Keil MDK | v5.38+ |
 | AT32 IDE Pack | AT32F426 支持包 |
@@ -180,7 +181,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.63** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.64** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 

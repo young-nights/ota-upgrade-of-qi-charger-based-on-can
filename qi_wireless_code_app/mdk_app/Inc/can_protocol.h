@@ -223,6 +223,7 @@ uint8_t can_proto_in_programming(void);
 uint8_t can_proto_fw_type_target(void);
 uint8_t can_proto_qi_iap_state(void);
 void    can_proto_qi_iap_reset(void);
+void    can_proto_qi_iap_resp_cancel(void);
 void    can_proto_qi_version_refresh(void);
 void    can_proto_qi_version_refresh_blocking(uint16_t timeout_ms);
 void can_proto_qi_iap_prepare_async(uint16_t fw_size, uint16_t max_block_len);

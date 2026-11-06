@@ -66,16 +66,21 @@ public sealed class UdsClient
     /// 取消不重发）。0x36 依赖固件 BSC 幂等去重（重复包直接回 76），
     /// 应答丢失 / 组包丢失都能靠重发自愈——单发即放弃会把一次瞬时丢包
     /// 放大成整个升级 FAIL（2026-11-04 块 345 实测）。
+    /// onRetry：每次重发前回调（诊断钩子，如读 0x2132 判断首帧是否已被
+    /// 设备处理）；抛异常不阻断重发。
     /// </summary>
     public UdsResult TryRequest(byte sid, byte[] payload, int timeoutMs = 3000,
                                 int waitPendingMs = 45_000, byte? expectSub = null,
                                 CancellationToken ct = default,
-                                ushort? expectDid = null, int requestRetries = 0)
+                                ushort? expectDid = null, int requestRetries = 0,
+                                Action<int>? onRetry = null)
     {
         var r = TryRequestOnce(sid, payload, timeoutMs, waitPendingMs, expectSub, ct, expectDid);
         for (int i = 0; i < requestRetries && !r.Ok && r.Nrc == 0
                         && !ct.IsCancellationRequested; i++)
         {
+            try { onRetry?.Invoke(i + 1); }
+            catch { /* 诊断钩子失败不影响重发 */ }
             Log($"[RETRY] 无应答，重发 0x{sid:X2}（{i + 1}/{requestRetries}）");
             r = TryRequestOnce(sid, payload, timeoutMs, waitPendingMs, expectSub, ct, expectDid);
         }
@@ -161,10 +166,10 @@ public sealed class UdsClient
     public byte[] Request(byte sid, byte[] payload, int timeoutMs = 3000,
                           int waitPendingMs = 45_000, byte? expectSub = null,
                           CancellationToken ct = default, ushort? expectDid = null,
-                          int requestRetries = 0)
+                          int requestRetries = 0, Action<int>? onRetry = null)
     {
         var r = TryRequest(sid, payload, timeoutMs, waitPendingMs, expectSub, ct, expectDid,
-                           requestRetries);
+                           requestRetries, onRetry);
         if (r.Ok) return r.Data;
         throw new UdsException(sid, r.Nrc, r.Error);
     }

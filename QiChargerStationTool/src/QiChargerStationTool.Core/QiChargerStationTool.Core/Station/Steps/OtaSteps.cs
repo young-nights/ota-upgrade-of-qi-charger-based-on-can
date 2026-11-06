@@ -67,7 +67,7 @@ public sealed class OtaUpgradeStep : ITestStep
                 payload[0] = (byte)(seq & 0xFF);
                 Buffer.BlockCopy(img, off, payload, 1, n);
                 ctx.Uds.Request(ProtoIds.SidTd, payload, timeoutMs: 8000, waitPendingMs: 30_000,
-                                requestRetries: 2);
+                                expectSub: (byte)(seq & 0xFF), requestRetries: 2);
                 off += n;
                 blk++;
                 seq = (seq + 1) & 0xFF;
