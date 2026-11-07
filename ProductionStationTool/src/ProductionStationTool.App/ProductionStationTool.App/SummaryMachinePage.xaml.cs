@@ -84,7 +84,7 @@ public partial class SummaryMachinePage : UserControl
         TxtSectionTitle.Text = isRecords ? "数据库表格" : "工位机接入管理";
         TxtSectionDesc.Text = isRecords
             ? "station_records.db · test_records：按时间/工位/机位/结果筛选，结果绿=PASS、红=FAIL"
-            : "工位号+机位号登记工位机（编码 ST-xx-x），管理接入权限与测试概况";
+            : "登记工位机的编码、IP 与接入权限，并汇总各机位测试概况";
     }
 
     // ================= 工位机登记/编辑组件 =================
@@ -126,6 +126,20 @@ public partial class SummaryMachinePage : UserControl
     /// <summary>取尾部数字（清洗脏数据："ST-01-1"→"1"、"A1"→"1"）。</summary>
     private static string TrailingDigits(string s) => Regex.Match(s, @"\d+$").Value;
 
+    /// <summary>IPv4 点分四段、每段 0~255（登记可空，填了才校验）。</summary>
+    private static bool IsValidIpv4(string ip)
+    {
+        var parts = ip.Split('.');
+        if (parts.Length != 4)
+            return false;
+        foreach (var p in parts)
+        {
+            if (!int.TryParse(p, out var n) || n is < 0 or > 255)
+                return false;
+        }
+        return true;
+    }
+
     private void UpdatePreview()
     {
         var st = ParseStation();
@@ -144,6 +158,7 @@ public partial class SummaryMachinePage : UserControl
         _loadingEditor = true;
         CmbStationNo.Text = st > 0 ? st.ToString() : "";
         TxtMachineId.Text = TrailingDigits(mid);   // 脏数据（如 ST-01-1）只留尾部数字
+        TxtIp.Text = row.Ip;
         TxtNewNote.Text = row.Note == UnregisteredNote ? "" : row.Note;
         _loadingEditor = false;
         _editingCode = row.Code;
@@ -158,6 +173,12 @@ public partial class SummaryMachinePage : UserControl
         if (mid.Length is < 1 or > 8)
         {
             StationMsg("机位号需 1~8 位纯阿拉伯数字", false);
+            return;
+        }
+        var ip = TxtIp.Text.Trim();
+        if (ip.Length > 0 && !IsValidIpv4(ip))
+        {
+            StationMsg("IP 地址格式不对（如 192.168.10.11）", false);
             return;
         }
         var err = MachineConfig.Validate(st, mid);
@@ -183,7 +204,7 @@ public partial class SummaryMachinePage : UserControl
             : registry.FirstOrDefault(r => string.Equals(r.Code, _editingCode, StringComparison.OrdinalIgnoreCase));
         if (entry is null)
         {
-            registry.Add(new StationAccessEntry { Code = code, Note = note, Allowed = true });
+            registry.Add(new StationAccessEntry { Code = code, Ip = ip, Note = note, Allowed = true });
             StationAccessRegistry.Save(registry);
             RefreshStations();
             CancelEdit();
@@ -192,6 +213,7 @@ public partial class SummaryMachinePage : UserControl
         }
 
         entry.Code = code;
+        entry.Ip = ip;
         entry.Note = note;
         StationAccessRegistry.Save(registry);
         RefreshStations();
@@ -208,6 +230,7 @@ public partial class SummaryMachinePage : UserControl
         _loadingEditor = true;
         CmbStationNo.Text = "";
         TxtMachineId.Text = "";
+        TxtIp.Text = "";
         TxtNewNote.Text = "";
         _loadingEditor = false;
         GridStations.SelectedItem = null;
@@ -242,6 +265,7 @@ public partial class SummaryMachinePage : UserControl
             {
                 Code = code,
                 Label = LabelOf(code),
+                Ip = entry?.Ip ?? "",
                 Note = entry?.Note ?? UnregisteredNote,
                 Allowed = entry?.Allowed ?? false,
                 Total = total,
@@ -265,7 +289,7 @@ public partial class SummaryMachinePage : UserControl
             var row = GridStations.SelectedItem as StationRowVm;
             return row is null
                 ? null
-                : new StationAccessEntry { Code = row.Code, Note = row.Note, Allowed = row.Allowed };
+                : new StationAccessEntry { Code = row.Code, Ip = row.Ip, Note = row.Note, Allowed = row.Allowed };
         }
     }
 
@@ -307,7 +331,12 @@ public partial class SummaryMachinePage : UserControl
         if (entry is null)
         {
             // 有测试记录但未登记的机位：允许/禁止即登记一条
-            entry = new StationAccessEntry { Code = sel.Code, Note = sel.Note == UnregisteredNote ? "" : sel.Note };
+            entry = new StationAccessEntry
+            {
+                Code = sel.Code,
+                Ip = sel.Ip,
+                Note = sel.Note == UnregisteredNote ? "" : sel.Note,
+            };
             registry.Add(entry);
         }
         entry.Allowed = allowed;
@@ -447,6 +476,7 @@ public partial class SummaryMachinePage : UserControl
     {
         public string Code { get; init; } = "";
         public string Label { get; init; } = "";
+        public string Ip { get; init; } = "";
         public string Note { get; init; } = "";
         public bool Allowed { get; init; }
         public int Total { get; init; }

@@ -114,7 +114,7 @@
                                        FontSize="20" FontWeight="Bold"
                                        Foreground="{StaticResource TextPrimaryBrush}"/>
                             <TextBlock x:Name="TxtSectionDesc"
-                                       Text="登记各工位机（编码如 ST-01-1）的接入权限与测试概况"
+                                       Text="登记各工位机的编码、IP 与接入权限，并汇总各机位测试概况"
                                        FontSize="12" TextWrapping="Wrap"
                                        Foreground="{StaticResource TextSecondaryBrush}"
                                        Margin="0,4,0,0"/>
@@ -158,6 +158,12 @@
                                                 <ComboBoxItem Content="3"/>
                                                 <ComboBoxItem Content="4"/>
                                             </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Margin="0,0,12,0">
+                                            <TextBlock Text="IP 地址" Style="{StaticResource FieldLabel}"/>
+                                            <TextBox x:Name="TxtIp" Width="130" Height="36"
+                                                     Style="{StaticResource FieldBox}"
+                                                     ToolTip="工位机局域网 IPv4，如 192.168.10.11（可空）"/>
                                         </StackPanel>
                                         <StackPanel Margin="0,0,12,0">
                                             <TextBlock Text="备注" Style="{StaticResource FieldLabel}"/>
@@ -216,6 +222,8 @@
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="IP 地址" Binding="{Binding Ip}" Width="110"
+                                                        FontFamily="Consolas"/>
                                     <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="*">
                                         <DataGridTextColumn.ElementStyle>
                                             <Style TargetType="TextBlock">
