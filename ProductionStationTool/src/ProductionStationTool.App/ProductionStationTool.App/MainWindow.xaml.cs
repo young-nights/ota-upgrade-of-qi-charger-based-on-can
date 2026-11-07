@@ -16,6 +16,7 @@ public partial class MainWindow : Window
 {
     private readonly IStationPage[] _pages;
     private readonly StationIdentity _identity;
+    private readonly StationPresenceReporter _presence;
     private IStationPage? _currentPage;
     private bool _isRunning;
 
@@ -41,6 +42,11 @@ public partial class MainWindow : Window
         };
         ShowPage(0);
         SummaryView.ExitRequested += OnSummaryExitRequested;
+
+        // 工位机接入心跳：周期上报身份到汇总机（serverHost），汇总机按远端 IP 自动登记
+        _presence = new StationPresenceReporter(_identity, MachineConfig.LoadServerHost());
+        _presence.Start();
+        Closed += (_, _) => _presence.Dispose();
     }
 
     private void ListStations_SelectionChanged(object sender, SelectionChangedEventArgs e)

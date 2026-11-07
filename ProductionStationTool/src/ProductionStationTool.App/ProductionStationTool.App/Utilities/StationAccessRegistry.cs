@@ -4,14 +4,16 @@ using System.Text.Json.Serialization;
 
 namespace ProductionStationTool.App.Utilities;
 
-/// <summary>一台工位机的接入登记：编码（ST-xx-x）、局域网 IP、备注、是否允许接入。</summary>
+/// <summary>一台工位机的接入登记（工位机上报后由汇总机按 IP 自动记录，无需手动录入）。</summary>
 public sealed class StationAccessEntry
 {
     public string Code { get; set; } = "";
-    /// <summary>工位机局域网 IPv4（如 192.168.10.11），接入白名单/排查用，可空。</summary>
+    /// <summary>工位机局域网 IPv4（上报连接的远端地址，自动记录）。</summary>
     public string Ip { get; set; } = "";
     public string Note { get; set; } = "";
     public bool Allowed { get; set; } = true;
+    /// <summary>最近一次接入上报时间（自动记录，判在线/离线）。</summary>
+    public DateTime? LastSeen { get; set; }
 }
 
 /// <summary>
