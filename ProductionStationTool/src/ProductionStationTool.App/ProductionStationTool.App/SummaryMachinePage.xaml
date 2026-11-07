@@ -134,18 +134,53 @@
                             <TextBlock x:Name="TxtStationSummary" DockPanel.Dock="Top"
                                        FontSize="13" FontWeight="SemiBold"
                                        Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8"/>
-                            <!-- 添加 -->
-                            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                                <TextBox x:Name="TxtNewCode" Width="110" Height="30" Style="{StaticResource FieldBox}"
-                                         ToolTip="工位机编码，如 ST-01-1"/>
-                                <TextBox x:Name="TxtNewNote" Width="150" Height="30" Margin="8,0,0,0"
-                                         Style="{StaticResource FieldBox}" ToolTip="备注（可空）"/>
-                                <Button x:Name="BtnAddStation" Content="添加" Margin="8,0,0,0" Height="30"
-                                        Style="{StaticResource PrimaryButton}" Click="BtnAddStation_Click"/>
-                                <Button x:Name="BtnRemoveStation" Content="移除" Margin="8,0,0,0" Height="30"
-                                        Style="{StaticResource GhostButton}" Click="BtnRemoveStation_Click"
-                                        ToolTip="移除选中的工位机登记"/>
-                            </StackPanel>
+                            <!-- 工位机登记/编辑组件：工位号+机位号组合编码，实时预览，点行可编辑 -->
+                            <Border DockPanel.Dock="Top" Background="{StaticResource FieldBgBrush}"
+                                    CornerRadius="8" Padding="12" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="工位机登记" Style="{StaticResource FieldLabel}"/>
+                                    <WrapPanel>
+                                        <StackPanel Margin="0,0,12,0">
+                                            <TextBlock Text="工位号" Style="{StaticResource FieldLabel}"/>
+                                            <ComboBox x:Name="CmbStationNo" Width="80" Height="30"
+                                                      Style="{StaticResource FieldCombo}" IsEditable="True"
+                                                      SelectionChanged="Editor_Changed">
+                                                <ComboBoxItem Content="1"/>
+                                                <ComboBoxItem Content="2"/>
+                                                <ComboBoxItem Content="3"/>
+                                                <ComboBoxItem Content="4"/>
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Margin="0,0,12,0">
+                                            <TextBlock Text="机位号" Style="{StaticResource FieldLabel}"/>
+                                            <TextBox x:Name="TxtMachineId" Width="90" Height="30"
+                                                     Style="{StaticResource FieldBox}"
+                                                     TextChanged="Editor_Changed"
+                                                     ToolTip="1~8 位字母/数字，同工位内不重复"/>
+                                        </StackPanel>
+                                        <StackPanel Margin="0,0,12,0">
+                                            <TextBlock Text="备注" Style="{StaticResource FieldLabel}"/>
+                                            <TextBox x:Name="TxtNewNote" Width="180" Height="30"
+                                                     Style="{StaticResource FieldBox}"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                                            <Button x:Name="BtnSaveStation" Content="添加" Width="90" Height="30"
+                                                    Style="{StaticResource PrimaryButton}" Click="BtnSaveStation_Click"/>
+                                            <Button x:Name="BtnCancelEdit" Content="取消" Width="70" Height="30"
+                                                    Margin="8,0,0,0" Style="{StaticResource GhostButton}"
+                                                    Click="BtnCancelEdit_Click"
+                                                    ToolTip="清空当前编辑状态（取消编辑新机位时可清空输入）"/>
+                                            <Button x:Name="BtnRemoveStation" Content="移除" Width="70" Height="30"
+                                                    Margin="8,0,0,0" Style="{StaticResource GhostButton}"
+                                                    Click="BtnRemoveStation_Click"
+                                                    ToolTip="移除选中的工位机登记"/>
+                                        </StackPanel>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="TxtCodePreview" Text="编码预览：—"
+                                               FontSize="12" Margin="0,8,0,0"
+                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
                             <!-- 接入开关 -->
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                                 <Button x:Name="BtnAllow" Content="允许接入" Height="30"
@@ -157,14 +192,26 @@
                                 <TextBlock x:Name="TxtStationMsg" VerticalAlignment="Center" Margin="12,0,0,0"
                                            FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"/>
                             </StackPanel>
-                            <!-- 登记清单 + 测试概况 -->
+                            <!-- 登记清单 + 测试概况；「工位机」列 = 编码 + 工位·机位 两行组件 -->
                             <DataGrid x:Name="GridStations" AutoGenerateColumns="False" IsReadOnly="True"
                                       SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
                                       HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                                      FontSize="12" RowHeight="28">
+                                      FontSize="12" RowHeight="36"
+                                      SelectionChanged="GridStations_SelectionChanged">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="编码" Binding="{Binding Code}" Width="86"/>
-                                    <DataGridTextColumn Header="工位·机位" Binding="{Binding Label}" Width="100"/>
+                                    <DataGridTemplateColumn Header="工位机" Width="130">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Code}" FontFamily="Consolas"
+                                                               FontWeight="SemiBold" FontSize="12"
+                                                               Foreground="#0F172A"/>
+                                                    <TextBlock Text="{Binding Label}" FontSize="10"
+                                                               Foreground="#64748B"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
                                     <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="*"/>
                                     <DataGridCheckBoxColumn Header="接入" Binding="{Binding Allowed}" Width="48"/>
                                     <DataGridTextColumn Header="累计" Binding="{Binding Total}" Width="48"/>
@@ -226,8 +273,8 @@
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="46"/>
                                     <DataGridTextColumn Header="SN" Binding="{Binding Sn}" Width="*"/>
-                                    <DataGridTextColumn Header="工位" Binding="{Binding StationNo}" Width="46"/>
-                                    <DataGridTextColumn Header="机位" Binding="{Binding Code}" Width="86"/>
+                                    <DataGridTextColumn Header="工位机" Binding="{Binding Code}" Width="100"
+                                                        FontFamily="Consolas"/>
                                     <DataGridTemplateColumn Header="结果" Width="56">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>

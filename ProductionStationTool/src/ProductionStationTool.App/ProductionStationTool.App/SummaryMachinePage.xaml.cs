@@ -11,8 +11,8 @@ namespace ProductionStationTool.App;
 /// 汇总机页面（服务器电脑专用，整页接管主窗口，密码验证后进入）：
 /// 外壳与主页面同款——顶部横幅「设置」（汇总机独立：仅设置汇总机密码）+「退出汇总机」，
 /// 左侧「功能选择」两按钮（工位机接入管理 / 数据库表格），右侧操作栏 + 功能页，底部状态栏。
-/// 接入管理页带各机位测试概况（累计/PASS/FAIL/良率/最近测试）；
-/// 数据库页按 时间/工位/机位/结果 筛选 test_records，结果列绿 PASS 红 FAIL。
+/// 接入管理：工位号+机位号结构化登记/编辑组件（实时编码预览 ST-xx-x），点行载入编辑；
+/// 「工位机」列 = 编码 + 工位·机位 两行组件。数据库页按时间/工位/机位/结果筛选。
 /// </summary>
 public partial class SummaryMachinePage : UserControl
 {
@@ -24,6 +24,13 @@ public partial class SummaryMachinePage : UserControl
     private const int RecordLoadLimit = 1000;
 
     private const string AllText = "全部";
+    private const string UnregisteredNote = "（未登记）";
+
+    /// <summary>正在编辑已有登记时为原编码；null = 新增。</summary>
+    private string? _editingCode;
+
+    /// <summary>编辑组件回填防重入（SelectionChanged/TextChanged 互刷）。</summary>
+    private bool _loadingEditor;
 
     /// <summary>点「退出汇总机」。</summary>
     public event Action? ExitRequested;
@@ -31,11 +38,15 @@ public partial class SummaryMachinePage : UserControl
     public SummaryMachinePage()
     {
         InitializeComponent();
+        // 可编辑 ComboBox 的文本变化是内部 TextBox 的路由事件，挂上以便实时编码预览
+        CmbStationNo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+            new TextChangedEventHandler((_, _) => Editor_Changed(CmbStationNo, EventArgs.Empty)));
     }
 
-    /// <summary>密码验证通过后进入页面调用：载入两个功能页的数据。</summary>
+    /// <summary>密码验证通过后进入页面调用：复位编辑组件并载入两个功能页的数据。</summary>
     public void EnterUnlocked()
     {
+        CancelEdit();
         ListFunctions.SelectedIndex = 0;
         ShowSection(0);
         RefreshStations();
@@ -73,7 +84,112 @@ public partial class SummaryMachinePage : UserControl
         TxtSectionTitle.Text = isRecords ? "数据库表格" : "工位机接入管理";
         TxtSectionDesc.Text = isRecords
             ? "station_records.db · test_records：按时间/工位/机位/结果筛选，结果绿=PASS、红=FAIL"
-            : "登记各工位机（编码如 ST-01-1）的接入权限与测试概况";
+            : "工位号+机位号登记工位机（编码 ST-xx-x），管理接入权限与测试概况";
+    }
+
+    // ================= 工位机登记/编辑组件 =================
+
+    private int ParseStation()
+        => int.TryParse(CmbStationNo.Text.Trim(), out var n) ? n : 0;
+
+    private static string CodeOf(int stationNo, string machineId) => $"ST-{stationNo:00}-{machineId}";
+
+    /// <summary>ST-01-1 → (1, "1")；解析不了返回 (0, 原串)。</summary>
+    private static (int StationNo, string MachineId) SplitCode(string code)
+    {
+        var m = Regex.Match(code, @"^ST-(\d+)-(.+)$");
+        return m.Success ? (int.Parse(m.Groups[1].Value), m.Groups[2].Value) : (0, code);
+    }
+
+    private void Editor_Changed(object sender, EventArgs e)
+    {
+        if (_loadingEditor)
+            return;
+        UpdatePreview();
+    }
+
+    private void UpdatePreview()
+    {
+        var st = ParseStation();
+        var mid = TxtMachineId.Text.Trim().ToUpperInvariant();
+        TxtCodePreview.Text = st >= 1 && mid.Length > 0
+            ? $"编码预览：{CodeOf(st, mid)}（工位{st} · 机位{mid}）"
+            : "编码预览：—";
+    }
+
+    /// <summary>点表格行：回填编辑组件（改备注/工位机位，保存即改）。</summary>
+    private void GridStations_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (GridStations.SelectedItem is not StationRowVm row)
+            return;
+        var (st, mid) = SplitCode(row.Code);
+        _loadingEditor = true;
+        CmbStationNo.Text = st > 0 ? st.ToString() : "";
+        TxtMachineId.Text = mid;
+        TxtNewNote.Text = row.Note == UnregisteredNote ? "" : row.Note;
+        _loadingEditor = false;
+        _editingCode = row.Code;
+        BtnSaveStation.Content = "保存修改";
+        UpdatePreview();
+    }
+
+    private void BtnSaveStation_Click(object sender, RoutedEventArgs e)
+    {
+        var st = ParseStation();
+        var mid = TxtMachineId.Text.Trim().ToUpperInvariant();
+        var err = MachineConfig.Validate(st, mid);
+        if (err is not null)
+        {
+            StationMsg(err, false);
+            return;
+        }
+        var code = CodeOf(st, mid);
+        var registry = StationAccessRegistry.Load();
+        var dup = registry.FirstOrDefault(r =>
+            !string.Equals(r.Code, _editingCode, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(r.Code, code, StringComparison.OrdinalIgnoreCase));
+        if (dup is not null)
+        {
+            StationMsg($"编码 {code} 已登记", false);
+            return;
+        }
+
+        var note = TxtNewNote.Text.Trim();
+        var entry = _editingCode is null
+            ? null
+            : registry.FirstOrDefault(r => string.Equals(r.Code, _editingCode, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            registry.Add(new StationAccessEntry { Code = code, Note = note, Allowed = true });
+            StationAccessRegistry.Save(registry);
+            RefreshStations();
+            CancelEdit();
+            StationMsg($"已添加 {code}（默认允许接入）", true);
+            return;
+        }
+
+        entry.Code = code;
+        entry.Note = note;
+        StationAccessRegistry.Save(registry);
+        RefreshStations();
+        CancelEdit();
+        StationMsg($"已保存 {code}", true);
+    }
+
+    private void BtnCancelEdit_Click(object sender, RoutedEventArgs e) => CancelEdit();
+
+    /// <summary>退出编辑态：清空组件、按钮回到「添加」。</summary>
+    private void CancelEdit()
+    {
+        _editingCode = null;
+        _loadingEditor = true;
+        CmbStationNo.Text = "";
+        TxtMachineId.Text = "";
+        TxtNewNote.Text = "";
+        _loadingEditor = false;
+        GridStations.SelectedItem = null;
+        BtnSaveStation.Content = "添加";
+        UpdatePreview();
     }
 
     // ================= 工位机接入管理 =================
@@ -86,7 +202,7 @@ public partial class SummaryMachinePage : UserControl
         using (var store = new SqliteTestRecordStore())
         {
             foreach (var s in store.StatsByMachine())
-                statsByCode[$"ST-{s.StationNo:00}-{s.MachineId}"] = s;
+                statsByCode[CodeOf(s.StationNo, s.MachineId)] = s;
         }
 
         // 登记表 ∪ 有测试记录的机位：没登记却在测的机位也要暴露出来
@@ -103,7 +219,7 @@ public partial class SummaryMachinePage : UserControl
             {
                 Code = code,
                 Label = LabelOf(code),
-                Note = entry?.Note ?? "（未登记）",
+                Note = entry?.Note ?? UnregisteredNote,
                 Allowed = entry?.Allowed ?? false,
                 Total = total,
                 Pass = pass,
@@ -116,7 +232,7 @@ public partial class SummaryMachinePage : UserControl
         GridStations.ItemsSource = rows;
         TxtStationSummary.Text =
             $"共 {rows.Count} 台：允许 {rows.Count(r => r.Allowed)} · 禁止 {rows.Count(r => !r.Allowed)}"
-            + $" · 有测试记录 {rows.Count(r => r.Total > 0)} 台 · 未登记 {rows.Count(r => r.Note == "（未登记）")} 台";
+            + $" · 有测试记录 {rows.Count(r => r.Total > 0)} 台 · 未登记 {rows.Count(r => r.Note == UnregisteredNote)} 台";
     }
 
     private StationAccessEntry? SelectedStation
@@ -128,34 +244,6 @@ public partial class SummaryMachinePage : UserControl
                 ? null
                 : new StationAccessEntry { Code = row.Code, Note = row.Note, Allowed = row.Allowed };
         }
-    }
-
-    private void BtnAddStation_Click(object sender, RoutedEventArgs e)
-    {
-        var code = TxtNewCode.Text.Trim().ToUpperInvariant();
-        var err = StationAccessRegistry.ValidateCode(code);
-        if (err is not null)
-        {
-            StationMsg(err, false);
-            return;
-        }
-        var registry = StationAccessRegistry.Load();
-        if (registry.Any(s => string.Equals(s.Code, code, StringComparison.OrdinalIgnoreCase)))
-        {
-            StationMsg($"编码 {code} 已登记", false);
-            return;
-        }
-        registry.Add(new StationAccessEntry
-        {
-            Code = code,
-            Note = TxtNewNote.Text.Trim(),
-            Allowed = true,
-        });
-        StationAccessRegistry.Save(registry);
-        TxtNewCode.Clear();
-        TxtNewNote.Clear();
-        RefreshStations();
-        StationMsg($"已添加 {code}（默认允许接入）", true);
     }
 
     private void BtnRemoveStation_Click(object sender, RoutedEventArgs e)
@@ -175,6 +263,7 @@ public partial class SummaryMachinePage : UserControl
         }
         StationAccessRegistry.Save(registry);
         RefreshStations();
+        CancelEdit();
         StationMsg($"已移除 {sel.Code}", true);
     }
 
@@ -195,7 +284,7 @@ public partial class SummaryMachinePage : UserControl
         if (entry is null)
         {
             // 有测试记录但未登记的机位：允许/禁止即登记一条
-            entry = new StationAccessEntry { Code = sel.Code, Note = sel.Note == "（未登记）" ? "" : sel.Note };
+            entry = new StationAccessEntry { Code = sel.Code, Note = sel.Note == UnregisteredNote ? "" : sel.Note };
             registry.Add(entry);
         }
         entry.Allowed = allowed;
@@ -212,15 +301,18 @@ public partial class SummaryMachinePage : UserControl
 
     // ================= 数据库表格（筛选 + 记录） =================
 
-    /// <summary>工位/机位下拉：库中出现过的取值 +「全部」。</summary>
+    /// <summary>工位/机位下拉：库中出现过的取值 +「全部」，项带「工位x / 机位x」标签。</summary>
     private void RefreshFilterOptions()
     {
         IReadOnlyList<(int StationNo, string MachineId)> sources;
         using (var store = new SqliteTestRecordStore())
             sources = store.DistinctSources();
 
-        FillCombo(ComboStation, sources.Select(s => s.StationNo.ToString()).Distinct().Order());
-        FillCombo(ComboMachine, sources.Select(s => s.MachineId).Distinct().OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        FillCombo(ComboStation,
+            sources.Select(s => s.StationNo).Distinct().OrderBy(x => x).Select(n => $"工位{n}"));
+        FillCombo(ComboMachine,
+            sources.Select(s => s.MachineId).Distinct().OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                .Select(m => $"机位{m}"));
         FillCombo(ComboResult, new[] { "PASS", "FAIL" });
     }
 
@@ -249,11 +341,15 @@ public partial class SummaryMachinePage : UserControl
         // 选中日期不含时刻：起点取 00:00:00，止点取当天 23:59:59
         DateTime? from = PickFrom.SelectedDate is { } f ? f.Date : null;
         DateTime? to = PickTo.SelectedDate is { } t ? t.Date.AddDays(1).AddSeconds(-1) : null;
+        var station = ComboStation.SelectedItem as string;
+        var machine = ComboMachine.SelectedItem as string;
         return new TestRecordFilter(
             From: from,
             To: to,
-            StationNo: ComboStation.SelectedItem is string s && s != AllText && int.TryParse(s, out var st) ? st : null,
-            MachineId: ComboMachine.SelectedItem is string m && m != AllText ? m : null,
+            StationNo: station is not null && station.StartsWith("工位", StringComparison.Ordinal)
+                       && int.TryParse(station.AsSpan(2), out var st) ? st : null,
+            MachineId: machine is not null && machine.StartsWith("机位", StringComparison.Ordinal)
+                ? machine[2..] : null,
             Result: ComboResult.SelectedItem is string r && r != AllText ? r : null,
             Limit: RecordLoadLimit);
     }
@@ -271,8 +367,7 @@ public partial class SummaryMachinePage : UserControl
                     {
                         Id = r.Id,
                         Sn = r.Sn,
-                        StationNo = r.StationNo,
-                        Code = $"ST-{r.StationNo:00}-{r.MachineId}",
+                        Code = CodeOf(r.StationNo, r.MachineId),
                         Result = r.Result,
                         Voltage = r.Voltage,
                         Current = r.Current,
@@ -307,8 +402,8 @@ public partial class SummaryMachinePage : UserControl
     /// <summary>ST-01-1 → 工位1 · 机位1；解析不了就用原编码。</summary>
     private static string LabelOf(string code)
     {
-        var m = Regex.Match(code, @"^ST-(\d+)-(.+)$");
-        return m.Success ? $"工位{int.Parse(m.Groups[1].Value)} · 机位{m.Groups[2].Value}" : code;
+        var (st, mid) = SplitCode(code);
+        return st > 0 ? $"工位{st} · 机位{mid}" : code;
     }
 
     // ================= 展示行（表格绑定） =================
@@ -317,7 +412,6 @@ public partial class SummaryMachinePage : UserControl
     {
         public long Id { get; init; }
         public string Sn { get; init; } = "";
-        public int StationNo { get; init; }
         public string Code { get; init; } = "";
         public string Result { get; init; } = "";
         public double Voltage { get; init; }
