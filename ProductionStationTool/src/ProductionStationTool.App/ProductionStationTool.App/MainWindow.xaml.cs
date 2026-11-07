@@ -22,6 +22,14 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // 小屏防截断：窗口不超出工作区（默认 1280x780 在 768p/高缩放下会被屏幕裁掉）
+        var wa = SystemParameters.WorkArea;
+        MaxWidth = wa.Width;
+        MaxHeight = wa.Height;
+        Width = Math.Min(Width, wa.Width);
+        Height = Math.Min(Height, wa.Height);
+
         _identity = MachineConfig.Load();
         Title = $"产线测试上位机 — {_identity.Code}";
         _pages = new IStationPage[]

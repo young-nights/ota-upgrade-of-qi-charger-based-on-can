@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:ProductionStationTool.App"
         Title="产线测试上位机" Height="780" Width="1280"
+        MinWidth="1100" MinHeight="680"
         Background="{StaticResource BgBrush}">
     <Grid>
     <DockPanel x:Name="WorkstationView">
