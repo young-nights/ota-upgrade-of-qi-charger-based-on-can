@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Media;
 using ProductionStationTool.App.Utilities;
 using ProductionStationTool.Core.Data;
@@ -9,12 +8,11 @@ using ProductionStationTool.Core.Data;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// 汇总机页面（服务器电脑专用，整页接管主窗口）：
-/// 外壳与主页面同款——顶部横幅菜单（设置/关于/修改汇总机密码）、左侧「功能选择」
-/// 两个按钮（工位机接入管理 / 数据库表格）、右侧操作栏 + 功能页、底部状态栏。
-/// 进入需输管理密码（默认 admin123，machine.json 只存 SHA-256 哈希）；
-/// 数据库页按机位分清：一机位一卡（绿=最近 PASS、红=最近 FAIL、灰=未测试），
-/// 表格按机位分组排序、结果绿/红，点卡片筛选；「退出汇总机」返回工位机工作区。
+/// 汇总机页面（服务器电脑专用，整页接管主窗口，密码验证后进入）：
+/// 外壳与主页面同款——顶部横幅「设置」（汇总机独立：仅设置汇总机密码）+「退出汇总机」，
+/// 左侧「功能选择」两按钮（工位机接入管理 / 数据库表格），右侧操作栏 + 功能页，底部状态栏。
+/// 接入管理页带各机位测试概况（累计/PASS/FAIL/良率/最近测试）；
+/// 数据库页按 时间/工位/机位/结果 筛选 test_records，结果列绿 PASS 红 FAIL。
 /// </summary>
 public partial class SummaryMachinePage : UserControl
 {
@@ -22,15 +20,10 @@ public partial class SummaryMachinePage : UserControl
     private static readonly Brush DangerBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
 
-    /// <summary>数据库表格一次加载的行数上限（产线日产量千级，够看且不卡）。</summary>
+    /// <summary>数据库表格一次查询的行数上限（产线日产量千级，够看且不卡）。</summary>
     private const int RecordLoadLimit = 1000;
 
-    private List<StationAccessEntry> _stations = new();
-    private List<MachineVm> _machines = new();
-    private List<RecordRow> _rows = new();
-
-    /// <summary>机位筛选（null = 全部）；点概览卡片切换。</summary>
-    private string? _filterCode;
+    private const string AllText = "全部";
 
     /// <summary>点「退出汇总机」。</summary>
     public event Action? ExitRequested;
@@ -40,71 +33,26 @@ public partial class SummaryMachinePage : UserControl
         InitializeComponent();
     }
 
-    /// <summary>每次进入页面调用：回到密码门（每次进入都需输密码）。</summary>
-    public void ResetToLocked()
+    /// <summary>密码验证通过后进入页面调用：载入两个功能页的数据。</summary>
+    public void EnterUnlocked()
     {
-        LockPanel.Visibility = Visibility.Visible;
-        MgmtPanel.Visibility = Visibility.Collapsed;
-        TxtPassword.Clear();
-        TxtLockMsg.Text = "";
-        TxtStatusSummary.Text = "汇总机：请输入管理密码进入管理区";
+        ListFunctions.SelectedIndex = 0;
+        ShowSection(0);
+        RefreshStations();
+        RefreshFilterOptions();
+        RefreshRecords();
+        TxtStatusSummary.Text = "汇总机：管理工位机接入与数据库表格";
     }
 
     private void BtnExit_Click(object sender, RoutedEventArgs e) => ExitRequested?.Invoke();
 
-    // ================= 顶部横幅菜单（与主页面同款） =================
+    // ================= 顶部横幅菜单（汇总机独立设置） =================
 
-    private void MenuSettingsNetwork_Click(object sender, RoutedEventArgs e)
-        => OpenSettings(0);
-
-    private void MenuSettingsCoil_Click(object sender, RoutedEventArgs e)
-        => OpenSettings(1);
-
-    private void OpenSettings(int startTab)
-    {
-        var win = new SettingsWindow(startTab) { Owner = Window.GetWindow(this) };
-        win.ShowDialog();
-    }
-
-    private void MenuChangePassword_Click(object sender, RoutedEventArgs e)
+    private void MenuSetPassword_Click(object sender, RoutedEventArgs e)
     {
         var win = new SummaryPasswordWindow { Owner = Window.GetWindow(this) };
         if (win.ShowDialog() == true)
-            TxtStatusSummary.Text = "汇总机：管理密码已修改，下次进入生效";
-    }
-
-    private void MenuAbout_Click(object sender, RoutedEventArgs e)
-    {
-        var win = new AboutWindow { Owner = Window.GetWindow(this) };
-        win.ShowDialog();
-    }
-
-    // ================= 密码门 =================
-
-    private void BtnUnlock_Click(object sender, RoutedEventArgs e)
-    {
-        if (MachineConfig.Sha256Hex(TxtPassword.Password) == MachineConfig.LoadSummaryPasswordHash())
-        {
-            TxtPassword.Clear();
-            TxtLockMsg.Text = "";
-            LockPanel.Visibility = Visibility.Collapsed;
-            MgmtPanel.Visibility = Visibility.Visible;
-            ShowSection(ListFunctions.SelectedIndex < 0 ? 0 : ListFunctions.SelectedIndex);
-            RefreshStations();
-            RefreshRecords();
-        }
-        else
-        {
-            TxtLockMsg.Text = "密码错误，请重试";
-            TxtPassword.SelectAll();
-            TxtPassword.Focus();
-        }
-    }
-
-    private void TxtPassword_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter)
-            BtnUnlock_Click(sender, e);
+            TxtStatusSummary.Text = "汇总机：管理密码已设置，下次进入生效";
     }
 
     // ================= 功能切换（左「功能选择」两个按钮） =================
@@ -122,33 +70,65 @@ public partial class SummaryMachinePage : UserControl
         PanelAccess.Visibility = isRecords ? Visibility.Collapsed : Visibility.Visible;
         PanelRecords.Visibility = isRecords ? Visibility.Visible : Visibility.Collapsed;
         BtnRefreshDb.Visibility = isRecords ? Visibility.Visible : Visibility.Collapsed;
-        BtnShowAll.Visibility = isRecords ? Visibility.Visible : Visibility.Collapsed;
         TxtSectionTitle.Text = isRecords ? "数据库表格" : "工位机接入管理";
         TxtSectionDesc.Text = isRecords
-            ? "station_records.db · test_records：按机位分组，结果绿=PASS、红=FAIL"
-            : "维护允许接入服务器的工位机清单（编码如 ST-01-1）";
-        TxtStatusSummary.Text = isRecords
-            ? "汇总机：数据库表格（按机位分清 PASS/FAIL）"
-            : "汇总机：工位机接入管理";
+            ? "station_records.db · test_records：按时间/工位/机位/结果筛选，结果绿=PASS、红=FAIL"
+            : "登记各工位机（编码如 ST-01-1）的接入权限与测试概况";
     }
 
     // ================= 工位机接入管理 =================
 
+    /// <summary>登记清单 + 测试概况（统计来自 test_records 按机位聚合）。</summary>
     private void RefreshStations()
     {
-        _stations = StationAccessRegistry.Load();
-        GridStations.ItemsSource = _stations;
-        TxtStationMsg.Text = $"共 {_stations.Count} 台登记";
-        TxtStationMsg.Foreground = MutedBrush;
+        var registry = StationAccessRegistry.Load();
+        var statsByCode = new Dictionary<string, MachineTestStats>(StringComparer.OrdinalIgnoreCase);
+        using (var store = new SqliteTestRecordStore())
+        {
+            foreach (var s in store.StatsByMachine())
+                statsByCode[$"ST-{s.StationNo:00}-{s.MachineId}"] = s;
+        }
+
+        // 登记表 ∪ 有测试记录的机位：没登记却在测的机位也要暴露出来
+        var codes = new SortedSet<string>(
+            registry.Select(r => r.Code).Concat(statsByCode.Keys), StringComparer.OrdinalIgnoreCase);
+        var rows = new List<StationRowVm>();
+        foreach (var code in codes)
+        {
+            var entry = registry.FirstOrDefault(r => string.Equals(r.Code, code, StringComparison.OrdinalIgnoreCase));
+            statsByCode.TryGetValue(code, out var st);
+            var total = st?.Total ?? 0;
+            var pass = st?.Pass ?? 0;
+            rows.Add(new StationRowVm
+            {
+                Code = code,
+                Label = LabelOf(code),
+                Note = entry?.Note ?? "（未登记）",
+                Allowed = entry?.Allowed ?? false,
+                Total = total,
+                Pass = pass,
+                Fail = st?.Fail ?? 0,
+                YieldText = total == 0 ? "—" : $"{pass * 100.0 / total:F1}%",
+                LastTestText = st?.LastTestTime is { } t ? t.ToString("yyyy-MM-dd HH:mm") : "—",
+            });
+        }
+
+        GridStations.ItemsSource = rows;
+        TxtStationSummary.Text =
+            $"共 {rows.Count} 台：允许 {rows.Count(r => r.Allowed)} · 禁止 {rows.Count(r => !r.Allowed)}"
+            + $" · 有测试记录 {rows.Count(r => r.Total > 0)} 台 · 未登记 {rows.Count(r => r.Note == "（未登记）")} 台";
     }
 
-    private void SaveStations()
+    private StationAccessEntry? SelectedStation
     {
-        StationAccessRegistry.Save(_stations);
-        GridStations.Items.Refresh();
+        get
+        {
+            var row = GridStations.SelectedItem as StationRowVm;
+            return row is null
+                ? null
+                : new StationAccessEntry { Code = row.Code, Note = row.Note, Allowed = row.Allowed };
+        }
     }
-
-    private StationAccessEntry? SelectedStation => GridStations.SelectedItem as StationAccessEntry;
 
     private void BtnAddStation_Click(object sender, RoutedEventArgs e)
     {
@@ -159,20 +139,22 @@ public partial class SummaryMachinePage : UserControl
             StationMsg(err, false);
             return;
         }
-        if (_stations.Any(s => string.Equals(s.Code, code, StringComparison.OrdinalIgnoreCase)))
+        var registry = StationAccessRegistry.Load();
+        if (registry.Any(s => string.Equals(s.Code, code, StringComparison.OrdinalIgnoreCase)))
         {
             StationMsg($"编码 {code} 已登记", false);
             return;
         }
-        _stations.Add(new StationAccessEntry
+        registry.Add(new StationAccessEntry
         {
             Code = code,
             Note = TxtNewNote.Text.Trim(),
             Allowed = true,
         });
-        SaveStations();
+        StationAccessRegistry.Save(registry);
         TxtNewCode.Clear();
         TxtNewNote.Clear();
+        RefreshStations();
         StationMsg($"已添加 {code}（默认允许接入）", true);
     }
 
@@ -184,8 +166,15 @@ public partial class SummaryMachinePage : UserControl
             StationMsg("请先选中要移除的工位机", false);
             return;
         }
-        _stations.Remove(sel);
-        SaveStations();
+        var registry = StationAccessRegistry.Load();
+        var removed = registry.RemoveAll(r => string.Equals(r.Code, sel.Code, StringComparison.OrdinalIgnoreCase));
+        if (removed == 0)
+        {
+            StationMsg($"{sel.Code} 未登记，无可移除项", false);
+            return;
+        }
+        StationAccessRegistry.Save(registry);
+        RefreshStations();
         StationMsg($"已移除 {sel.Code}", true);
     }
 
@@ -201,8 +190,17 @@ public partial class SummaryMachinePage : UserControl
             StationMsg("请先选中工位机", false);
             return;
         }
-        sel.Allowed = allowed;
-        SaveStations();
+        var registry = StationAccessRegistry.Load();
+        var entry = registry.FirstOrDefault(r => string.Equals(r.Code, sel.Code, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            // 有测试记录但未登记的机位：允许/禁止即登记一条
+            entry = new StationAccessEntry { Code = sel.Code, Note = sel.Note == "（未登记）" ? "" : sel.Note };
+            registry.Add(entry);
+        }
+        entry.Allowed = allowed;
+        StationAccessRegistry.Save(registry);
+        RefreshStations();
         StationMsg($"{sel.Code}：{(allowed ? "允许" : "禁止")}接入", true);
     }
 
@@ -212,112 +210,99 @@ public partial class SummaryMachinePage : UserControl
         TxtStationMsg.Foreground = ok ? SuccessBrush : DangerBrush;
     }
 
-    // ================= 数据库表格（机位概览 + 记录） =================
+    // ================= 数据库表格（筛选 + 记录） =================
 
-    private void BtnRefreshDb_Click(object sender, RoutedEventArgs e) => RefreshRecords();
-
-    private void BtnShowAll_Click(object sender, RoutedEventArgs e)
+    /// <summary>工位/机位下拉：库中出现过的取值 +「全部」。</summary>
+    private void RefreshFilterOptions()
     {
-        _filterCode = null;
+        IReadOnlyList<(int StationNo, string MachineId)> sources;
+        using (var store = new SqliteTestRecordStore())
+            sources = store.DistinctSources();
+
+        FillCombo(ComboStation, sources.Select(s => s.StationNo.ToString()).Distinct().Order());
+        FillCombo(ComboMachine, sources.Select(s => s.MachineId).Distinct().OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        FillCombo(ComboResult, new[] { "PASS", "FAIL" });
+    }
+
+    private static void FillCombo(ComboBox combo, IEnumerable<string> values)
+    {
+        combo.ItemsSource = new[] { AllText }.Concat(values).ToList();
+        combo.SelectedIndex = 0;
+    }
+
+    private void BtnQuery_Click(object sender, RoutedEventArgs e) => RefreshRecords();
+
+    private void BtnResetFilter_Click(object sender, RoutedEventArgs e)
+    {
+        PickFrom.SelectedDate = null;
+        PickTo.SelectedDate = null;
+        ComboStation.SelectedIndex = 0;
+        ComboMachine.SelectedIndex = 0;
+        ComboResult.SelectedIndex = 0;
         RefreshRecords();
     }
 
-    /// <summary>点机位卡片：选中=筛选该机位；再点同一张=取消筛选。</summary>
-    private void MachineCard_Click(object sender, MouseButtonEventArgs e)
+    private void BtnRefreshDb_Click(object sender, RoutedEventArgs e) => RefreshRecords();
+
+    private TestRecordFilter BuildFilter()
     {
-        if ((sender as FrameworkElement)?.Tag is not string code)
-            return;
-        _filterCode = string.Equals(_filterCode, code, StringComparison.OrdinalIgnoreCase) ? null : code;
-        RefreshRecords();
+        // 选中日期不含时刻：起点取 00:00:00，止点取当天 23:59:59
+        DateTime? from = PickFrom.SelectedDate is { } f ? f.Date : null;
+        DateTime? to = PickTo.SelectedDate is { } t ? t.Date.AddDays(1).AddSeconds(-1) : null;
+        return new TestRecordFilter(
+            From: from,
+            To: to,
+            StationNo: ComboStation.SelectedItem is string s && s != AllText && int.TryParse(s, out var st) ? st : null,
+            MachineId: ComboMachine.SelectedItem is string m && m != AllText ? m : null,
+            Result: ComboResult.SelectedItem is string r && r != AllText ? r : null,
+            Limit: RecordLoadLimit);
     }
 
     private void RefreshRecords()
     {
         try
         {
-            using var store = new SqliteTestRecordStore();
-            _rows = store.Recent(RecordLoadLimit)
-                .Select(r => new RecordRow
-                {
-                    Id = r.Id,
-                    Sn = r.Sn,
-                    Code = $"ST-{r.StationNo:00}-{r.MachineId}",
-                    Result = r.Result,
-                    Voltage = r.Voltage,
-                    Current = r.Current,
-                    AbnormalItems = r.AbnormalItems,
-                    TestTime = r.TestTime,
-                })
-                // 按机位分组排序：同机位记录排在一起，一眼扫过去看清该机位 PASS/FAIL
-                .OrderBy(r => r.Code, StringComparer.OrdinalIgnoreCase)
-                .ThenByDescending(r => r.Id)
-                .ToList();
+            var filter = BuildFilter();
+            List<RecordRow> rows;
+            using (var store = new SqliteTestRecordStore())
+            {
+                rows = store.Query(filter)
+                    .Select(r => new RecordRow
+                    {
+                        Id = r.Id,
+                        Sn = r.Sn,
+                        StationNo = r.StationNo,
+                        Code = $"ST-{r.StationNo:00}-{r.MachineId}",
+                        Result = r.Result,
+                        Voltage = r.Voltage,
+                        Current = r.Current,
+                        AbnormalItems = r.AbnormalItems,
+                        TestTime = r.TestTime,
+                    })
+                    // 按机位分组排序：同机位记录排在一起，一眼扫过去看清该机位 PASS/FAIL
+                    .OrderBy(r => r.Code, StringComparer.OrdinalIgnoreCase)
+                    .ThenByDescending(r => r.Id)
+                    .ToList();
+            }
+            GridRecords.ItemsSource = rows;
 
-            _machines = BuildMachineOverview(_rows);
-            ItemsMachines.ItemsSource = _machines;
-
-            var view = _filterCode is null
-                ? _rows
-                : _rows.Where(r => string.Equals(r.Code, _filterCode, StringComparison.OrdinalIgnoreCase)).ToList();
-            GridRecords.ItemsSource = view;
-
-            var pass = view.Count(r => r.Result == "PASS");
+            var pass = rows.Count(r => r.Result == "PASS");
             TxtDbStats.Text =
-                $"最近 {RecordLoadLimit} 条记录 · 共 {view.Count} 条：PASS {pass} · FAIL {view.Count - pass}"
-                + (_filterCode is null
-                    ? $"（{_machines.Count} 个机位，点卡片筛选）"
-                    : $"　|　已筛选：{_filterCode}（点「显示全部机位」或再点卡片取消）");
+                $"筛选结果 {rows.Count} 条：PASS {pass} · FAIL {rows.Count - pass}（单次上限 {RecordLoadLimit} 条）"
+                + (FilterActive(filter) ? "　|　已按筛选条件查询" : "");
             TxtDbStats.Foreground = MutedBrush;
-            BtnShowAll.IsEnabled = _filterCode is not null;
         }
         catch (Exception ex)
         {
-            _rows.Clear();
-            _machines.Clear();
-            ItemsMachines.ItemsSource = null;
             GridRecords.ItemsSource = null;
             TxtDbStats.Text = $"数据库打开失败：{ex.Message}";
             TxtDbStats.Foreground = DangerBrush;
         }
     }
 
-    /// <summary>
-    /// 机位概览：登记表（station_access.json）∪ 记录里出现过的机位，
-    /// 一机位一卡——最近一条记录 PASS 绿 / FAIL 红 / 无记录灰，附通过/失败计数。
-    /// </summary>
-    private List<MachineVm> BuildMachineOverview(List<RecordRow> rows)
-    {
-        var byCode = new Dictionary<string, List<RecordRow>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in rows)
-        {
-            if (!byCode.TryGetValue(r.Code, out var list))
-                byCode[r.Code] = list = new List<RecordRow>();
-            list.Add(r);
-        }
-
-        var codes = new SortedSet<string>(byCode.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach (var s in StationAccessRegistry.Load())
-            codes.Add(s.Code);
-
-        var vms = new List<MachineVm>();
-        foreach (var code in codes)
-        {
-            byCode.TryGetValue(code, out var list);
-            list ??= new List<RecordRow>();
-            var latest = list.OrderByDescending(r => r.Id).FirstOrDefault();
-            var pass = list.Count(r => r.Result == "PASS");
-            var fail = list.Count(r => r.Result == "FAIL");
-            vms.Add(new MachineVm
-            {
-                Code = code,
-                Label = LabelOf(code),
-                Status = latest?.Result ?? "未测试",
-                Counts = latest is null ? "无记录" : $"✓ {pass} · ✗ {fail}",
-                IsSelected = string.Equals(_filterCode, code, StringComparison.OrdinalIgnoreCase),
-            });
-        }
-        return vms;
-    }
+    private static bool FilterActive(TestRecordFilter f)
+        => f.From is not null || f.To is not null || f.StationNo is not null
+           || !string.IsNullOrEmpty(f.MachineId) || !string.IsNullOrEmpty(f.Result);
 
     /// <summary>ST-01-1 → 工位1 · 机位1；解析不了就用原编码。</summary>
     private static string LabelOf(string code)
@@ -332,6 +317,7 @@ public partial class SummaryMachinePage : UserControl
     {
         public long Id { get; init; }
         public string Sn { get; init; } = "";
+        public int StationNo { get; init; }
         public string Code { get; init; } = "";
         public string Result { get; init; } = "";
         public double Voltage { get; init; }
@@ -340,12 +326,16 @@ public partial class SummaryMachinePage : UserControl
         public DateTime TestTime { get; init; }
     }
 
-    private sealed class MachineVm
+    private sealed class StationRowVm
     {
         public string Code { get; init; } = "";
         public string Label { get; init; } = "";
-        public string Status { get; init; } = "未测试";
-        public string Counts { get; init; } = "";
-        public bool IsSelected { get; init; }
+        public string Note { get; init; } = "";
+        public bool Allowed { get; init; }
+        public int Total { get; init; }
+        public int Pass { get; init; }
+        public int Fail { get; init; }
+        public string YieldText { get; init; } = "—";
+        public string LastTestText { get; init; } = "—";
     }
 }

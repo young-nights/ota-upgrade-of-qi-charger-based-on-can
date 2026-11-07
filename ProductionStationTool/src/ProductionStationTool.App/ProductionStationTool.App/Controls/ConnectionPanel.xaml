@@ -11,7 +11,7 @@
                           Width="180" MinWidth="180" Height="32"/>
             </StackPanel>
 
-            <StackPanel Margin="0,0,24,0">
+            <StackPanel x:Name="PanelPowerZ" Margin="0,0,24,0">
                 <TextBlock Text="PowerZ 串口" Style="{StaticResource FieldLabel}"/>
                 <ComboBox x:Name="ComboPowerZPort" Style="{StaticResource FieldCombo}"
                           Width="180" MinWidth="180" Height="32"/>

@@ -33,6 +33,21 @@ public partial class ConnectionPanel : UserControl
     /// <summary>连接/断开进行中（异步接入未回报前锁按钮防重入）。</summary>
     private bool _busy;
 
+    /// <summary>
+    /// 是否需要 PowerZ（默认需要）。工位4 只用 CAN（读 SN/版本/打印门禁），
+    /// 置 false 后隐藏 PowerZ 下拉、连接只校验 CAN 口。
+    /// </summary>
+    private bool _showPowerZ = true;
+    public bool ShowPowerZ
+    {
+        get => _showPowerZ;
+        set
+        {
+            _showPowerZ = value;
+            PanelPowerZ.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
     public ConnectionPanel()
     {
         InitializeComponent();
@@ -153,10 +168,10 @@ public partial class ConnectionPanel : UserControl
 
     private void BtnConnect_Click(object sender, RoutedEventArgs e)
     {
-        // 两个口都选了才允许连接（空选项 = 未选择）
-        if (string.IsNullOrEmpty(CanPortName) || string.IsNullOrEmpty(PowerZPortName))
+        // 选好所需串口才允许连接（空选项 = 未选择）；不需要 PowerZ 时只校验 CAN
+        if (string.IsNullOrEmpty(CanPortName) || (_showPowerZ && string.IsNullOrEmpty(PowerZPortName)))
         {
-            SetStatus("请先选择 CAN 与 PowerZ 串口", false);
+            SetStatus(_showPowerZ ? "请先选择 CAN 与 PowerZ 串口" : "请先选择 CAN 串口", false);
             return;
         }
         _busy = true;

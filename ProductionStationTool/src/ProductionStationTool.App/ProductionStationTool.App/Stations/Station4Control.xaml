@@ -1,0 +1,140 @@
+<UserControl x:Class="ProductionStationTool.App.Stations.Station4Control"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ProductionStationTool.App.Controls">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*" MinHeight="220"/>
+        </Grid.RowDefinitions>
+
+        <!-- ① 串口接入区（仅 CAN） -->
+        <Border Grid.Row="0" Style="{StaticResource Card}">
+            <controls:ConnectionPanel x:Name="ConnPanel"/>
+        </Border>
+
+        <!-- ② 流程区 + ③ 数据展示区 -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 流程区 -->
+            <Border Grid.Column="0" Style="{StaticResource Card}">
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <TextBlock Text="出货流程" Style="{StaticResource SectionTitle}"/>
+                        <Button Content="日志" Style="{StaticResource GhostButton}"
+                                Height="26" Padding="12,0" HorizontalAlignment="Right"
+                                Click="BtnLog_Click"
+                                ToolTip="弹出运行日志窗口（不占主页面）"/>
+                    </Grid>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <controls:FlowStepsPanel x:Name="FlowPanel"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- 数据展示区 -->
+            <Border Grid.Column="2" Style="{StaticResource Card}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="数据展示" Style="{StaticResource SectionTitle}"/>
+
+                        <!-- 结果大字 -->
+                        <Border x:Name="BadgeResult" Background="#F1F5F9" CornerRadius="8"
+                                Padding="24,12" Margin="0,12,0,16" HorizontalAlignment="Left">
+                            <TextBlock x:Name="TxtResult" Text="待测试" FontSize="44"
+                                       FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+
+                        <!-- SN 码 -->
+                        <Border Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="SN 码（设备读取）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtSn" Text="—"
+                                           FontSize="18" FontWeight="SemiBold" FontFamily="Consolas"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 数据库门禁：工位1/2/3 全 PASS 才放行 -->
+                        <TextBlock Text="数据库流程门禁（工位 1/2/3 全 PASS 才放行）"
+                                   Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <controls:CoilJudgeCard x:Name="CardGate1" Grid.Column="0" Title="工位 1"/>
+                            <controls:CoilJudgeCard x:Name="CardGate2" Grid.Column="2" Title="工位 2"/>
+                            <controls:CoilJudgeCard x:Name="CardGate3" Grid.Column="4" Title="工位 3"/>
+                        </Grid>
+
+                        <!-- SN 打印 -->
+                        <Border Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="SN 打印（接口占位）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtPrint" Text="—"
+                                           FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 版本比对 -->
+                        <TextBlock Text="软硬件版本比对（预设在 设置 → 版本预设）"
+                                   Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="CardSw" Grid.Column="0" Background="{StaticResource FieldBgBrush}"
+                                    CornerRadius="8" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="软件版本（0xF195）" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock x:Name="TxtSwVerdict" Text="—" FontSize="18" FontWeight="Bold"
+                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    <TextBlock x:Name="TxtSwRead" Text="读取：—" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    <TextBlock x:Name="TxtSwPreset" Text="预设：—" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="CardHw" Grid.Column="2" Background="{StaticResource FieldBgBrush}"
+                                    CornerRadius="8" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="硬件版本（0xF193）" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock x:Name="TxtHwVerdict" Text="—" FontSize="18" FontWeight="Bold"
+                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    <TextBlock x:Name="TxtHwRead" Text="读取：—" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    <TextBlock x:Name="TxtHwPreset" Text="预设：—" FontSize="12"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- 异常项 -->
+                        <TextBlock Text="异常项" Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
+                        <ListBox x:Name="ListAbnormal" FontSize="14" MinHeight="60"
+                                 Background="{StaticResource FieldBgBrush}"
+                                 BorderBrush="{StaticResource CardBorderBrush}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

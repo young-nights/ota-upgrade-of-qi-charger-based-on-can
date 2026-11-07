@@ -24,11 +24,11 @@ public partial class SettingsWindow : Window
 
     public SettingsWindow() : this(0) { }
 
-    /// <summary>startTab：0=机位与网络，1=检测参数（顶部菜单直达对应页）。</summary>
+    /// <summary>startTab：0=机位与网络，1=检测参数，2=版本预设（顶部菜单直达对应页）。</summary>
     public SettingsWindow(int startTab)
     {
         InitializeComponent();
-        Tabs.SelectedIndex = startTab is 0 or 1 ? startTab : 0;
+        Tabs.SelectedIndex = startTab is 0 or 1 or 2 ? startTab : 0;
         // 可编辑 ComboBox 的文本变化是内部 TextBox 的路由事件，挂上以便实时预览编码
         CmbStationNo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
             new TextChangedEventHandler((_, _) => Identity_Changed(CmbStationNo, EventArgs.Empty)));
@@ -46,6 +46,11 @@ public partial class SettingsWindow : Window
 
         // 页 2：检测参数
         FillCoilFields(MachineConfig.LoadCoilOptions());
+
+        // 页 3：版本预设
+        var (sw, hw) = MachineConfig.LoadVersionPresets();
+        BoxPresetSw.Text = sw;
+        BoxPresetHw.Text = hw;
     }
 
     // ================= 页 1：机位与网络 =================
@@ -205,6 +210,26 @@ public partial class SettingsWindow : Window
 
         TxtCoilSaveResult.Text = "已保存，下次测试生效";
         TxtCoilSaveResult.Foreground = SuccessBrush;
+        RefreshLog();
+    }
+
+    // ================= 页 3：版本预设 =================
+
+    private void BtnSavePresets_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            MachineConfig.SaveVersionPresets(BoxPresetSw.Text, BoxPresetHw.Text);
+        }
+        catch (Exception ex)
+        {
+            TxtPresetResult.Text = $"保存失败：{ex.Message}";
+            TxtPresetResult.Foreground = DangerBrush;
+            return;
+        }
+
+        TxtPresetResult.Text = "已保存，工位 4 下次测试比对生效";
+        TxtPresetResult.Foreground = SuccessBrush;
         RefreshLog();
     }
 }
