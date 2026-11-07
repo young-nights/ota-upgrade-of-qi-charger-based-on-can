@@ -9,9 +9,45 @@ public class Station1WorkflowTests
     private sealed class FakeStore : Core.Data.ITestRecordStore
     {
         public readonly List<Core.Data.TestRecord> Rows = new();
-        public void Add(Core.Data.TestRecord r) => Rows.Add(r);
-        public Core.Data.TestRecord? FindBySn(string sn) => Rows.FirstOrDefault(x => x.Sn == sn);
+
+        // 与 SQLite 实现同语义：同 SN 同工位覆盖更新取最新
+        public void Add(Core.Data.TestRecord r)
+        {
+            var old = Rows.FirstOrDefault(x => x.Sn == r.Sn && x.StationNo == r.StationNo);
+            if (old is not null)
+                Rows.Remove(old);
+            Rows.Add(r);
+        }
+
+        public IReadOnlyList<Core.Data.TestRecord> FindAllBySn(string sn)
+            => Rows.Where(x => x.Sn == sn).OrderBy(x => x.StationNo).ToList();
+
         public IReadOnlyList<Core.Data.TestRecord> Recent(int n) => Rows.TakeLast(n).ToList();
+
+        public IReadOnlyList<Core.Data.TestRecord> Query(Core.Data.TestRecordFilter f)
+        {
+            IEnumerable<Core.Data.TestRecord> q = Rows;
+            if (f.From is { } from) q = q.Where(x => x.TestTime >= from);
+            if (f.To is { } to) q = q.Where(x => x.TestTime <= to);
+            if (f.StationNo is { } st) q = q.Where(x => x.StationNo == st);
+            if (!string.IsNullOrEmpty(f.MachineId)) q = q.Where(x => x.MachineId == f.MachineId);
+            if (!string.IsNullOrEmpty(f.Result)) q = q.Where(x => x.Result == f.Result);
+            return q.OrderByDescending(x => x.Id).Take(f.Limit > 0 ? f.Limit : 1000).ToList();
+        }
+
+        public IReadOnlyList<(int StationNo, string MachineId)> DistinctSources()
+            => Rows.Select(x => (x.StationNo, x.MachineId)).Distinct()
+                .OrderBy(x => x.StationNo).ThenBy(x => x.MachineId).ToList();
+
+        public IReadOnlyList<Core.Data.MachineTestStats> StatsByMachine()
+            => Rows.GroupBy(x => (x.StationNo, x.MachineId))
+                .Select(g => new Core.Data.MachineTestStats(
+                    g.Key.StationNo, g.Key.MachineId,
+                    g.Count(),
+                    g.Count(x => x.Result == "PASS"),
+                    g.Count(x => x.Result == "FAIL"),
+                    g.Max(x => x.TestTime)))
+                .ToList();
     }
 
     private sealed class FakePowerZ : IPowerZSource

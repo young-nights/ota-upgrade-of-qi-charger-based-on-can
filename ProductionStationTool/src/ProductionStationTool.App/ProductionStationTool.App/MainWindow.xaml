@@ -15,6 +15,7 @@
                     <MenuItem Header="设置">
                         <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
                         <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
+                        <MenuItem Header="版本预设…" Click="MenuSettingsPresets_Click"/>
                     </MenuItem>
                     <MenuItem Header="关于">
                         <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
@@ -82,8 +83,8 @@
                     </ListBox.ItemContainerStyle>
                     <ListBoxItem Content="工位1 — SN + 电流电压"/>
                     <ListBoxItem Content="工位2 — 老化测试"/>
-                    <ListBoxItem Content="工位3 — 预留"/>
-                    <ListBoxItem Content="工位4 — 预留"/>
+                    <ListBoxItem Content="工位3 — SN复测 + 线圈A/B"/>
+                    <ListBoxItem Content="工位4 — 出货门禁 + 版本比对"/>
                 </ListBox>
             </DockPanel>
         </Border>

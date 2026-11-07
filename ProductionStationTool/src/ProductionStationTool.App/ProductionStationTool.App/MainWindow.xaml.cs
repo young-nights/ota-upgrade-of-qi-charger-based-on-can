@@ -28,8 +28,8 @@ public partial class MainWindow : Window
         {
             new Station1Control(_identity),
             new Station2Control(),
-            new PlaceholderStationControl(3),
-            new PlaceholderStationControl(4),
+            new Station3Control(_identity),
+            new Station4Control(),
         };
         ShowPage(0);
         SummaryView.ExitRequested += OnSummaryExitRequested;
@@ -113,6 +113,8 @@ public partial class MainWindow : Window
 
     private void MenuSettingsCoil_Click(object sender, RoutedEventArgs e) => OpenSettings(1);
 
+    private void MenuSettingsPresets_Click(object sender, RoutedEventArgs e) => OpenSettings(2);
+
     private void OpenSettings(int startTab)
     {
         var win = new SettingsWindow(startTab) { Owner = this };
@@ -125,11 +127,15 @@ public partial class MainWindow : Window
         win.ShowDialog();
     }
 
-    // ---- 汇总机页面（整页接管工作区，非弹窗）----
+    // ---- 汇总机页面（整页接管工作区，非弹窗；进入前密码验证）----
 
     private void BtnSummary_Click(object sender, RoutedEventArgs e)
     {
-        SummaryView.ResetToLocked();   // 每次进入都需输密码
+        // 密码输入窗口居中弹出，验证通过才进入汇总机页
+        var win = new SummaryLoginWindow { Owner = this };
+        if (win.ShowDialog() != true)
+            return;
+        SummaryView.EnterUnlocked();
         WorkstationView.Visibility = Visibility.Collapsed;
         SummaryView.Visibility = Visibility.Visible;
     }

@@ -133,6 +133,33 @@ public static class MachineConfig
             $"  ({Environment.MachineName})\n");
     }
 
+    /// <summary>工位 4 版本预设（软件/硬件版本串），读取值与之比对。空 = 未预设。</summary>
+    public static (string Sw, string Hw) LoadVersionPresets()
+    {
+        var cfg = ReadCfgOrDefault();
+        return (cfg.PresetSwVersion?.Trim() ?? "", cfg.PresetHwVersion?.Trim() ?? "");
+    }
+
+    /// <summary>保存工位 4 版本预设；变更时写 machine_change.log 留痕。</summary>
+    public static void SaveVersionPresets(string sw, string hw)
+    {
+        sw = sw.Trim();
+        hw = hw.Trim();
+        var cfg = ReadCfgOrDefault();
+        var before = (cfg.PresetSwVersion?.Trim() ?? "", cfg.PresetHwVersion?.Trim() ?? "");
+        cfg.PresetSwVersion = sw;
+        cfg.PresetHwVersion = hw;
+        WriteCfg(cfg);
+
+        if (before == (sw, hw))
+            return;
+        File.AppendAllText(ChangeLogPath,
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  版本预设 SW {ShowOrDash(before.Item1)}→{ShowOrDash(sw)}" +
+            $" / HW {ShowOrDash(before.Item2)}→{ShowOrDash(hw)}  ({Environment.MachineName})\n");
+    }
+
+    private static string ShowOrDash(string s) => string.IsNullOrEmpty(s) ? "(空)" : s;
+
     /// <summary>SHA-256 十六进制（小写）——汇总机管理密码存哈希不存明文。</summary>
     public static string Sha256Hex(string text)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
@@ -210,6 +237,10 @@ public static class MachineConfig
 
         // 汇总机管理密码（SHA-256 十六进制；空 = 默认密码 admin123）
         public string SummaryPasswordSha256 { get; set; } = "";
+
+        // 工位 4 版本预设（软件/硬件版本串；空 = 未预设）
+        public string PresetSwVersion { get; set; } = "";
+        public string PresetHwVersion { get; set; } = "";
     }
 }
 
