@@ -301,18 +301,17 @@ public partial class SummaryMachinePage : UserControl
 
     // ================= 数据库表格（筛选 + 记录） =================
 
-    /// <summary>工位/机位下拉：库中出现过的取值 +「全部」，项带「工位x / 机位x」标签。</summary>
+    /// <summary>工位/机位下拉：库中出现过的取值 +「全部」，项为纯阿拉伯数字。</summary>
     private void RefreshFilterOptions()
     {
         IReadOnlyList<(int StationNo, string MachineId)> sources;
         using (var store = new SqliteTestRecordStore())
             sources = store.DistinctSources();
 
-        FillCombo(ComboStation,
-            sources.Select(s => s.StationNo).Distinct().OrderBy(x => x).Select(n => $"工位{n}"));
         FillCombo(ComboMachine,
-            sources.Select(s => s.MachineId).Distinct().OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                .Select(m => $"机位{m}"));
+            sources.Select(s => s.MachineId).Distinct().OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        FillCombo(ComboStation,
+            sources.Select(s => s.StationNo).Distinct().OrderBy(x => x).Select(n => n.ToString()));
         FillCombo(ComboResult, new[] { "PASS", "FAIL" });
     }
 
@@ -346,10 +345,8 @@ public partial class SummaryMachinePage : UserControl
         return new TestRecordFilter(
             From: from,
             To: to,
-            StationNo: station is not null && station.StartsWith("工位", StringComparison.Ordinal)
-                       && int.TryParse(station.AsSpan(2), out var st) ? st : null,
-            MachineId: machine is not null && machine.StartsWith("机位", StringComparison.Ordinal)
-                ? machine[2..] : null,
+            StationNo: station is not null && station != AllText && int.TryParse(station, out var st) ? st : null,
+            MachineId: machine is not null && machine != AllText ? machine : null,
             Result: ComboResult.SelectedItem is string r && r != AllText ? r : null,
             Limit: RecordLoadLimit);
     }
@@ -367,7 +364,8 @@ public partial class SummaryMachinePage : UserControl
                     {
                         Id = r.Id,
                         Sn = r.Sn,
-                        Code = CodeOf(r.StationNo, r.MachineId),
+                        StationNo = r.StationNo,
+                        MachineId = r.MachineId,
                         Result = r.Result,
                         Voltage = r.Voltage,
                         Current = r.Current,
@@ -375,7 +373,8 @@ public partial class SummaryMachinePage : UserControl
                         TestTime = r.TestTime,
                     })
                     // 按机位分组排序：同机位记录排在一起，一眼扫过去看清该机位 PASS/FAIL
-                    .OrderBy(r => r.Code, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(r => r.StationNo)
+                    .ThenBy(r => r.MachineId, StringComparer.OrdinalIgnoreCase)
                     .ThenByDescending(r => r.Id)
                     .ToList();
             }
@@ -412,7 +411,8 @@ public partial class SummaryMachinePage : UserControl
     {
         public long Id { get; init; }
         public string Sn { get; init; } = "";
-        public string Code { get; init; } = "";
+        public int StationNo { get; init; }
+        public string MachineId { get; init; } = "";
         public string Result { get; init; } = "";
         public double Voltage { get; init; }
         public double Current { get; init; }
