@@ -103,15 +103,33 @@ public partial class SummaryMachinePage : UserControl
 
     private void Editor_Changed(object sender, EventArgs e)
     {
+        // 机位号只收纯阿拉伯数字：混入的 "ST-01-" 等编码串即时过滤掉
+        if (sender == TxtMachineId)
+        {
+            var clean = DigitsOnly(TxtMachineId.Text);
+            if (clean != TxtMachineId.Text)
+            {
+                _loadingEditor = true;
+                TxtMachineId.Text = clean;
+                TxtMachineId.SelectionStart = clean.Length;
+                _loadingEditor = false;
+            }
+        }
         if (_loadingEditor)
             return;
         UpdatePreview();
     }
 
+    /// <summary>只保留阿拉伯数字（机位号输入过滤）。</summary>
+    private static string DigitsOnly(string s) => new(s.Where(char.IsAsciiDigit).ToArray());
+
+    /// <summary>取尾部数字（清洗脏数据："ST-01-1"→"1"、"A1"→"1"）。</summary>
+    private static string TrailingDigits(string s) => Regex.Match(s, @"\d+$").Value;
+
     private void UpdatePreview()
     {
         var st = ParseStation();
-        var mid = TxtMachineId.Text.Trim().ToUpperInvariant();
+        var mid = DigitsOnly(TxtMachineId.Text);
         TxtCodePreview.Text = st >= 1 && mid.Length > 0
             ? $"编码预览：{CodeOf(st, mid)}（工位{st} · 机位{mid}）"
             : "编码预览：—";
@@ -125,7 +143,7 @@ public partial class SummaryMachinePage : UserControl
         var (st, mid) = SplitCode(row.Code);
         _loadingEditor = true;
         CmbStationNo.Text = st > 0 ? st.ToString() : "";
-        TxtMachineId.Text = mid;
+        TxtMachineId.Text = TrailingDigits(mid);   // 脏数据（如 ST-01-1）只留尾部数字
         TxtNewNote.Text = row.Note == UnregisteredNote ? "" : row.Note;
         _loadingEditor = false;
         _editingCode = row.Code;
@@ -136,7 +154,12 @@ public partial class SummaryMachinePage : UserControl
     private void BtnSaveStation_Click(object sender, RoutedEventArgs e)
     {
         var st = ParseStation();
-        var mid = TxtMachineId.Text.Trim().ToUpperInvariant();
+        var mid = DigitsOnly(TxtMachineId.Text);
+        if (mid.Length is < 1 or > 8)
+        {
+            StationMsg("机位号需 1~8 位纯阿拉伯数字", false);
+            return;
+        }
         var err = MachineConfig.Validate(st, mid);
         if (err is not null)
         {
@@ -398,11 +421,11 @@ public partial class SummaryMachinePage : UserControl
         => f.From is not null || f.To is not null || f.StationNo is not null
            || !string.IsNullOrEmpty(f.MachineId) || !string.IsNullOrEmpty(f.Result);
 
-    /// <summary>ST-01-1 → 工位1 · 机位1；解析不了就用原编码。</summary>
+    /// <summary>ST-01-1 → 工位1 · 机位1（机位段只留数字）；解析不了就用原编码。</summary>
     private static string LabelOf(string code)
     {
         var (st, mid) = SplitCode(code);
-        return st > 0 ? $"工位{st} · 机位{mid}" : code;
+        return st > 0 ? $"工位{st} · 机位{TrailingDigits(mid)}" : code;
     }
 
     // ================= 展示行（表格绑定） =================

@@ -41,20 +41,6 @@ public static class StationAccessRegistry
         => File.WriteAllText(RegistryPath,
             JsonSerializer.Serialize(entries.ToList(), JsonOptions));
 
-    /// <summary>校验工位机编码；返回 null 表示通过，否则返回错误提示。</summary>
-    public static string? ValidateCode(string? code)
-    {
-        code = code?.Trim() ?? "";
-        if (code.Length is < 1 or > 16)
-            return "编码需 1~16 个字符";
-        foreach (var c in code)
-        {
-            if (!char.IsAsciiLetterOrDigit(c) && c != '-')
-                return "编码只能是字母、数字或短横线";
-        }
-        return null;
-    }
-
     private static string RegistryPath =>
         Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "station_access.json");
 

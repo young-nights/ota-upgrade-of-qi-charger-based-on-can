@@ -146,7 +146,7 @@
                                             <TextBox x:Name="TxtMachineId" Width="100" Height="36"
                                                      Style="{StaticResource FieldBox}"
                                                      TextChanged="Editor_Changed"
-                                                     ToolTip="1~8 位字母/数字，同工位内不重复"/>
+                                                     ToolTip="纯阿拉伯数字，1~8 位，同工位内不重复"/>
                                         </StackPanel>
                                         <StackPanel Margin="0,0,12,0">
                                             <TextBlock Text="工位号" Style="{StaticResource FieldLabel}"/>
