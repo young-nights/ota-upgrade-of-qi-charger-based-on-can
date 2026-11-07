@@ -142,8 +142,15 @@
                                     <TextBlock Text="工位机登记" Style="{StaticResource FieldLabel}"/>
                                     <WrapPanel>
                                         <StackPanel Margin="0,0,12,0">
+                                            <TextBlock Text="机位号" Style="{StaticResource FieldLabel}"/>
+                                            <TextBox x:Name="TxtMachineId" Width="100" Height="36"
+                                                     Style="{StaticResource FieldBox}"
+                                                     TextChanged="Editor_Changed"
+                                                     ToolTip="1~8 位字母/数字，同工位内不重复"/>
+                                        </StackPanel>
+                                        <StackPanel Margin="0,0,12,0">
                                             <TextBlock Text="工位号" Style="{StaticResource FieldLabel}"/>
-                                            <ComboBox x:Name="CmbStationNo" Width="80" Height="30"
+                                            <ComboBox x:Name="CmbStationNo" Width="80" Height="36"
                                                       Style="{StaticResource FieldCombo}" IsEditable="True"
                                                       SelectionChanged="Editor_Changed">
                                                 <ComboBoxItem Content="1"/>
@@ -153,25 +160,18 @@
                                             </ComboBox>
                                         </StackPanel>
                                         <StackPanel Margin="0,0,12,0">
-                                            <TextBlock Text="机位号" Style="{StaticResource FieldLabel}"/>
-                                            <TextBox x:Name="TxtMachineId" Width="90" Height="30"
-                                                     Style="{StaticResource FieldBox}"
-                                                     TextChanged="Editor_Changed"
-                                                     ToolTip="1~8 位字母/数字，同工位内不重复"/>
-                                        </StackPanel>
-                                        <StackPanel Margin="0,0,12,0">
                                             <TextBlock Text="备注" Style="{StaticResource FieldLabel}"/>
-                                            <TextBox x:Name="TxtNewNote" Width="180" Height="30"
+                                            <TextBox x:Name="TxtNewNote" Width="180" Height="36"
                                                      Style="{StaticResource FieldBox}"/>
                                         </StackPanel>
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
-                                            <Button x:Name="BtnSaveStation" Content="添加" Width="90" Height="30"
+                                            <Button x:Name="BtnSaveStation" Content="添加" Width="100" Height="36"
                                                     Style="{StaticResource PrimaryButton}" Click="BtnSaveStation_Click"/>
-                                            <Button x:Name="BtnCancelEdit" Content="取消" Width="70" Height="30"
+                                            <Button x:Name="BtnCancelEdit" Content="取消" Width="80" Height="36"
                                                     Margin="8,0,0,0" Style="{StaticResource GhostButton}"
                                                     Click="BtnCancelEdit_Click"
                                                     ToolTip="清空当前编辑状态（取消编辑新机位时可清空输入）"/>
-                                            <Button x:Name="BtnRemoveStation" Content="移除" Width="70" Height="30"
+                                            <Button x:Name="BtnRemoveStation" Content="移除" Width="80" Height="36"
                                                     Margin="8,0,0,0" Style="{StaticResource GhostButton}"
                                                     Click="BtnRemoveStation_Click"
                                                     ToolTip="移除选中的工位机登记"/>
@@ -184,10 +184,10 @@
                             </Border>
                             <!-- 接入开关 -->
                             <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-                                <Button x:Name="BtnAllow" Content="允许接入" Height="30"
+                                <Button x:Name="BtnAllow" Content="允许接入" Height="36"
                                         Style="{StaticResource GhostButton}" Click="BtnAllow_Click"
                                         ToolTip="选中的工位机允许接入服务器"/>
-                                <Button x:Name="BtnDeny" Content="禁止接入" Margin="8,0,0,0" Height="30"
+                                <Button x:Name="BtnDeny" Content="禁止接入" Margin="8,0,0,0" Height="36"
                                         Style="{StaticResource GhostButton}" Click="BtnDeny_Click"
                                         ToolTip="选中的工位机禁止接入服务器"/>
                                 <TextBlock x:Name="TxtStationMsg" VerticalAlignment="Center" Margin="12,0,0,0"
@@ -239,32 +239,32 @@
                             <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                                 <StackPanel>
                                     <TextBlock Text="时间起" Style="{StaticResource FieldLabel}"/>
-                                    <DatePicker x:Name="PickFrom" Width="135" Height="30"/>
+                                    <DatePicker x:Name="PickFrom" Width="135" Height="36"/>
                                 </StackPanel>
                                 <StackPanel Margin="8,0,0,0">
                                     <TextBlock Text="时间止" Style="{StaticResource FieldLabel}"/>
-                                    <DatePicker x:Name="PickTo" Width="135" Height="30"/>
+                                    <DatePicker x:Name="PickTo" Width="135" Height="36"/>
                                 </StackPanel>
                                 <StackPanel Margin="8,0,0,0">
                                     <TextBlock Text="工位" Style="{StaticResource FieldLabel}"/>
-                                    <ComboBox x:Name="ComboStation" Width="105" Height="30"
+                                    <ComboBox x:Name="ComboStation" Width="105" Height="36"
                                               Style="{StaticResource FieldCombo}"/>
                                 </StackPanel>
                                 <StackPanel Margin="8,0,0,0">
                                     <TextBlock Text="机位" Style="{StaticResource FieldLabel}"/>
-                                    <ComboBox x:Name="ComboMachine" Width="105" Height="30"
+                                    <ComboBox x:Name="ComboMachine" Width="105" Height="36"
                                               Style="{StaticResource FieldCombo}"/>
                                 </StackPanel>
                                 <StackPanel Margin="8,0,0,0">
                                     <TextBlock Text="结果" Style="{StaticResource FieldLabel}"/>
-                                    <ComboBox x:Name="ComboResult" Width="105" Height="30"
+                                    <ComboBox x:Name="ComboResult" Width="105" Height="36"
                                               Style="{StaticResource FieldCombo}"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="8,0,0,0">
-                                    <Button x:Name="BtnQuery" Content="查询" Height="30" Padding="16,0"
+                                    <Button x:Name="BtnQuery" Content="查询" Height="36" Padding="16,0"
                                             Style="{StaticResource PrimaryButton}" Click="BtnQuery_Click"
                                             ToolTip="按当前筛选条件查询 test_records"/>
-                                    <Button x:Name="BtnResetFilter" Content="重置" Height="30" Padding="16,0"
+                                    <Button x:Name="BtnResetFilter" Content="重置" Height="36" Padding="16,0"
                                             Margin="8,0,0,0" Style="{StaticResource GhostButton}"
                                             Click="BtnResetFilter_Click"
                                             ToolTip="清空全部筛选条件并重新查询"/>
