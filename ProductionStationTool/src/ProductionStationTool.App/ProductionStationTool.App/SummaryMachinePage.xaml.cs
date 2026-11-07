@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -9,9 +10,11 @@ namespace ProductionStationTool.App;
 
 /// <summary>
 /// 汇总机页面（服务器电脑专用，整页接管主窗口）：
-/// 进入需输管理密码（默认 admin123，可在页内修改，machine.json 只存 SHA-256 哈希）；
-/// 解锁后管理「工位机接入清单」（station_access.json）与「数据库表格」
-/// （station_records.db · test_records）；「退出汇总机」返回工位机工作区。
+/// 外壳与主页面同款——顶部横幅菜单（设置/关于/修改汇总机密码）、左侧「功能选择」
+/// 两个按钮（工位机接入管理 / 数据库表格）、右侧操作栏 + 功能页、底部状态栏。
+/// 进入需输管理密码（默认 admin123，machine.json 只存 SHA-256 哈希）；
+/// 数据库页按机位分清：一机位一卡（绿=最近 PASS、红=最近 FAIL、灰=未测试），
+/// 表格按机位分组排序、结果绿/红，点卡片筛选；「退出汇总机」返回工位机工作区。
 /// </summary>
 public partial class SummaryMachinePage : UserControl
 {
@@ -23,6 +26,11 @@ public partial class SummaryMachinePage : UserControl
     private const int RecordLoadLimit = 1000;
 
     private List<StationAccessEntry> _stations = new();
+    private List<MachineVm> _machines = new();
+    private List<RecordRow> _rows = new();
+
+    /// <summary>机位筛选（null = 全部）；点概览卡片切换。</summary>
+    private string? _filterCode;
 
     /// <summary>点「退出汇总机」。</summary>
     public event Action? ExitRequested;
@@ -37,12 +45,39 @@ public partial class SummaryMachinePage : UserControl
     {
         LockPanel.Visibility = Visibility.Visible;
         MgmtPanel.Visibility = Visibility.Collapsed;
-        PwPanel.Visibility = Visibility.Collapsed;
         TxtPassword.Clear();
         TxtLockMsg.Text = "";
+        TxtStatusSummary.Text = "汇总机：请输入管理密码进入管理区";
     }
 
     private void BtnExit_Click(object sender, RoutedEventArgs e) => ExitRequested?.Invoke();
+
+    // ================= 顶部横幅菜单（与主页面同款） =================
+
+    private void MenuSettingsNetwork_Click(object sender, RoutedEventArgs e)
+        => OpenSettings(0);
+
+    private void MenuSettingsCoil_Click(object sender, RoutedEventArgs e)
+        => OpenSettings(1);
+
+    private void OpenSettings(int startTab)
+    {
+        var win = new SettingsWindow(startTab) { Owner = Window.GetWindow(this) };
+        win.ShowDialog();
+    }
+
+    private void MenuChangePassword_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new SummaryPasswordWindow { Owner = Window.GetWindow(this) };
+        if (win.ShowDialog() == true)
+            TxtStatusSummary.Text = "汇总机：管理密码已修改，下次进入生效";
+    }
+
+    private void MenuAbout_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new AboutWindow { Owner = Window.GetWindow(this) };
+        win.ShowDialog();
+    }
 
     // ================= 密码门 =================
 
@@ -54,7 +89,7 @@ public partial class SummaryMachinePage : UserControl
             TxtLockMsg.Text = "";
             LockPanel.Visibility = Visibility.Collapsed;
             MgmtPanel.Visibility = Visibility.Visible;
-            PwPanel.Visibility = Visibility.Visible;
+            ShowSection(ListFunctions.SelectedIndex < 0 ? 0 : ListFunctions.SelectedIndex);
             RefreshStations();
             RefreshRecords();
         }
@@ -70,6 +105,31 @@ public partial class SummaryMachinePage : UserControl
     {
         if (e.Key == Key.Enter)
             BtnUnlock_Click(sender, e);
+    }
+
+    // ================= 功能切换（左「功能选择」两个按钮） =================
+
+    private void ListFunctions_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded)
+            return;
+        ShowSection(ListFunctions.SelectedIndex);
+    }
+
+    private void ShowSection(int index)
+    {
+        var isRecords = index == 1;
+        PanelAccess.Visibility = isRecords ? Visibility.Collapsed : Visibility.Visible;
+        PanelRecords.Visibility = isRecords ? Visibility.Visible : Visibility.Collapsed;
+        BtnRefreshDb.Visibility = isRecords ? Visibility.Visible : Visibility.Collapsed;
+        BtnShowAll.Visibility = isRecords ? Visibility.Visible : Visibility.Collapsed;
+        TxtSectionTitle.Text = isRecords ? "数据库表格" : "工位机接入管理";
+        TxtSectionDesc.Text = isRecords
+            ? "station_records.db · test_records：按机位分组，结果绿=PASS、红=FAIL"
+            : "维护允许接入服务器的工位机清单（编码如 ST-01-1）";
+        TxtStatusSummary.Text = isRecords
+            ? "汇总机：数据库表格（按机位分清 PASS/FAIL）"
+            : "汇总机：工位机接入管理";
     }
 
     // ================= 工位机接入管理 =================
@@ -152,63 +212,140 @@ public partial class SummaryMachinePage : UserControl
         TxtStationMsg.Foreground = ok ? SuccessBrush : DangerBrush;
     }
 
-    // ================= 数据库表格 =================
+    // ================= 数据库表格（机位概览 + 记录） =================
 
     private void BtnRefreshDb_Click(object sender, RoutedEventArgs e) => RefreshRecords();
+
+    private void BtnShowAll_Click(object sender, RoutedEventArgs e)
+    {
+        _filterCode = null;
+        RefreshRecords();
+    }
+
+    /// <summary>点机位卡片：选中=筛选该机位；再点同一张=取消筛选。</summary>
+    private void MachineCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not string code)
+            return;
+        _filterCode = string.Equals(_filterCode, code, StringComparison.OrdinalIgnoreCase) ? null : code;
+        RefreshRecords();
+    }
 
     private void RefreshRecords()
     {
         try
         {
             using var store = new SqliteTestRecordStore();
-            var rows = store.Recent(RecordLoadLimit);
-            GridRecords.ItemsSource = rows;
-            var pass = rows.Count(r => r.Result == "PASS");
-            TxtDbStats.Text = $"最近 {rows.Count} 条：PASS {pass} · FAIL {rows.Count - pass}（上限 {RecordLoadLimit} 条）";
+            _rows = store.Recent(RecordLoadLimit)
+                .Select(r => new RecordRow
+                {
+                    Id = r.Id,
+                    Sn = r.Sn,
+                    Code = $"ST-{r.StationNo:00}-{r.MachineId}",
+                    Result = r.Result,
+                    Voltage = r.Voltage,
+                    Current = r.Current,
+                    AbnormalItems = r.AbnormalItems,
+                    TestTime = r.TestTime,
+                })
+                // 按机位分组排序：同机位记录排在一起，一眼扫过去看清该机位 PASS/FAIL
+                .OrderBy(r => r.Code, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(r => r.Id)
+                .ToList();
+
+            _machines = BuildMachineOverview(_rows);
+            ItemsMachines.ItemsSource = _machines;
+
+            var view = _filterCode is null
+                ? _rows
+                : _rows.Where(r => string.Equals(r.Code, _filterCode, StringComparison.OrdinalIgnoreCase)).ToList();
+            GridRecords.ItemsSource = view;
+
+            var pass = view.Count(r => r.Result == "PASS");
+            TxtDbStats.Text =
+                $"最近 {RecordLoadLimit} 条记录 · 共 {view.Count} 条：PASS {pass} · FAIL {view.Count - pass}"
+                + (_filterCode is null
+                    ? $"（{_machines.Count} 个机位，点卡片筛选）"
+                    : $"　|　已筛选：{_filterCode}（点「显示全部机位」或再点卡片取消）");
             TxtDbStats.Foreground = MutedBrush;
+            BtnShowAll.IsEnabled = _filterCode is not null;
         }
         catch (Exception ex)
         {
+            _rows.Clear();
+            _machines.Clear();
+            ItemsMachines.ItemsSource = null;
             GridRecords.ItemsSource = null;
             TxtDbStats.Text = $"数据库打开失败：{ex.Message}";
             TxtDbStats.Foreground = DangerBrush;
         }
     }
 
-    // ================= 修改密码 =================
-
-    private void BtnSavePw_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 机位概览：登记表（station_access.json）∪ 记录里出现过的机位，
+    /// 一机位一卡——最近一条记录 PASS 绿 / FAIL 红 / 无记录灰，附通过/失败计数。
+    /// </summary>
+    private List<MachineVm> BuildMachineOverview(List<RecordRow> rows)
     {
-        var oldPw = TxtOldPw.Password;
-        var newPw = TxtNewPw.Password;
-        var newPw2 = TxtNewPw2.Password;
-
-        if (MachineConfig.Sha256Hex(oldPw) != MachineConfig.LoadSummaryPasswordHash())
+        var byCode = new Dictionary<string, List<RecordRow>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in rows)
         {
-            PwMsg("旧密码不正确", false);
-            return;
-        }
-        if (newPw.Length < 6)
-        {
-            PwMsg("新密码至少 6 位", false);
-            return;
-        }
-        if (newPw != newPw2)
-        {
-            PwMsg("两次输入的新密码不一致", false);
-            return;
+            if (!byCode.TryGetValue(r.Code, out var list))
+                byCode[r.Code] = list = new List<RecordRow>();
+            list.Add(r);
         }
 
-        MachineConfig.SaveSummaryPasswordHash(MachineConfig.Sha256Hex(newPw));
-        TxtOldPw.Clear();
-        TxtNewPw.Clear();
-        TxtNewPw2.Clear();
-        PwMsg("新密码已保存，下次进入汇总机生效", true);
+        var codes = new SortedSet<string>(byCode.Keys, StringComparer.OrdinalIgnoreCase);
+        foreach (var s in StationAccessRegistry.Load())
+            codes.Add(s.Code);
+
+        var vms = new List<MachineVm>();
+        foreach (var code in codes)
+        {
+            byCode.TryGetValue(code, out var list);
+            list ??= new List<RecordRow>();
+            var latest = list.OrderByDescending(r => r.Id).FirstOrDefault();
+            var pass = list.Count(r => r.Result == "PASS");
+            var fail = list.Count(r => r.Result == "FAIL");
+            vms.Add(new MachineVm
+            {
+                Code = code,
+                Label = LabelOf(code),
+                Status = latest?.Result ?? "未测试",
+                Counts = latest is null ? "无记录" : $"✓ {pass} · ✗ {fail}",
+                IsSelected = string.Equals(_filterCode, code, StringComparison.OrdinalIgnoreCase),
+            });
+        }
+        return vms;
     }
 
-    private void PwMsg(string text, bool ok)
+    /// <summary>ST-01-1 → 工位1 · 机位1；解析不了就用原编码。</summary>
+    private static string LabelOf(string code)
     {
-        TxtPwMsg.Text = text;
-        TxtPwMsg.Foreground = ok ? SuccessBrush : DangerBrush;
+        var m = Regex.Match(code, @"^ST-(\d+)-(.+)$");
+        return m.Success ? $"工位{int.Parse(m.Groups[1].Value)} · 机位{m.Groups[2].Value}" : code;
+    }
+
+    // ================= 展示行（表格绑定） =================
+
+    private sealed class RecordRow
+    {
+        public long Id { get; init; }
+        public string Sn { get; init; } = "";
+        public string Code { get; init; } = "";
+        public string Result { get; init; } = "";
+        public double Voltage { get; init; }
+        public double Current { get; init; }
+        public string AbnormalItems { get; init; } = "";
+        public DateTime TestTime { get; init; }
+    }
+
+    private sealed class MachineVm
+    {
+        public string Code { get; init; } = "";
+        public string Label { get; init; } = "";
+        public string Status { get; init; } = "未测试";
+        public string Counts { get; init; } = "";
+        public bool IsSelected { get; init; }
     }
 }
