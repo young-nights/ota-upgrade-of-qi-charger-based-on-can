@@ -519,7 +519,7 @@ public partial class MainWindow : Window
         {
             // 真休眠=整板断电（fw 1.1.40）：单帧请求会唤醒设备但丢在重启窗口里，
             // 先唤醒 burst + 等 UDS 就绪再读
-            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 12, log: AppendLog);
             if (!ready)
             {
                 await UiAsync(() =>
@@ -572,7 +572,7 @@ public partial class MainWindow : Window
         await RunOpAsync("写 SN", TimeSpan.FromSeconds(60), async (uds, ct) =>
         {
             // 设备可能刚 BOOTUP，先等 UDS 栈就绪
-            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 12, log: AppendLog);
             if (!ready)
             {
                 await FailAsync("写 SN", readyErr);
@@ -619,14 +619,10 @@ public partial class MainWindow : Window
         {
             // 与读 SN/写 SN 同前置：真休眠=整板断电，单帧请求会唤醒设备但丢在
             // 重启窗口里；设备不在总线时也在 10s 内给出明确定诊而不是逐 DID 空超时
-            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 12, log: AppendLog);
             if (!ready)
             {
-                await UiAsync(() =>
-                {
-                    AppendResult("FAIL", "读版本", readyErr);
-                    SetState("失败", Colors.Crimson, readyErr);
-                });
+                await FailAsync("读版本", readyErr);
                 return false;
             }
             // 若设备刚 BOOTUP，自动多等 1s 再读
@@ -742,11 +738,12 @@ public partial class MainWindow : Window
         {
             if (ct.IsCancellationRequested) return (false, "已取消");
             n++;
-            // 探测超时 3s：设备请求派发实测有 ~2s 延迟，1.5s 窗口会漏掉自己的
-            // 迟到应答（且 DrainStale 会把迟到应答清掉），探测永远追不上
+            // 探测超时 6s：实测设备请求→应答全程 ≈3.0s（派发 ~2s + 组包
+            // CF 卡顿 ~1s），3s 窗口三轮全差 5~14ms 撞线（23:14 日志），
+            // 且窗口短于设备周期会叠加排队恶化
             var r = await Task.Run(() =>
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 },
-                    timeoutMs: 3000, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
+                    timeoutMs: 6000, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
             if (r.Ok)
             {
                 log?.Invoke($"[就绪] 第 {n} 次探测 UDS 应答，设备就绪");
@@ -795,7 +792,7 @@ public partial class MainWindow : Window
             }
 
             // 刷写前先等 APP/UDS 就绪，避免踩到 Boot 窗口
-            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 12, log: AppendLog);
             if (!ready)
             {
                 await FailAsync(name, readyErr);
@@ -980,7 +977,7 @@ public partial class MainWindow : Window
         => await RunOpAsync("链路自检", TimeSpan.FromSeconds(20), async (uds, ct) =>
         {
             // 真休眠=整板断电时直接探测会误报「硬件/未上电」：先唤醒再自检
-            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 12, log: AppendLog);
             if (!ready)
             {
                 await UiAsync(() =>
@@ -1046,7 +1043,7 @@ public partial class MainWindow : Window
         await RunOpAsync("Qi 状态检测启动", TimeSpan.FromSeconds(20), async (uds, ct) =>
         {
             // 真休眠=整板断电：先唤醒 burst + 等 UDS 就绪再进入轮询
-            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 12, log: AppendLog);
             if (!ready)
             {
                 await UiAsync(() =>
@@ -1294,7 +1291,7 @@ public partial class MainWindow : Window
 
         await RunOpAsync($"设置 Qi 功率 {label}", TimeSpan.FromSeconds(60), async (uds, ct) =>
         {
-            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 12, log: AppendLog);
             if (!ready)
             {
                 await FailAsync($"设置 Qi 功率 {label}", readyErr);
