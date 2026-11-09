@@ -149,7 +149,12 @@ public sealed class IsoTpClient
         int total = uds.Length;
         CanFrame? fc = null;
         LastFcTries = 0;
-        for (int tryN = 0; tryN < 3 && fc is null; tryN++)
+        // FC 耐心窗口 800ms×2：实测设备 FC 常滞后 ~600ms（TX 队拥堵时
+        // 首两个 FC 丢失，第三个 FF 的 FC 才及时出来）——300ms×3 窗口
+        // 每块必发 3 个 FF（FC重试 3/块），多余 FF 又让设备回 3 个 FC
+        // 加剧拥堵（自增强死循环，station_log 00:09 实证 4.6s/块）。
+        // 800ms 窗口一发即中，丢 FC 时补发一档兜底。
+        for (int tryN = 0; tryN < 2 && fc is null; tryN++)
         {
             var ff = new byte[8];
             ff[0] = (byte)(0x10 | ((total >> 8) & 0x0F));
@@ -160,9 +165,7 @@ public sealed class IsoTpClient
             _tp.Send(new CanFrame(_txId, ff));
             LastFcTries = tryN + 1;
             if (!quiet) Log($"[TX] FF try{tryN + 1} len={total} {Hex(uds.AsSpan(0, Math.Min(6, total)).ToArray())}");
-            // FC 正常 <50ms 内到（设备 send_fc 最坏 50ms pre-wait）；
-            // 1500ms 超时会把丢 FC 的每次重试放大成 1.5s/块
-            fc = WaitFc(300);
+            fc = WaitFc(800);
         }
         if (fc is null)
             throw new InvalidOperationException("ISO-TP FC timeout (ECU did not send FlowControl)");
