@@ -125,15 +125,15 @@ public class QiChipStatusTests
     [Fact]
     public void MagnetName_And_ChargingVerdict_MatchHallGate()
     {
-        // DID 0x2118 实测极性（2026-11-05）：0x00=磁铁不存在（充电中），0x01=磁铁存在（未充电）
-        Assert.Equal("磁铁不存在", QiChipStatusCodec.MagnetName(0x00));
-        Assert.Equal("磁铁存在", QiChipStatusCodec.MagnetName(0x01));
+        // DID 0x2118 实测极性：0x00=磁铁存在（未充电），0x01=磁铁不存在（充电中）
+        Assert.Equal("磁铁存在", QiChipStatusCodec.MagnetName(0x00));
+        Assert.Equal("磁铁不存在", QiChipStatusCodec.MagnetName(0x01));
         Assert.Equal("读取失败", QiChipStatusCodec.MagnetName(null));
 
-        // 充电状态判定：使能后 0x00=充电中、0x01=未充电；未使能=充电失能
-        Assert.Equal("磁铁不存在·充电中",
-            QiChipStatusCodec.ChargingVerdict(true, 0x00));
+        // 充电状态判定：使能后 0x01=充电中（无磁铁）、0x00=未充电（有磁铁）；未使能=充电失能
         Assert.Equal("磁铁存在·未充电",
+            QiChipStatusCodec.ChargingVerdict(true, 0x00));
+        Assert.Equal("磁铁不存在·充电中",
             QiChipStatusCodec.ChargingVerdict(true, 0x01));
         Assert.Equal("充电失能",
             QiChipStatusCodec.ChargingVerdict(false, 0x00));

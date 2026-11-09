@@ -1140,19 +1140,19 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 刷新「磁铁 / 实际充电」大字显示（DID 0x2118 PA0 霍尔，实测极性）：
-    /// 0x00=磁铁不存在·充电中（绿），0x01=磁铁存在·未充电（红），未知=灰。
+    /// 0x00=磁铁存在·未充电（红），0x01=磁铁不存在·充电中（绿），未知=灰。
     /// </summary>
     private void UpdateMagnetDisplay(byte? clampState)
     {
         switch (clampState)
         {
             case 0x00:
-                TxtMagnetState.Text = "磁铁不存在·充电中";
-                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
-                break;
-            case 0x01:
                 TxtMagnetState.Text = "磁铁存在·未充电";
                 TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
+                break;
+            case 0x01:
+                TxtMagnetState.Text = "磁铁不存在·充电中";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
                 break;
             default:
                 TxtMagnetState.Text = "充电使能·磁铁状态未知";
@@ -1302,8 +1302,8 @@ public partial class MainWindow : Window
                 if (enable)
                 {
                     Pass(name, "充电使能");
-                    if (clamp == 0x01)
-                        AppendLog("[充电] 提示：磁铁存在，霍尔门禁未满足，未接通充电（磁铁不存在时才充电中）");
+                    if (clamp == 0x00)
+                        AppendLog("[充电] 提示：磁铁存在，未充电（磁铁未放上时才充电中）");
                     UpdateMagnetDisplay(clamp);
                 }
                 else
