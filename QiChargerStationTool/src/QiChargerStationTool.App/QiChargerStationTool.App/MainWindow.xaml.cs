@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     /// <summary>充电使能状态。初始 false（本会话尚未点过「开启充电」），
     /// 禁用「Qi 状态检测」；开启充电成功后置 true，关闭充电后回 false。</summary>
     private bool _chargeEnabled = false;
+    /// <summary>真充判定滑动去抖（~2s）：空载功率小幅跳动不判充电中。</summary>
+    private readonly DebounceFilter _chargingFilter = new(2000);
     /// <summary>Qi 状态持续检查开关（按钮切换）。</summary>
     private volatile bool _pollRunning;
     /// <summary>持续检查轮询任务的取消源。</summary>
@@ -1133,9 +1135,12 @@ public partial class MainWindow : Window
         var protText = active is null ? "保护位: —" :
             active.Count > 0 ? $"保护触发: {string.Join(" / ", active)}" : "保护位: 无";
         var countText = st.ChargeCount is { } c2 ? $"{c2} 次" : "—";
+        // 真充判定：原值证据（功率/电流 raw/触发位）经 ~2s 滑动去抖，
+        // 空载功率小幅跳动不翻状态（用户要求不换算单位、直接用传回值采样）
+        bool chargingActive = _chargingFilter.Update(st.ChargingEvidence, Environment.TickCount64);
         TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
-                            $"{st.ChargingVerdict(_chargeEnabled)}   {protText}";
-        UpdateMagnetDisplay(st.ClampState, st.ChargingActive);
+                            $"{st.ChargingVerdict(_chargeEnabled, chargingActive)}   {protText}";
+        UpdateMagnetDisplay(st.ClampState, chargingActive);
     }
 
     /// <summary>
@@ -1176,6 +1181,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void ResetMagnetDisplay()
     {
+        _chargingFilter.Reset();
         TxtMagnetState.Text = "充电失能";
         TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
         TxtQiSummary.Text = "充电失能 — Qi 状态面板已失效";
@@ -1294,10 +1300,12 @@ public partial class MainWindow : Window
             }
             _chargeEnabled = enable;
 
-            // 真充判定：0x2101 写成功只是「使能」；磁铁不存在(0x01)时还要按
-            // 充电功率 + 充电触发位（0x2111[1] b0）区分「充电中 / 未充电」。
+            // 真充判定：0x2101 写成功只是「使能」；磁铁不存在(0x01)时按
+            // 充电功率/电流原值 + 充电触发位（0x2111[1] b0）+ 2s 滑动去抖
+            // 区分「充电中 / 未充电」（不换算单位，直接用 Qi 传回值）。
             byte? clamp = null;
             ushort? powerMw = null;
+            byte? currentRaw = null;
             byte? status2 = null;
             if (enable)
             {
@@ -1317,6 +1325,12 @@ public partial class MainWindow : Window
                     powerMw = QiChipStatusCodec.ReadU16Le(uds.ReadDid(ProtoIds.DidOutputPower, timeoutMs: 3000));
                 }
                 catch { /* optional */ }
+                try
+                {
+                    var vd = uds.ReadDid(ProtoIds.DidInputVi, timeoutMs: 3000);
+                    if (vd.Length >= 2) currentRaw = vd[1];
+                }
+                catch { /* optional */ }
             }
 
             await UiAsync(() =>
@@ -1326,8 +1340,11 @@ public partial class MainWindow : Window
                     Pass(name, "充电使能");
                     if (clamp == 0x00)
                         AppendLog("[充电] 提示：磁铁存在，未充电（磁铁未放上时才充电中）");
-                    UpdateMagnetDisplay(clamp,
-                        QiChipStatusCodec.ChargingActiveFrom(powerMw, status2));
+                    // 重新使能：清去抖器后喂首采样（避免旧状态残留）
+                    _chargingFilter.Reset();
+                    bool active = QiChipStatusCodec.ChargingActiveFrom(
+                        powerMw, currentRaw, status2, _chargingFilter, Environment.TickCount64);
+                    UpdateMagnetDisplay(clamp, active);
                 }
                 else
                 {

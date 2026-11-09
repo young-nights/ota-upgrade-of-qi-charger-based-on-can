@@ -43,11 +43,11 @@ public sealed class QiChipStatus
     /// <summary>磁铁存在与否（实测极性：0x00=存在）；读取失败为 null。</summary>
     public bool? MagnetPresent => ClampState is { } s ? s == 0x00 : null;
     public string MagnetName => QiChipStatusCodec.MagnetName(ClampState);
-    /// <summary>真充证据（功率>0 或 充电触发位=1）；证据不全为 null。</summary>
-    public bool? ChargingActive => QiChipStatusCodec.ChargingActiveFrom(OutputPowerMw, Status2Raw);
-    /// <summary>充电状态判定（与固件门禁 + 真充证据同逻辑）。</summary>
-    public string ChargingVerdict(bool chargeEnabled)
-        => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState, ChargingActive);
+    /// <summary>单采样真充证据（原值判定、未去抖）；显示层请经 DebounceFilter 滑动平滑。</summary>
+    public bool ChargingEvidence => QiChipStatusCodec.ChargingEvidenceFrom(OutputPowerMw, InputCurrentRaw, Status2Raw);
+    /// <summary>充电状态判定（chargingActive 由调用方经 2s 滑动去抖后传入）。</summary>
+    public string ChargingVerdict(bool chargeEnabled, bool? chargingActive)
+        => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState, chargingActive);
     /// <summary>激活的保护位名列表（如 [OVP, FOD]）；StatusRaw 读取失败返回 null。</summary>
     public IReadOnlyList<string>? ActiveProtections
         => StatusRaw is { } raw ? QiChipStatusCodec.ActiveProtectionNames(raw) : null;
@@ -131,19 +131,26 @@ public static class QiChipStatusCodec
     };
 
     /// <summary>
-    /// 真充证据：充电功率>0 或 充电触发位（状态字节2 b0）=1——任一为真即充电中；
-    /// 两者都确证为假才是未充电；证据不全返回 null（按未充电显示）。
-    /// 放手机（磁铁不存在）会激活无线充：功率持续非 0、触发位持续 1。
+    /// 真充证据（单采样，全部用 Qi 传回原值、不做单位换算）：
+    /// 电流 raw>0 或 功率>0 或 充电触发位=1——任一为真即有证据。
+    /// 充电时电流远大于 1A（raw 显著非 0）；空载时功率仅小幅跳动、电流趋 0。
     /// </summary>
-    public static bool? ChargingActiveFrom(ushort? powerMw, byte? status2)
+    public static bool ChargingEvidenceFrom(ushort? powerMw, byte? currentRaw, byte? status2)
     {
         bool? trig = status2 is { } s ? (s & 0x01) != 0 : null;
-        bool? pw = powerMw is { } m ? m > 0 : null;
-        if (trig == true || pw == true)
-            return true;
-        if (trig == false && pw == false)
-            return false;
-        return null;
+        return (powerMw is { } p && p > 0)
+            || (currentRaw is { } c && c > 0)
+            || trig == true;
+    }
+
+    /// <summary>
+    /// 真充判定（含 ~2s 滑动采样去抖）：单采样证据经 <see cref="DebounceFilter"/>
+    /// 平滑后再出结论——空载小幅跳动不翻转状态，持续证据 2s 才判充电中。
+    /// </summary>
+    public static bool ChargingActiveFrom(ushort? powerMw, byte? currentRaw,
+                                          byte? status2, DebounceFilter filter, long nowMs)
+    {
+        return filter.Update(ChargingEvidenceFrom(powerMw, currentRaw, status2), nowMs);
     }
 
     /// <summary>
@@ -267,5 +274,65 @@ public static class QiChipStatusCodec
     {
         if (rdbiResponse.Length < 3) throw new ArgumentException("RDBI 响应过短");
         return rdbiResponse[3..];
+    }
+}
+
+/// <summary>
+/// 滑动采样去抖（时间窗）：新状态连续保持 ≥windowMs 才切换，双向滤除
+/// 单点跳变——空载功率小幅跳动不翻状态、充电中功率瞬时回落也不翻状态。
+/// 采样时刻由调用方注入（便于单测）。
+/// </summary>
+public sealed class DebounceFilter
+{
+    private readonly long _windowMs;
+    private bool _state;
+    private bool _pending;
+    private long _pendingSinceMs;
+    private bool _hasSample;
+
+    public DebounceFilter(long windowMs) => _windowMs = windowMs;
+
+    /// <summary>当前平滑后的状态。</summary>
+    public bool State => _state;
+
+    /// <summary>喂一个采样，返回平滑后的状态。</summary>
+    public bool Update(bool sample, long nowMs)
+    {
+        if (!_hasSample)
+        {
+            _hasSample = true;
+            _state = sample;
+            _pending = sample;
+            _pendingSinceMs = nowMs;
+            return _state;
+        }
+        if (sample == _state)
+        {
+            /* 现态成立：清挂起切换 */
+            _pending = sample;
+            _pendingSinceMs = nowMs;
+            return _state;
+        }
+        if (sample != _pending)
+        {
+            /* 新的反向采样：起算持续时间 */
+            _pending = sample;
+            _pendingSinceMs = nowMs;
+            return _state;
+        }
+        if ((nowMs - _pendingSinceMs) >= _windowMs)
+        {
+            _state = sample;
+        }
+        return _state;
+    }
+
+    /// <summary>清零（充电使能/失能切换时调用，避免旧状态残留）。</summary>
+    public void Reset()
+    {
+        _hasSample = false;
+        _state = false;
+        _pending = false;
+        _pendingSinceMs = 0;
     }
 }

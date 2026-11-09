@@ -130,25 +130,49 @@ public class QiChipStatusTests
         Assert.Equal("磁铁不存在", QiChipStatusCodec.MagnetName(0x01));
         Assert.Equal("读取失败", QiChipStatusCodec.MagnetName(null));
 
-        // 真充证据：功率>0 或 触发位=1 任一为真=充电中；都假=未充电；证据不全=null
-        Assert.True(QiChipStatusCodec.ChargingActiveFrom(500, 0x00));
-        Assert.True(QiChipStatusCodec.ChargingActiveFrom(0, 0x01));
-        Assert.False(QiChipStatusCodec.ChargingActiveFrom(0, 0x00));
-        Assert.Null(QiChipStatusCodec.ChargingActiveFrom(null, 0x00));
-
-        // 磁铁不存在(0x01)按证据分充电中/未充电；磁铁存在(0x00)恒未充电
+        // 磁铁不存在(0x01)按真充证据分充电中/未充电；磁铁存在(0x00)恒未充电
         Assert.Equal("磁铁不存在·充电中",
             QiChipStatusCodec.ChargingVerdict(true, 0x01, true));
         Assert.Equal("磁铁不存在·未充电",
             QiChipStatusCodec.ChargingVerdict(true, 0x01, false));
-        Assert.Equal("磁铁不存在·未充电",
-            QiChipStatusCodec.ChargingVerdict(true, 0x01, null));
         Assert.Equal("磁铁存在·未充电",
             QiChipStatusCodec.ChargingVerdict(true, 0x00, true));
         Assert.Equal("充电失能",
             QiChipStatusCodec.ChargingVerdict(false, 0x01, true));
         Assert.Equal("充电使能·磁铁状态未知",
             QiChipStatusCodec.ChargingVerdict(true, null, true));
+    }
+
+    [Fact]
+    public void ChargingEvidence_UsesRawValues_NoConversion()
+    {
+        // 电流/功率用 Qi 传回原值判断（不换算单位）：任一非 0 或触发位=1 即有证据
+        Assert.True(QiChipStatusCodec.ChargingEvidenceFrom(500, 20, 0x00));
+        Assert.True(QiChipStatusCodec.ChargingEvidenceFrom(0, 0, 0x01));   // 触发位
+        Assert.True(QiChipStatusCodec.ChargingEvidenceFrom(50, 0, 0x00));  // 功率抖动也算单点证据（去抖滤）
+        Assert.False(QiChipStatusCodec.ChargingEvidenceFrom(0, 0, 0x00));
+        Assert.False(QiChipStatusCodec.ChargingEvidenceFrom(null, null, null));
+    }
+
+    [Fact]
+    public void DebounceFilter_FiltersJitter_BothDirections()
+    {
+        var f = new DebounceFilter(2000);
+        // 空载小幅跳动：单点 true 不翻转
+        Assert.False(f.Update(false, 0));
+        Assert.False(f.Update(true, 1000));
+        Assert.False(f.Update(false, 2000));
+        // 持续证据 ~2s 才判充电中
+        Assert.False(f.Update(true, 3000));
+        Assert.False(f.Update(true, 4000));
+        Assert.True(f.Update(true, 5000));
+        // 充电中瞬时回落不翻转
+        Assert.True(f.Update(false, 6000));
+        Assert.True(f.Update(true, 7000));
+        // 持续回落 ~2s 才关
+        Assert.True(f.Update(false, 8000));
+        Assert.True(f.Update(false, 9000));
+        Assert.False(f.Update(false, 10000));
     }
 
     [Fact]
