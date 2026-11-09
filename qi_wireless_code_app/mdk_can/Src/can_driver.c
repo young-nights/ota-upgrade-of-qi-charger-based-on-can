@@ -110,8 +110,8 @@ static void can_hw_config_in_reset(void)
    * CF4 卡 1s、AA55 迟 2s、OTA 每块 4.5s 的总根因）。限 3 次即止：
    * ~2ms 内出 ABORTED 终态，wait_tx_frame 回 -2 由上层补发/幂等恢复。
    * 宁可丢一帧（上层有重试）不可让发送路径停摆。 */
-  can_retransmission_limit_set(CAN1, CAN_RE_TRANS_TIMES_3);
-  can_rearbitration_limit_set(CAN1, CAN_RE_ARBI_TIMES_3);
+  can_retransmission_limit_set(CAN1, CAN_RE_TRANS_TIMES_6);
+  can_rearbitration_limit_set(CAN1, CAN_RE_ARBI_TIMES_6);
 
   /* 250 kbps / 75% SP：18 MHz tq / 72 = 250k */
   can_bittime_default_para_init(&can_bittime_struct);
@@ -753,27 +753,34 @@ void can_driver_tx_pump(void)
   /* STB 滞留帧补触发（SF 应答迟到 ~3s 的根因）：can_txbuf_transmit
    * (STB_*) 在上一次触发位（tsone/tsall/tsa）未清时返回 ERROR——帧
    * 已写入 STB FIFO 却拿不到触发信号，滞留到下一次 can_driver_send
-   * 的触发才被带走（实测每个 SF 应答都迟到到下一个请求到达时才出线，
-   * 主机侧表现为「UDS 无应答」）。can_try_txbuf 无法在写入点重试
-   * （触发位要等当前帧发完才清），故每轮检测 STB 非空且无触发挂起
-   * 即补发 STB_ALL，滞留帧一轮主循环内出队。 */
+   * 的触发才被带走。can_try_txbuf 无法在写入点重试（触发位要等当前
+   * 帧发完才清），故每轮检测 STB 非空且无触发挂起即补发 STB_ALL。
+   *
+   * fw 1.1.72 卡死解锁（补 1.1.71 的 PTB 盲区）：挂起位不只 STB 的
+   * tsall/tsone/tsa——PTB 的 tpe 同是「帧已入队在等上线」的挂起位。
+   * TSTAT 报 ABORTED 的帧常已实际上线但 tpe/写锁不释放 → PTB 卡死，
+   * 后续帧全挤 STB、STB 满则整队卡 1~2s（AA55 迟 2s、CF 卡 1s、OTA
+   * 每块 4.6s 的总根因；1.1.71 只盯 STB 故无效）。触发位滞留 >50ms
+   * （正常一帧 250kbps 上线 <2ms）即 abort 解锁后补触发——宁可丢
+   * 在途帧（上层补发/幂等）不可让发送路径停摆。 */
   static uint32_t s_stuck_since = 0U;
+  uint8_t trig_pend;
 
-  if ((can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY) &&
-      (CAN1->ctrlstat_bit.tsall == 0U) &&
-      (CAN1->ctrlstat_bit.tsone == 0U) &&
-      (CAN1->ctrlstat_bit.tsa == 0U))
+  trig_pend = (uint8_t)((CAN1->ctrlstat_bit.tsall != 0U) ||
+                       (CAN1->ctrlstat_bit.tsone != 0U) ||
+                       (CAN1->ctrlstat_bit.tsa != 0U) ||
+                       (CAN1->ctrlstat_bit.tpe != 0U));
+
+  if (trig_pend == 0U)
   {
-    (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
     s_stuck_since = 0U;
+    if (can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY)
+    {
+      (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
+    }
     return;
   }
 
-  /* 触发位持续置位超过 50ms 判卡死（正常一帧 250kbps 上线 <2ms）：
-   * 重传环/终态位未清会把后续帧全锁在 STB FIFO（CF4 卡 1s、AA55
-   * 迟 2s 的放大器），而上面的补触发守卫在卡死时永不放行。强制
-   * abort 解锁后重触发——宁可丢在途帧（上层补发/幂等）不可停摆。 */
-  if (can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY)
   {
     uint32_t now = timer_get_tick();
     if (s_stuck_since == 0U)
@@ -784,13 +791,12 @@ void can_driver_tx_pump(void)
     {
       can_transmit_abort(CAN1, CAN_ABORT_TRANSMIT_PTB);
       can_transmit_abort(CAN1, CAN_ABORT_TRANSMIT_STB);
-      (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
+      if (can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY)
+      {
+        (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
+      }
       s_stuck_since = 0U;
     }
-  }
-  else
-  {
-    s_stuck_since = 0U;
   }
 }
 
