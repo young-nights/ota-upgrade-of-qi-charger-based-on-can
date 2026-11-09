@@ -377,6 +377,7 @@ public partial class MainWindow : Window
         {
             string failMsg = "";
             bool bodyOk = false;
+            bool softNoResponse = false;
             await Task.Run(async () =>
             {
                 try
@@ -397,6 +398,13 @@ public partial class MainWindow : Window
                         _udsGate.Release();
                     }
                 }
+                catch (UdsException ex) when (ex.Nrc == 0)
+                {
+                    // 无应答（超时）：调试期设备不应答属常态——软提示，不打 FAIL 不中断
+                    softNoResponse = true;
+                    failMsg = ex.Message;
+                    bodyOk = false;
+                }
                 catch (Exception ex)
                 {
                     failMsg = FormatOpError(ex);
@@ -409,6 +417,12 @@ public partial class MainWindow : Window
             {
                 AppendLog($"==== 完成 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
             }
+            else if (softNoResponse)
+            {
+                AppendLog($"==== 无应答 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s（设备不应答，调试中可忽略）: {failMsg} ====");
+                AppendResult("无应答", name, failMsg);
+                SetState("无应答", Colors.DimGray, failMsg);
+            }
             else if (failMsg.Length > 0)
             {
                 AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {failMsg} ====");
@@ -416,6 +430,13 @@ public partial class MainWindow : Window
                 SetState("失败", Colors.Crimson, failMsg);
             }
             // bodyOk==false 且无 failMsg：body 已自行提示过 FAIL，不重复
+        }
+        catch (UdsException ex) when (ex.Nrc == 0)
+        {
+            sw.Stop();
+            AppendLog($"==== 无应答 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s（设备不应答，调试中可忽略）: {ex.Message} ====");
+            AppendResult("无应答", name, ex.Message);
+            SetState("无应答", Colors.DimGray, ex.Message);
         }
         catch (Exception ex)
         {
@@ -1033,8 +1054,18 @@ public partial class MainWindow : Window
                             var uds = new UdsClient(iso);
                             return uds.ReadQiChipStatus(ct);
                         }, ct);
-                        failStreak = 0;
-                        await UiAsync(() => UpdateQiPanel(st));
+                        if (st is null)
+                        {
+                            // 无应答（设备不应答/调试中）：静默跳过，不打红字不中断轮询
+                            failStreak++;
+                            if (failStreak == 1 || failStreak % 10 == 0)
+                                await UiAsync(() => AppendLog($"[状态检测] 无应答（连续 {failStreak} 次），继续轮询"));
+                        }
+                        else
+                        {
+                            failStreak = 0;
+                            await UiAsync(() => UpdateQiPanel(st));
+                        }
                     }
                 }
                 catch (OperationCanceledException) { break; }

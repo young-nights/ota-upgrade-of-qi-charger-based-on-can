@@ -293,17 +293,28 @@ public sealed class UdsClient
         return (r.Data[3..], "");
     }
 
-    /// <summary>ReadDataByIdentifier → 数据区（去掉 62 xx xx）。</summary>
-    public byte[] ReadDid(ushort did, int timeoutMs = 3000)
+    /// <summary>
+    /// ReadDataByIdentifier → 数据区（去掉 62 xx xx）。
+    /// 失败（含无应答）返回 null，**不抛异常**——调试期设备不应答属常态，
+    /// 异常会中断调用流程/VS 调试会话。
+    /// </summary>
+    public byte[]? ReadDid(ushort did, int timeoutMs = 3000)
     {
-        var (data, err) = TryReadDid(did, timeoutMs);
-        return data ?? throw new UdsException(ProtoIds.SidRdbi, 0, err);
+        var (data, _) = TryReadDid(did, timeoutMs);
+        return data;
     }
 
-    /// <summary>Qi 芯片状态全量查询（任意会话可读，无需 SA）。</summary>
-    public QiChipStatus ReadQiChipStatus(CancellationToken ct = default)
+    /// <summary>
+    /// Qi 芯片状态全量查询（任意会话可读，无需 SA）。
+    /// 首读 0x2132 无应答时返回 null（不抛），调用方按「设备不应答」跳过。
+    /// </summary>
+    public QiChipStatus? ReadQiChipStatus(CancellationToken ct = default)
     {
         var iapRaw = ReadDid(ProtoIds.DidQiIapStatus, timeoutMs: 4000);
+        if (iapRaw == null || iapRaw.Length < 9)
+        {
+            return null;
+        }
         QiChipStatusCodec.ParseIapStatus(iapRaw,
             out var st, out var prog, out var maj, out var min, out var pat, out var sent, out var total);
 
@@ -327,7 +338,7 @@ public sealed class UdsClient
         try
         {
             var vi = ReadDid(ProtoIds.DidInputVi);
-            if (vi.Length >= 2) { vRaw = vi[0]; iRaw = vi[1]; }
+            if (vi is { Length: >= 2 }) { vRaw = vi[0]; iRaw = vi[1]; }
         }
         catch { /* optional */ }
 
@@ -336,8 +347,8 @@ public sealed class UdsClient
         try
         {
             var sd = ReadDid(ProtoIds.DidQiStatusRaw);
-            if (sd.Length >= 1) st1 = sd[0];
-            if (sd.Length >= 2) st2 = sd[1];
+            if (sd is { Length: >= 1 }) st1 = sd[0];
+            if (sd is { Length: >= 2 }) st2 = sd[1];
         }
         catch { /* optional */ }
 
