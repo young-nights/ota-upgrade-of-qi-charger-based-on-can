@@ -93,6 +93,8 @@ public sealed class UdsClient
     {
         try
         {
+            // 清残留：上一请求的迟到应答/半包不带入本窗口（防 SF 不匹配与错配）
+            _tp.DrainStale();
             var uds = new byte[1 + payload.Length];
             uds[0] = sid;
             payload.CopyTo(uds, 1);
@@ -187,10 +189,12 @@ public sealed class UdsClient
     public void KeepAlive() => RequestSuppress(ProtoIds.SidTp, new byte[] { 0x80 });
 
     /// <summary>
-    /// 发一帧唤醒帧：ID=UdsReqId、DLC=8、数据 02 3E 00 CC CC CC CC CC（0xCC 填充，
-    /// 与普通 UDS SF 同线格式）。WUF 严格匹配 ID+DLC=8+数据位（PNDM=1）。
+    /// 发一帧唤醒帧：ID=UdsReqId、DLC=8、数据 02 3E 80 CC CC CC CC CC（0xCC 填充，
+    /// 与普通 UDS SF 同线格式）。WUF 严格匹配 ID+DLC=8+数据位（PNDM=1），
+    /// byte1=0x3E 命中掩码；用 suppressPosRsp 形态（3E 80）使唤醒帧不产生
+    /// 7E 应答/组包标记噪声（2026-11-05 日志实证 3E 00 双重身份噪声）。
     /// </summary>
-    public void SendWake() => _tp.SendRaw(new byte[] { 0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC });
+    public void SendWake() => _tp.SendRaw(new byte[] { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC });
 
     /// <summary>读软件版本；失败返回 (false, 错误信息)。</summary>
     public (bool Ok, string Version, string Error) TryReadSwVersion(CancellationToken ct = default)
