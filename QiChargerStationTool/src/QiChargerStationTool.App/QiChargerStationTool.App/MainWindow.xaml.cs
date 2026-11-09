@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     /// <summary>充电使能状态。初始 false（本会话尚未点过「开启充电」），
     /// 禁用「Qi 状态检测」；开启充电成功后置 true，关闭充电后回 false。</summary>
     private bool _chargeEnabled = false;
+    /// <summary>真充判定滑动去抖（~2s）：空载功率小幅跳动不判充电中。</summary>
+    private readonly DebounceFilter _chargingFilter = new(2000);
     /// <summary>Qi 状态持续检查开关（按钮切换）。</summary>
     private volatile bool _pollRunning;
     /// <summary>持续检查轮询任务的取消源。</summary>
@@ -375,6 +377,7 @@ public partial class MainWindow : Window
         {
             string failMsg = "";
             bool bodyOk = false;
+            bool softNoResponse = false;
             await Task.Run(async () =>
             {
                 try
@@ -395,6 +398,13 @@ public partial class MainWindow : Window
                         _udsGate.Release();
                     }
                 }
+                catch (UdsException ex) when (ex.Nrc == 0)
+                {
+                    // 无应答（超时）：调试期设备不应答属常态——软提示，不打 FAIL 不中断
+                    softNoResponse = true;
+                    failMsg = ex.Message;
+                    bodyOk = false;
+                }
                 catch (Exception ex)
                 {
                     failMsg = FormatOpError(ex);
@@ -407,6 +417,12 @@ public partial class MainWindow : Window
             {
                 AppendLog($"==== 完成 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s ====");
             }
+            else if (softNoResponse)
+            {
+                AppendLog($"==== 无应答 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s（设备不应答，调试中可忽略）: {failMsg} ====");
+                AppendResult("无应答", name, failMsg);
+                SetState("无应答", Colors.DimGray, failMsg);
+            }
             else if (failMsg.Length > 0)
             {
                 AppendLog($"==== 失败 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s: {failMsg} ====");
@@ -414,6 +430,13 @@ public partial class MainWindow : Window
                 SetState("失败", Colors.Crimson, failMsg);
             }
             // bodyOk==false 且无 failMsg：body 已自行提示过 FAIL，不重复
+        }
+        catch (UdsException ex) when (ex.Nrc == 0)
+        {
+            sw.Stop();
+            AppendLog($"==== 无应答 {name} 耗时 {sw.Elapsed.TotalSeconds:F1}s（设备不应答，调试中可忽略）: {ex.Message} ====");
+            AppendResult("无应答", name, ex.Message);
+            SetState("无应答", Colors.DimGray, ex.Message);
         }
         catch (Exception ex)
         {
@@ -583,8 +606,20 @@ public partial class MainWindow : Window
     // ---------- 测试操作按钮 ----------
 
     private async void OnReadVersion(object sender, RoutedEventArgs e)
-        => await RunOpAsync("读版本", TimeSpan.FromSeconds(15), async (uds, ct) =>
+        => await RunOpAsync("读版本", TimeSpan.FromSeconds(40), async (uds, ct) =>
         {
+            // 与读 SN/写 SN 同前置：真休眠=整板断电，单帧请求会唤醒设备但丢在
+            // 重启窗口里；设备不在总线时也在 10s 内给出明确定诊而不是逐 DID 空超时
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            if (!ready)
+            {
+                await UiAsync(() =>
+                {
+                    AppendResult("FAIL", "读版本", readyErr);
+                    SetState("失败", Colors.Crimson, readyErr);
+                });
+                return false;
+            }
             // 若设备刚 BOOTUP，自动多等 1s 再读
             var ver = await Task.Run(() =>
             {
@@ -670,7 +705,7 @@ public partial class MainWindow : Window
     private static async Task<(bool Ok, string Error)> WaitUdsReadyAsync(
         UdsClient uds, CancellationToken ct, int waitSec = 8, Action<string>? log = null)
     {
-        // SIT1145 WUF 唤醒 burst：≥6 帧 02 3E 00 CC…（DLC=8），PNDM=1 严格匹配
+        // SIT1145 WUF 唤醒 burst：≥6 帧 02 3E 80 CC…（DLC=8，suppressPosRsp 静默形态），PNDM=1 严格匹配
         log?.Invoke("[就绪] 发送唤醒 burst (8 帧)…");
         for (int i = 0; i < 8; i++)
         {
@@ -685,9 +720,11 @@ public partial class MainWindow : Window
         {
             if (ct.IsCancellationRequested) return (false, "已取消");
             n++;
+            // 探测超时 3s：设备请求派发实测有 ~2s 延迟，1.5s 窗口会漏掉自己的
+            // 迟到应答（且 DrainStale 会把迟到应答清掉），探测永远追不上
             var r = await Task.Run(() =>
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 },
-                    timeoutMs: 1500, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
+                    timeoutMs: 3000, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
             if (r.Ok)
             {
                 log?.Invoke($"[就绪] 第 {n} 次探测 UDS 应答，设备就绪");
@@ -705,7 +742,7 @@ public partial class MainWindow : Window
             log?.Invoke($"[就绪] 第 {n} 次探测无应答，0.5s 后重试…");
             await Task.Delay(500, ct);
         }
-        return (false, $"等待 UDS 就绪超时 {waitSec}s（设备可能仍在 Boot 或未上电）");
+        return (false, $"等待 UDS 就绪超时 {waitSec}s（设备未上电/被编程中/休眠未唤醒；确认接线无误仍无回包请断电重启设备再试）");
     }
 
     private async Task RunUpgradeAsync(string name, byte otaTarget, int transferBlock,
@@ -1031,8 +1068,18 @@ public partial class MainWindow : Window
                             var uds = new UdsClient(iso);
                             return uds.ReadQiChipStatus(ct);
                         }, ct);
-                        failStreak = 0;
-                        await UiAsync(() => UpdateQiPanel(st));
+                        if (st is null)
+                        {
+                            // 无应答（设备不应答/调试中）：静默跳过，不打红字不中断轮询
+                            failStreak++;
+                            if (failStreak == 1 || failStreak % 10 == 0)
+                                await UiAsync(() => AppendLog($"[状态检测] 无应答（连续 {failStreak} 次），继续轮询"));
+                        }
+                        else
+                        {
+                            failStreak = 0;
+                            await UiAsync(() => UpdateQiPanel(st));
+                        }
                     }
                 }
                 catch (OperationCanceledException) { break; }
@@ -1133,26 +1180,38 @@ public partial class MainWindow : Window
         var protText = active is null ? "保护位: —" :
             active.Count > 0 ? $"保护触发: {string.Join(" / ", active)}" : "保护位: 无";
         var countText = st.ChargeCount is { } c2 ? $"{c2} 次" : "—";
+        // 真充判定：原值证据（功率/电流 raw/触发位）经 ~2s 滑动去抖，
+        // 空载功率小幅跳动不翻状态（用户要求不换算单位、直接用传回值采样）
+        bool chargingActive = _chargingFilter.Update(st.ChargingEvidence, Environment.TickCount64);
         TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
-                            $"{st.ChargingVerdict(_chargeEnabled)}   {protText}";
-        UpdateMagnetDisplay(st.ClampState);
+                            $"{st.ChargingVerdict(_chargeEnabled, chargingActive)}   {protText}";
+        UpdateMagnetDisplay(st.ClampState, chargingActive);
     }
 
     /// <summary>
-    /// 刷新「磁铁 / 实际充电」大字显示（DID 0x2118 PA0 霍尔，实测极性）：
-    /// 0x00=磁铁不存在·充电中（绿），0x01=磁铁存在·未充电（红），未知=灰。
+    /// 刷新「磁铁 / 实际充电」大字显示（实测极性 + 真充证据）：
+    /// 0x00=磁铁存在·未充电（红）；0x01=磁铁不存在时按功率/触发位证据
+    /// 分「充电中」（绿）与「未充电」（橙）。
     /// </summary>
-    private void UpdateMagnetDisplay(byte? clampState)
+    private void UpdateMagnetDisplay(byte? clampState, bool? chargingActive)
     {
         switch (clampState)
         {
             case 0x00:
-                TxtMagnetState.Text = "磁铁不存在·充电中";
-                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
-                break;
-            case 0x01:
                 TxtMagnetState.Text = "磁铁存在·未充电";
                 TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
+                break;
+            case 0x01:
+                if (chargingActive == true)
+                {
+                    TxtMagnetState.Text = "磁铁不存在·充电中";
+                    TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
+                }
+                else
+                {
+                    TxtMagnetState.Text = "磁铁不存在·未充电";
+                    TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xEF, 0x6C, 0x00));
+                }
                 break;
             default:
                 TxtMagnetState.Text = "充电使能·磁铁状态未知";
@@ -1167,6 +1226,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void ResetMagnetDisplay()
     {
+        _chargingFilter.Reset();
         TxtMagnetState.Text = "充电失能";
         TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
         TxtQiSummary.Text = "充电失能 — Qi 状态面板已失效";
@@ -1285,9 +1345,13 @@ public partial class MainWindow : Window
             }
             _chargeEnabled = enable;
 
-            // 真充判定：0x2101 写成功只是「使能」，固件 board_charge_poll 还要
-            // PA0 霍尔在位才真正接通充电。读 0x2118 当场给出磁铁存在/不存在。
+            // 真充判定：0x2101 写成功只是「使能」；磁铁不存在(0x01)时按
+            // 充电功率/电流原值 + 充电触发位（0x2111[1] b0）+ 2s 滑动去抖
+            // 区分「充电中 / 未充电」（不换算单位，直接用 Qi 传回值）。
             byte? clamp = null;
+            ushort? powerMw = null;
+            byte? currentRaw = null;
+            byte? status2 = null;
             if (enable)
             {
                 try
@@ -1295,6 +1359,23 @@ public partial class MainWindow : Window
                     clamp = QiChipStatusCodec.ReadU8(uds.ReadDid(ProtoIds.DidClampState, timeoutMs: 3000));
                 }
                 catch { /* 霍尔读取失败不阻断充电操作本身 */ }
+                try
+                {
+                    var sd = uds.ReadDid(ProtoIds.DidQiStatusRaw, timeoutMs: 3000);
+                    if (sd.Length >= 2) status2 = sd[1];
+                }
+                catch { /* optional */ }
+                try
+                {
+                    powerMw = QiChipStatusCodec.ReadU16Le(uds.ReadDid(ProtoIds.DidOutputPower, timeoutMs: 3000));
+                }
+                catch { /* optional */ }
+                try
+                {
+                    var vd = uds.ReadDid(ProtoIds.DidInputVi, timeoutMs: 3000);
+                    if (vd.Length >= 2) currentRaw = vd[1];
+                }
+                catch { /* optional */ }
             }
 
             await UiAsync(() =>
@@ -1302,9 +1383,13 @@ public partial class MainWindow : Window
                 if (enable)
                 {
                     Pass(name, "充电使能");
-                    if (clamp == 0x01)
-                        AppendLog("[充电] 提示：磁铁存在，霍尔门禁未满足，未接通充电（磁铁不存在时才充电中）");
-                    UpdateMagnetDisplay(clamp);
+                    if (clamp == 0x00)
+                        AppendLog("[充电] 提示：磁铁存在，未充电（磁铁未放上时才充电中）");
+                    // 重新使能：清去抖器后喂首采样（避免旧状态残留）
+                    _chargingFilter.Reset();
+                    bool active = QiChipStatusCodec.ChargingActiveFrom(
+                        powerMw, currentRaw, status2, _chargingFilter, Environment.TickCount64);
+                    UpdateMagnetDisplay(clamp, active);
                 }
                 else
                 {

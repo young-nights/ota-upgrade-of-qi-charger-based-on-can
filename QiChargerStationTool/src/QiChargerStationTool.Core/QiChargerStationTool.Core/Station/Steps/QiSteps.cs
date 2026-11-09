@@ -15,6 +15,15 @@ public sealed class QiStatusQueryStep : ITestStep
         try
         {
             var st = ctx.Uds.ReadQiChipStatus(ct);
+            if (st is null)
+            {
+                return new TestStepResult
+                {
+                    Name = Name,
+                    Status = TestStepStatus.Failed,
+                    Message = "无应答（设备不应答；调试中可忽略，本步非 Critical 不阻断流程）",
+                };
+            }
             ctx.QiStatus = st;
             ctx.Log(st.ToDisplayString());
             if (st.IapState == 0x03)
