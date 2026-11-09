@@ -30,7 +30,9 @@ public sealed class QiChipStatus
     public uint? ChargeCount { get; init; }
     /// <summary>DID 0x2111 Qi 状态字节（含保护位，见 <see cref="QiChipStatusCodec.QiStatusBits"/>）。</summary>
     public byte? StatusRaw { get; init; }
-    /// <summary>DID 0x2118 PA0 霍尔：0x00=磁铁/手机在位，0x01=不在位。</summary>
+    /// <summary>DID 0x2111 [1] 状态字节2：b0=充电触发位（30s 去抖，充电中持续 1）。</summary>
+    public byte? Status2Raw { get; init; }
+    /// <summary>DID 0x2118 PA0 霍尔：0x00=磁铁存在，0x01=磁铁不存在（实测极性）。</summary>
     public byte? ClampState { get; init; }
 
     public string IapStateName => QiChipStatusCodec.IapStateName(IapState);
@@ -41,8 +43,11 @@ public sealed class QiChipStatus
     /// <summary>磁铁存在与否（实测极性：0x00=存在）；读取失败为 null。</summary>
     public bool? MagnetPresent => ClampState is { } s ? s == 0x00 : null;
     public string MagnetName => QiChipStatusCodec.MagnetName(ClampState);
-    /// <summary>实际充电判定（与固件 board_charge_poll 门禁同逻辑）。</summary>
-    public string ChargingVerdict(bool chargeEnabled) => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState);
+    /// <summary>真充证据（功率>0 或 充电触发位=1）；证据不全为 null。</summary>
+    public bool? ChargingActive => QiChipStatusCodec.ChargingActiveFrom(OutputPowerMw, Status2Raw);
+    /// <summary>充电状态判定（与固件门禁 + 真充证据同逻辑）。</summary>
+    public string ChargingVerdict(bool chargeEnabled)
+        => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState, ChargingActive);
     /// <summary>激活的保护位名列表（如 [OVP, FOD]）；StatusRaw 读取失败返回 null。</summary>
     public IReadOnlyList<string>? ActiveProtections
         => StatusRaw is { } raw ? QiChipStatusCodec.ActiveProtectionNames(raw) : null;
@@ -126,17 +131,33 @@ public static class QiChipStatusCodec
     };
 
     /// <summary>
-    /// 充电状态判定（与固件 board_charge_poll 门禁同极性）：
-    /// 充电使能后 0x01=充电中（无磁铁）、0x00=未充电（有磁铁）；未使能=充电失能。
+    /// 真充证据：充电功率>0 或 充电触发位（状态字节2 b0）=1——任一为真即充电中；
+    /// 两者都确证为假才是未充电；证据不全返回 null（按未充电显示）。
+    /// 放手机（磁铁不存在）会激活无线充：功率持续非 0、触发位持续 1。
     /// </summary>
-    public static string ChargingVerdict(bool chargeEnabled, byte? clampState)
+    public static bool? ChargingActiveFrom(ushort? powerMw, byte? status2)
+    {
+        bool? trig = status2 is { } s ? (s & 0x01) != 0 : null;
+        bool? pw = powerMw is { } m ? m > 0 : null;
+        if (trig == true || pw == true)
+            return true;
+        if (trig == false && pw == false)
+            return false;
+        return null;
+    }
+
+    /// <summary>
+    /// 充电状态判定：未使能=充电失能；磁铁存在=未充电；磁铁不存在时按真充
+    /// 证据区分「充电中 / 未充电」。
+    /// </summary>
+    public static string ChargingVerdict(bool chargeEnabled, byte? clampState, bool? chargingActive)
     {
         if (!chargeEnabled)
             return "充电失能";
         return clampState switch
         {
             0x00 => "磁铁存在·未充电",
-            0x01 => "磁铁不存在·充电中",
+            0x01 => chargingActive == true ? "磁铁不存在·充电中" : "磁铁不存在·未充电",
             null => "充电使能·磁铁状态未知",
             _ => $"充电使能·磁铁状态未知(0x{clampState:X2})",
         };
