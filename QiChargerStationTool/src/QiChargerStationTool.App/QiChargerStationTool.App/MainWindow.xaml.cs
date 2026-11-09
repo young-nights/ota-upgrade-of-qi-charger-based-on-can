@@ -1135,33 +1135,24 @@ public partial class MainWindow : Window
         var countText = st.ChargeCount is { } c2 ? $"{c2} 次" : "—";
         TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
                             $"{st.ChargingVerdict(_chargeEnabled)}   {protText}";
-        UpdateMagnetDisplay(st.ClampState, st.ChargingActive);
+        UpdateMagnetDisplay(st.ClampState);
     }
 
     /// <summary>
-    /// 刷新「磁铁 / 实际充电」大字显示（实测极性 + 真充证据）：
-    /// 0x00=磁铁存在·未充电（红）；0x01=磁铁不存在时按功率/触发位证据
-    /// 分「充电中」（绿）与「未充电」（橙）。
+    /// 刷新「磁铁 / 实际充电」大字显示（DID 0x2118 PA0 霍尔，实测极性）：
+    /// 0x00=磁铁不存在·充电中（绿），0x01=磁铁存在·未充电（红），未知=灰。
     /// </summary>
-    private void UpdateMagnetDisplay(byte? clampState, bool? chargingActive)
+    private void UpdateMagnetDisplay(byte? clampState)
     {
         switch (clampState)
         {
             case 0x00:
-                TxtMagnetState.Text = "磁铁存在·未充电";
-                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
+                TxtMagnetState.Text = "磁铁不存在·充电中";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
                 break;
             case 0x01:
-                if (chargingActive == true)
-                {
-                    TxtMagnetState.Text = "磁铁不存在·充电中";
-                    TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
-                }
-                else
-                {
-                    TxtMagnetState.Text = "磁铁不存在·未充电";
-                    TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xEF, 0x6C, 0x00));
-                }
+                TxtMagnetState.Text = "磁铁存在·未充电";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
                 break;
             default:
                 TxtMagnetState.Text = "充电使能·磁铁状态未知";
@@ -1294,11 +1285,9 @@ public partial class MainWindow : Window
             }
             _chargeEnabled = enable;
 
-            // 真充判定：0x2101 写成功只是「使能」；磁铁不存在(0x01)时还要按
-            // 充电功率 + 充电触发位（0x2111[1] b0）区分「充电中 / 未充电」。
+            // 真充判定：0x2101 写成功只是「使能」，固件 board_charge_poll 还要
+            // PA0 霍尔在位才真正接通充电。读 0x2118 当场给出磁铁存在/不存在。
             byte? clamp = null;
-            ushort? powerMw = null;
-            byte? status2 = null;
             if (enable)
             {
                 try
@@ -1306,17 +1295,6 @@ public partial class MainWindow : Window
                     clamp = QiChipStatusCodec.ReadU8(uds.ReadDid(ProtoIds.DidClampState, timeoutMs: 3000));
                 }
                 catch { /* 霍尔读取失败不阻断充电操作本身 */ }
-                try
-                {
-                    var sd = uds.ReadDid(ProtoIds.DidQiStatusRaw, timeoutMs: 3000);
-                    if (sd.Length >= 2) status2 = sd[1];
-                }
-                catch { /* optional */ }
-                try
-                {
-                    powerMw = QiChipStatusCodec.ReadU16Le(uds.ReadDid(ProtoIds.DidOutputPower, timeoutMs: 3000));
-                }
-                catch { /* optional */ }
             }
 
             await UiAsync(() =>
@@ -1324,10 +1302,9 @@ public partial class MainWindow : Window
                 if (enable)
                 {
                     Pass(name, "充电使能");
-                    if (clamp == 0x00)
-                        AppendLog("[充电] 提示：磁铁存在，未充电（磁铁未放上时才充电中）");
-                    UpdateMagnetDisplay(clamp,
-                        QiChipStatusCodec.ChargingActiveFrom(powerMw, status2));
+                    if (clamp == 0x01)
+                        AppendLog("[充电] 提示：磁铁存在，霍尔门禁未满足，未接通充电（磁铁不存在时才充电中）");
+                    UpdateMagnetDisplay(clamp);
                 }
                 else
                 {

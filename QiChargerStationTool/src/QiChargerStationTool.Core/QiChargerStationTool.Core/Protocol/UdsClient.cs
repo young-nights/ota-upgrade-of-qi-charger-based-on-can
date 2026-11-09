@@ -331,16 +331,6 @@ public sealed class UdsClient
         }
         catch { /* optional */ }
 
-        // 0x2111 现为 2 字节：[0]=状态1（保护位）[1]=状态2（b0=充电触发位，真充判据）
-        byte? st1 = null, st2 = null;
-        try
-        {
-            var sd = ReadDid(ProtoIds.DidQiStatusRaw);
-            if (sd.Length >= 1) st1 = sd[0];
-            if (sd.Length >= 2) st2 = sd[1];
-        }
-        catch { /* optional */ }
-
         return new QiChipStatus
         {
             IapState = st,
@@ -360,8 +350,7 @@ public sealed class UdsClient
             ThermalDerate = TryU8(ProtoIds.DidThermalDerate),
             PowerLimit = TryU8(ProtoIds.DidPowerLimit),
             ChargeCount = TryU32(ProtoIds.DidChargeCount),
-            StatusRaw = st1,
-            Status2Raw = st2,
+            StatusRaw = TryU8(ProtoIds.DidQiStatusRaw),
             ClampState = TryU8(ProtoIds.DidClampState),
         };
     }
