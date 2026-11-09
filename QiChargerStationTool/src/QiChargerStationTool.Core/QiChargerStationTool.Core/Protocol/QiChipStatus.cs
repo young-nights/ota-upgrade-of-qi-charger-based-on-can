@@ -38,8 +38,8 @@ public sealed class QiChipStatus
     public string FodName => FodStatus is { } f ? QiChipStatusCodec.FodName(f) : "读取失败";
     public string FaultName => FaultCode is { } f ? QiChipStatusCodec.FaultName(f) : "读取失败";
     public string PowerLimitName => PowerLimit is { } p ? QiChipStatusCodec.PowerLimitName(p) : "读取失败";
-    /// <summary>磁铁存在与否（霍尔触发）；读取失败为 null。</summary>
-    public bool? MagnetPresent => ClampState is { } s ? s == 0x00 : null;
+    /// <summary>磁铁存在与否（实测极性：0x01=存在）；读取失败为 null。</summary>
+    public bool? MagnetPresent => ClampState is { } s ? s == 0x01 : null;
     public string MagnetName => QiChipStatusCodec.MagnetName(ClampState);
     /// <summary>实际充电判定（与固件 board_charge_poll 门禁同逻辑）。</summary>
     public string ChargingVerdict(bool chargeEnabled) => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState);
@@ -114,30 +114,31 @@ public static class QiChipStatusCodec
         return list;
     }
 
-    // ---- DID 0x2118 PA0 霍尔 / 实际充电判定 ----
-    /// <summary>磁铁（霍尔）状态名。0x00=在位，0x01=不在位，null=读取失败。</summary>
+    // ---- DID 0x2118 PA0 霍尔 / 充电状态判定 ----
+    /// <summary>磁铁状态名。实测极性（2026-11-05）：0x00=磁铁不存在（充电中），
+    /// 0x01=磁铁存在（未充电），null=读取失败。</summary>
     public static string MagnetName(byte? clampState) => clampState switch
     {
-        0x00 => "磁铁存在",
-        0x01 => "磁铁不存在",
+        0x00 => "磁铁不存在",
+        0x01 => "磁铁存在",
         null => "读取失败",
         _ => $"未知(0x{clampState:X2})",
     };
 
     /// <summary>
-    /// 实际充电判定——与固件 board_charge_poll 门禁同逻辑（0x2101 已使能 且 霍尔在位）。
-    /// 开启充电指令只是使能；磁铁不在位时固件不会真正接通充电。
+    /// 充电状态判定（与固件 board_charge_poll 门禁同极性）：
+    /// 充电使能后 0x00=充电中、0x01=未充电；未使能=充电失能。
     /// </summary>
     public static string ChargingVerdict(bool chargeEnabled, byte? clampState)
     {
         if (!chargeEnabled)
-            return "实际充电未开启（充电未使能）";
+            return "充电失能";
         return clampState switch
         {
-            0x00 => "实际充电已开启（磁铁存在）",
-            0x01 => "实际充电未开启（磁铁不存在）",
-            null => "实际充电待确认（磁铁状态读取失败）",
-            _ => $"实际充电待确认（磁铁状态未知 0x{clampState:X2}）",
+            0x00 => "磁铁不存在·充电中",
+            0x01 => "磁铁存在·未充电",
+            null => "充电使能·磁铁状态未知",
+            _ => $"充电使能·磁铁状态未知(0x{clampState:X2})",
         };
     }
     public static readonly IReadOnlyDictionary<byte, string> IapStates = new Dictionary<byte, string>

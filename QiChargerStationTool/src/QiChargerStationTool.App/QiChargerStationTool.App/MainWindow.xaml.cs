@@ -1139,39 +1139,37 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 刷新「磁铁 / 实际充电」大字显示（DID 0x2118 PA0 霍尔）：
-    /// 绿=实际开启（使能且磁铁在位），红=磁铁不存在未开启，灰=未使能/未知。
+    /// 刷新「磁铁 / 实际充电」大字显示（DID 0x2118 PA0 霍尔，实测极性）：
+    /// 0x00=磁铁不存在·充电中（绿），0x01=磁铁存在·未充电（红），未知=灰。
     /// </summary>
     private void UpdateMagnetDisplay(byte? clampState)
     {
-        bool? magnet = clampState is { } s ? s == 0x00 : null;
-        if (magnet == true)
+        switch (clampState)
         {
-            TxtMagnetState.Text = _chargeEnabled ? "磁铁存在 · 实际开启" : "磁铁存在 · 充电未使能";
-            TxtMagnetState.Foreground = new SolidColorBrush(_chargeEnabled
-                ? Color.FromRgb(0x2E, 0x7D, 0x32) : Color.FromRgb(0x15, 0x65, 0xC0));
-        }
-        else if (magnet == false)
-        {
-            TxtMagnetState.Text = "磁铁不存在 · 未开启充电";
-            TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
-        }
-        else
-        {
-            TxtMagnetState.Text = "磁铁状态未知 —";
-            TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+            case 0x00:
+                TxtMagnetState.Text = "磁铁不存在·充电中";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
+                break;
+            case 0x01:
+                TxtMagnetState.Text = "磁铁存在·未充电";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
+                break;
+            default:
+                TxtMagnetState.Text = "充电使能·磁铁状态未知";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+                break;
         }
     }
 
     /// <summary>
-    /// 清除「磁铁 / 实际充电」状态显示并恢复占位（关闭充电后调用）：
-    /// Qi 芯片断电后面板数据失效，磁铁/真充状态不再有意义，必须清掉而非冻结旧值。
+    /// 关闭充电后清除磁铁/真充状态并显示「充电失能」：
+    /// Qi 芯片断电后面板数据失效，不残留旧状态。
     /// </summary>
     private void ResetMagnetDisplay()
     {
-        TxtMagnetState.Text = "—";
+        TxtMagnetState.Text = "充电失能";
         TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
-        TxtQiSummary.Text = "充电已关闭 — Qi 状态面板已失效";
+        TxtQiSummary.Text = "充电失能 — Qi 状态面板已失效";
     }
 
     /// <summary>单个保护位指示灯着色：null=未知(灰) / 置位=红 / 未置位=绿。</summary>
@@ -1303,16 +1301,15 @@ public partial class MainWindow : Window
             {
                 if (enable)
                 {
-                    var verdict = QiChipStatusCodec.ChargingVerdict(true, clamp);
-                    Pass(name, $"已开启 — {verdict}");
+                    Pass(name, "充电使能");
                     if (clamp == 0x01)
-                        AppendLog("[充电] 提示：磁铁不存在，固件门禁（0x2101 使能且霍尔在位）未满足，不会真正接通充电");
+                        AppendLog("[充电] 提示：磁铁存在，霍尔门禁未满足，未接通充电（磁铁不存在时才充电中）");
                     UpdateMagnetDisplay(clamp);
                 }
                 else
                 {
-                    Pass(name, "已关闭");
-                    AppendLog("[充电] 已关闭：Qi 状态检测按钮已禁用（Qi 芯片断电，检测无意义）");
+                    Pass(name, "充电失能");
+                    AppendLog("[充电] 已失能：Qi 状态检测按钮已禁用（Qi 芯片断电，检测无意义）");
                     // 关闭即清除磁铁/真充状态显示：Qi 面板失效，旧值不留在屏上
                     ResetMagnetDisplay();
                 }

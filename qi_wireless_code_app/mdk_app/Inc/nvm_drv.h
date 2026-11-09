@@ -38,16 +38,18 @@ extern "C" {
 
 /**
  * @brief  NVM configuration area layout
- * @note   AT32F426 with 128KB Flash uses 2KB sectors.
- *         Metadata lives at 0x0801D000 (primary) and 0x0801D800 (backup).
- *         NVM config uses 0x0801F000 ~ 0x0801FFFF (last 4KB = 1 sector).
+ * @note   AT32F426 with 128KB Flash uses 2KB sectors。
+ *         fw 1.1.65 起为乒乓双扇区：A=0x0801F000、B=0x0801F800 各存一份
+ *         完整镜像（[0x000]magic [0x004]seq [0x008]crc32 [0x100..]字段）。
+ *         写入=整镜像写非活动扇区后切换，擦写窗口断电不丢配置。
+ *         字段偏移（NVM_OFFSET_*，见 can_protocol.h）相对扇区基址、
+ *         两扇区一致，与旧版单扇区布局兼容。
  */
 #define NVM_CONFIG_BASE_ADDR            0x0801F000U  /*!< config area start address */
 #define NVM_CONFIG_END_ADDR             0x0801FFFFU  /*!< config area end address */
 #define NVM_CONFIG_SIZE                 0x1000U      /*!< config area size: 4KB */
 #define NVM_SECTOR_SIZE                 0x800U       /*!< sector size: 2KB for AT32F426 */
 #define NVM_VALIDITY_MAGIC              0x4E564D31U  /*!< magic: "NVM1" in ASCII */
-#define NVM_VALIDITY_OFFSET             0x0000U      /*!< offset of validity magic word */
 
 /* exported types ------------------------------------------------------------*/
 
@@ -74,8 +76,8 @@ typedef enum
 nvm_status_t nvm_drv_init(void);
 
 /**
- * @brief  read data from NVM config area
- * @param  offset: byte offset from config area base (0 ~ NVM_CONFIG_SIZE-1)
+ * @brief  read data from NVM config area (active bank)
+ * @param  offset: byte offset within the bank image (0 ~ NVM_SECTOR_SIZE-1)
  * @param  buf:    pointer to destination buffer
  * @param  len:    number of bytes to read
  * @retval NVM_STATUS_OK on success, error code otherwise
@@ -83,11 +85,10 @@ nvm_status_t nvm_drv_init(void);
 nvm_status_t nvm_drv_read(uint16_t offset, uint8_t *buf, uint16_t len);
 
 /**
- * @brief  write data to NVM config area (erase-then-write)
- * @note   this function erases the affected sector(s) before writing.
- *         data not covered by this write within the same sector will be
- *         preserved by read-modify-write (erase + rewrite).
- * @param  offset: byte offset from config area base (0 ~ NVM_CONFIG_SIZE-1)
+ * @brief  write data to NVM config area (ping-pong)
+ * @note   整镜像写入非活动扇区后切换活动指针；擦写窗口内断电时旧副本
+ *         保持完好。未写区域沿用当前镜像内容。
+ * @param  offset: byte offset within the bank image (0 ~ NVM_SECTOR_SIZE-1)
  * @param  buf:    pointer to source data buffer
  * @param  len:    number of bytes to write
  * @retval NVM_STATUS_OK on success, error code otherwise
@@ -95,26 +96,10 @@ nvm_status_t nvm_drv_read(uint16_t offset, uint8_t *buf, uint16_t len);
 nvm_status_t nvm_drv_write(uint16_t offset, uint8_t *buf, uint16_t len);
 
 /**
- * @brief  erase entire NVM config area
- * @note   erases all 4 sectors (8KB) of the config area.
- *         after erase, validity magic is lost.
- * @retval NVM_STATUS_OK on success, error code otherwise
- */
-nvm_status_t nvm_drv_erase(void);
-
-/**
- * @brief  check if NVM config area has valid magic word
+ * @brief  check if NVM config area has a valid image
  * @retval 1 = valid, 0 = invalid or erased
  */
 uint8_t nvm_drv_is_valid(void);
-
-/**
- * @brief  write validity magic word to config area
- * @note   call this after nvm_drv_erase() + initial data write
- *         to mark the config area as valid.
- * @retval NVM_STATUS_OK on success, error code otherwise
- */
-nvm_status_t nvm_drv_set_valid(void);
 
 #ifdef __cplusplus
 }

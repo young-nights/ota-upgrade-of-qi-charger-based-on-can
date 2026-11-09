@@ -118,6 +118,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 
 | 工具 | 版本要求 |
 |------|----------|
+| 2026-11-05 | **fix(fw/tool): 功率档位断电丢失根治（NVM 乒乓双扇区，fw 1.1.65）+ 充电状态显示修正**。**固件**：①根因实锤——`NVM_VALIDITY_MAGIC` 全工程无写入者（`nvm_drv_set_valid` 零调用）→ `nvm_drv_init` 校验永不过 → `qi_nvm_load_config` **从未加载过数据**，每次重启功率/使能/次数全回默认（15W→10W 即此）；读回 15W 只是 RAM 值≠落盘。②结构性弱点：`nvm_drv_write` 整扇区擦除+回写，断电落在窗口（如充电使能保存中）抹掉整扇区含 magic。修复：nvm_drv 重写为**乒乓双扇区**（A/B 各存完整镜像：magic+seq+crc32+字段，写入=整镜像写非活动扇区后切换并回读校验）——魔数随镜像写入（根因①）、擦写窗口断电旧副本完好（②）；无有效镜像时以扇区 A 原始内容为种子，升级不丢已存字段；删除无调用者的 nvm_drv_erase/set_valid。上电使能充电后照旧补发 NVM 档位给 Qi 芯片。**工具**：③「开启/关闭充电」结果文案改**充电使能/充电失能**；④磁铁状态极性反转修正（实测 0x00=磁铁不存在·充电中、0x01=磁铁存在·未充电，与固件 board_charge_poll 门禁同极性），面板四态文案/图例/Tooltip/单测同步。`SW_VERSION_STR` 1.1.64→1.1.65 |
 | 2026-11-05 | **fix(tool/fw): IAP 块偶发 8s 超时——76 按 BSC 匹配 + 重发诊断 + 双 76 撤销（fw 1.1.64）**。实测（QiChargerStationTool MCU2 IAP）：某块应答超时 8s（0 帧回包）后重发 **10ms** 即完成——24B 多帧完整往返至少 20ms+，10ms 只能命中固件 BSC 幂等去重即时 76 = **首帧已被设备处理、76 应答丢失**；且幂等立即回 76 时首包延迟应答（等 Qi ACK）还会再回一个 **76 双发**，错配后续块应答窗。修复：①工具 0x36 应答按 BSC 匹配（`expectSub=块序号`，三发送点统配）——迟到/重复 76 不再错配后续块；②`TryRequest/Request` 增 `onRetry` 诊断钩子，0x36 重发前读 0x2132 IAP 计数并记日志（sent 含本块=首帧已处理·应答丢失；未含=请求未完成·组包丢失）——下次故障自证根因；③固件 `can_proto_qi_iap_resp_cancel()`：重复 0x36 幂等回 76 前撤掉首包挂起的延迟应答，杀双 76。`SW_VERSION_STR` 1.1.63→1.1.64 |
 | 2026-11-05 | **docs(tool): 磁铁/实际充电显示加图例说明**：仪表盘磁铁大字下方常显四态说明（绿=磁铁存在·实际开启（充电使能+磁铁在位）／红=磁铁不存在·未开启充电／蓝=磁铁存在·充电未使能／灰=磁铁状态未知（读取失败）），与 `UpdateMagnetDisplay` 四种着色一一对应 |
 | Keil MDK | v5.38+ |
@@ -181,7 +182,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.64** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.65** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
