@@ -303,6 +303,15 @@ public partial class MainWindow : Window
             // 追加文本而非 Text += line（避免整串重排）；无选中时跟滚到底，
             // 有选中时不打扰用户正在框选的文本
             TxtLog.AppendText(line);
+            // TextBox.AppendText 是整控件重排——文本越长每条越慢（长时间
+            // 跑 OTA 后每条日志可到秒级，表现为「每块 4500ms」）。超限从头
+            // 截断，只留最近内容，追加成本有上界。
+            if (TxtLog.Text.Length > 120_000)
+            {
+                string t = TxtLog.Text;
+                int cut = t.IndexOf('\n', t.Length - 60_000);
+                if (cut > 0) TxtLog.Text = t[(cut + 1)..];
+            }
             if (TxtLog.SelectedText.Length == 0)
                 TxtLog.ScrollToEnd();
         });
@@ -705,6 +714,19 @@ public partial class MainWindow : Window
     private static async Task<(bool Ok, string Error)> WaitUdsReadyAsync(
         UdsClient uds, CancellationToken ct, int waitSec = 8, Action<string>? log = null)
     {
+        // 快路径：设备已醒时单探即就绪，跳过 2s 唤醒 burst（进入升级提速）。
+        // 睡眠设备会被该探测（03 22 头命中 WUF 近似掩码）误唤醒但应答丢在
+        // 重启窗里，落下面 burst+轮询慢路径，无碍。
+        {
+            var q = await Task.Run(() =>
+                uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 },
+                    timeoutMs: 1200, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
+            if (q.Ok || q.Nrc != 0)
+            {
+                log?.Invoke("[就绪] 快速探测命中，设备已就绪（跳过唤醒 burst）");
+                return (true, "");
+            }
+        }
         // SIT1145 WUF 唤醒 burst：≥6 帧 02 3E 80 CC…（DLC=8，suppressPosRsp 静默形态），PNDM=1 严格匹配
         log?.Invoke("[就绪] 发送唤醒 burst (8 帧)…");
         for (int i = 0; i < 8; i++)
@@ -779,6 +801,8 @@ public partial class MainWindow : Window
                 await FailAsync(name, readyErr);
                 return false;
             }
+            // 门禁/SA/擦除/传输全程高速模式：跳过逐帧生命周期解码与噪声日志
+            uds.FastTransfer = true;
 
             async Task<bool> MustStep(UdsResult r, string step)
             {
@@ -937,6 +961,7 @@ public partial class MainWindow : Window
             finally
             {
                 _quietLogs = false;
+                uds.FastTransfer = false;
             }
 
             await UiAsync(() => Pass(name, $"{size}B 传输完成"));

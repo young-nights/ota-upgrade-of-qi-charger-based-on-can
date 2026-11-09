@@ -51,6 +51,9 @@ public sealed class UdsClient
 
     private void Log(string m) => OnLog?.Invoke(m);
 
+    /// <summary>高速传输模式（透传 IsoTpClient）：升级批量传输期间跳过逐帧解码/噪声日志。</summary>
+    public bool FastTransfer { get => _tp.FastTransfer; set => _tp.FastTransfer = value; }
+
     /// <summary>上一次 <see cref="TryRequest"/> 的组帧发送耗时（ms，含 STmin 间隔）。</summary>
     public long LastSendMs { get; private set; }
 

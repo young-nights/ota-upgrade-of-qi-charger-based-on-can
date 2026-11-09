@@ -104,6 +104,13 @@ public sealed class IsoTpClient
         return "";
     }
 
+    /// <summary>
+    /// 高速传输模式：跳过逐帧生命周期解码/噪声日志（DecodeDiag、Hex、
+    /// SF 不匹配等），只计数——升级 0x36 大批量传输期间每帧解码+日志是
+    /// 纯开销，且日志膨胀会拖慢 UI 追加。
+    /// </summary>
+    public bool FastTransfer { get; set; }
+
     /// <summary>Move transport RX into local queue (called by UdsClient pump loop).</summary>
     public void Pump()
     {
@@ -259,6 +266,7 @@ public sealed class IsoTpClient
                         _sawAa55 = true;
                         if (f.Data.Length >= 4) _sawAa55Sid = f.Data[3];
                     }
+                    if (FastTransfer) continue; // 传输模式：不解码不打日志，只计数
                     string diag = DecodeDiag(nid, f.Data);
                     if (noiseIds[nid] <= 3)
                         Log($"[RX?] id={nid:X8} {Hex(f.Data)}{(diag.Length > 0 ? "  → " + diag : "")}");
@@ -272,7 +280,7 @@ public sealed class IsoTpClient
                     var data = f.Data.AsSpan(1, n).ToArray();
                     if (match(data)) return data;
                     // 7E(3E 保活应答)/7F(NRC) 是等待期间的过路流量，不刷屏
-                    if (data.Length == 0 || (data[0] != 0x7E && data[0] != 0x7F))
+                    if (!FastTransfer && (data.Length == 0 || (data[0] != 0x7E && data[0] != 0x7F)))
                         Log($"[RX] SF 不匹配 {Hex(data)}");
                 }
                 else if (pci == 0x10)
@@ -314,7 +322,7 @@ public sealed class IsoTpClient
                         _ffBuf = null;
                         _cfBuf.Clear();
                         if (match(data)) return data;
-                        Log($"[RX] MF 不匹配 {Hex(data)}");
+                        if (!FastTransfer) Log($"[RX] MF 不匹配 {Hex(data)}");
                     }
                 }
                 else if (pci == 0x20 && _ffBuf is null)
