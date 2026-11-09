@@ -118,6 +118,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 
 | 工具 | 版本要求 |
 |------|----------|
+| 2026-11-05 | **fix(isotp): FF 重发风暴与 CF 卡顿根治——SA「无应答」失败链条（fw 1.1.67）**。15:43 关闭充电 FAIL 实证链条：SA seed 应答 FF 被工具收到却显示 3 份（3ms 间隔）→ FF×3 堵满 PTB+STB 邮箱 →CF 发送找不到空位、fast 重试环无补触发 → CF 1s 级卡顿 → 34B seed 应答拖过 5s 超时 → 27 01 无应答 → SA 解锁失败。根因两层：①TSTAT 报 ABORTED 不可信——ACK 位被车辆流量撞掉时硬件自动重传，帧已上线而发送方报中止（工具实收 3 份 FF 为证）；②我 1.1.60 的「确认失败→重发 FF」在此现象上叠加软件重复。修复：①isotp_can_send full 模式确认失败**一律不重发**（真丢失由主机请求重发/g_tx_pend 冲刷恢复）；②fast 模式（CF/SF）重试环补 `can_driver_tx_pump()`——邮箱滞留时靠补触发腾位，CF 连发不再卡 500ms。归因更正：此前判为纯上位机问题的「FF 重复/FC 风暴」实为固件侧（1.1.60 改动 + fast 路径缺补触发）。`SW_VERSION_STR` 1.1.66→1.1.67 |
 | 2026-11-05 | **fix(tool): 15:26 日志三问题修复（纯上位机，无固件改动）**。①唤醒帧改 `02 3E 80`（suppressPosRsp 形态，WUF byte1=0x3E 照匹配）——不再产生 7E 应答/组包标记噪声（旧 02 3E 00 双重身份=唤醒帧+TesterPresent，每个唤醒都触发派发+7E+AA55）；②`IsoTpClient.DrainStale()`：新请求前排空接收队列并复位 ISO-TP 半包——迟到/串台旧应答不带入当前窗口（根治「SF 不匹配 67 03 06」类噪声与错配）；③AA55 超时提示带 SID 并区分归因（sid 一致=本请求已派发·应答丢失；不一致=保活/唤醒帧标记）——旧提示把唤醒帧的 AA55 误判成本请求组包标记。WSL 验证：Core 0W/0E，tests 21/21 |
 | 2026-11-05 | **fix(tool): 无应答不再抛异常/中断——调试期设备不应答软处理**。现象：设备挂调试器/不应答时 `UdsException:"UDS 无应答…"` 被抛出，中断调用流程与 VS 调试会话。修复：①`UdsClient.ReadDid` 失败（含无应答）返回 null、**不抛**；`ReadQiChipStatus` 返回 `QiChipStatus?`（首读无应答=null）；②「Qi 状态检测」轮询收到 null 静默跳过并节流记「无应答，继续轮询」——不打红字不停轮询；③`RunOpAsync` 对 `UdsException`(Nrc=0 无应答) 改软状态「无应答」（灰）：不 FAIL 红字、不打断后续；④Station 步骤 QiStatusQueryStep 空值防护（非 Critical 不阻断产线）。NRC（设备明确答复）仍按原 FAIL 语义。WSL 验证：两 Core 0W/0E；tests 21/21 |
 | 2026-11-05 | **feat(tool): 真充判定 2s 滑动采样去抖——空载功率小幅跳动不再误判充电中**。背景：手机未放上时功率值会小幅跳动，单点采样误判「充电中」；充电时电流显著>1A（raw 显著非 0）。按用户要求**不做单位换算**，直接用 Qi 传回原值判定：单采样证据=电流 raw>0 或 功率>0 或 充电触发位(0x2111[1] b0)=1，经 `DebounceFilter`（2s 时间窗，双向）平滑后才出结论——单点尖峰/瞬时回落均不翻转状态，持续 2s 才切换。Core 增 `DebounceFilter`/`ChargingEvidenceFrom`/`ChargingActiveFrom`（时刻注入、可单测），「开启充电」读 0x2118/0x2111/0x2104/**0x2105** 四信号并清滤波器喂首采样，「Qi 状态检测」轮询逐拍喂样。单测 21/21（新增去抖双向滤波 + 原值证据用例） |
@@ -186,7 +187,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.66** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.67** | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
