@@ -693,7 +693,7 @@ public partial class MainWindow : Window
     private static async Task<(bool Ok, string Error)> WaitUdsReadyAsync(
         UdsClient uds, CancellationToken ct, int waitSec = 8, Action<string>? log = null)
     {
-        // SIT1145 WUF 唤醒 burst：≥6 帧 02 3E 00 CC…（DLC=8），PNDM=1 严格匹配
+        // SIT1145 WUF 唤醒 burst：≥6 帧 02 3E 80 CC…（DLC=8，suppressPosRsp 静默形态），PNDM=1 严格匹配
         log?.Invoke("[就绪] 发送唤醒 burst (8 帧)…");
         for (int i = 0; i < 8; i++)
         {

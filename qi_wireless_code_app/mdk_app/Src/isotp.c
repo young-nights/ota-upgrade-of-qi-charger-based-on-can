@@ -75,13 +75,15 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
         if ((can_driver_last_tx_handle(&h_after) == 0) &&
             ((have_prev == 0U) || (h_after != h_before)))
         {
-          /* 确认仅快速放行用；**失败一律不重发**——TSTAT 报 ABORTED
-           * 的帧常已实际上线（ACK 位被车辆流量撞掉→硬件自动重传→
-           * 接收方收到重复帧而发送方报 ABORTED，2026-11-05 SA 应答
-           * FF×3 实证）。软件重发会叠加重复 FF、堵满 PTB+STB 邮箱，
-           * 拖垮 CF 发送节奏（1s 级卡顿→主机超时）。真丢失由上层
-           * 恢复（主机请求重发 / g_tx_pend 冲刷）。 */
-          (void)can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS);
+          /* 确认窗口 50ms 即可（帧上总线 ~0.5ms）；1000ms 会在
+           * handle 确认偶尔丢失时把主循环卡死，拖垮后续 FC/应答。
+           * 确认失败视为未发出并重试：FF 没上总线时主机等不到 FC，
+           * 整个多帧响应必死；重复 FF 对主机幂等（与 FC 重试同权衡）。 */
+          if (can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS) == 0)
+          {
+            return 0;
+          }
+          continue;
         }
         return 0;
       }
@@ -94,9 +96,6 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
     start = timer_get_tick();
     while ((timer_get_tick() - start) < 500U)
     {
-      /* STB 滞留时补触发：邮箱被前帧占满时靠 poll 补触发腾位，
-       * 否则整段 CF 连发卡在 500ms 重试环里（2026-11-05 CF 1s 卡顿） */
-      can_driver_tx_pump();
       if (can_driver_send(can_id, frame, len) == 0)
       {
         return 0;

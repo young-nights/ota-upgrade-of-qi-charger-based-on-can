@@ -210,17 +210,22 @@ public sealed class UdsClient
     public VersionSet TryReadAllVersions(CancellationToken ct = default)
     {
         var v = new VersionSet();
+        if (ct.IsCancellationRequested) return v;
+
         var (ok1, mcu1, e1) = TryAsciiDidRetry(ProtoIds.DidSwVersion, ct);
         v.Mcu1App = ok1 ? mcu1 : null;
         if (!ok1) v.Errors.Add($"MCU1(F195): {e1}");
+        if (ct.IsCancellationRequested) return v;
 
         var (ok2, mcu2, e2) = TryReadQiFwVersion(ct);
         v.Mcu2Qi = ok2 ? mcu2 : null;
         if (!ok2) v.Errors.Add($"MCU2(2133): {e2}");
+        if (ct.IsCancellationRequested) return v;
 
         var (okb, boot, eb) = TryAsciiDidRetry(ProtoIds.DidBootVersion, ct);
         v.Bootloader = okb ? boot : null;
         if (!okb) v.Errors.Add($"Boot(F180): {eb}");
+        if (ct.IsCancellationRequested) return v;
 
         var (okh, hw, eh) = TryAsciiDidRetry(ProtoIds.DidHwVersion, ct);
         v.Hardware = okh ? hw : null;
@@ -229,11 +234,14 @@ public sealed class UdsClient
         return v;
     }
 
-    /// <summary>ASCII DID 读取 + 一次重试（多帧应答偶发 FF/FC 竞态，重试即过）。</summary>
+    /// <summary>
+    /// ASCII DID 读取 + 一次重试（多帧应答偶发 FF/FC 竞态，重试即过）。
+    /// 已取消（ct）不重试——否则会在截止瞬间把请求再发一遍（重复 TX）。
+    /// </summary>
     private (bool Ok, string Text, string Error) TryAsciiDidRetry(ushort did, CancellationToken ct)
     {
         var r = TryReadAsciiDid(did, ct);
-        if (r.Ok)
+        if (r.Ok || ct.IsCancellationRequested)
             return r;
         return TryReadAsciiDid(did, ct);
     }

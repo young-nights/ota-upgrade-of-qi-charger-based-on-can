@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.67";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.65";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -177,7 +177,6 @@ static uint8_t  g_qi_pwr_cfg_sent     = 0U;   /*!< 本次 Qi 上电后功率配�
 static uint32_t g_qi_pwr_cfg_due      = 0U;   /*!< 功率配置延迟下发时间点（0=无计划；上电/开充后置 now+100ms） */
 static uint32_t g_qi_charge_count     = 0U;   /*!< DID 0x210E 充电次数（状态字节2 b0 上升沿计数，NVM 持久化） */
 static uint8_t  g_qi_charge_trig_bit  = 0U;   /*!< 状态字节2 b0 上次采样值（边沿检测用） */
-static uint8_t  g_qi_status2_raw      = 0U;   /*!< 状态字节2 原始值（b0=充电触发位，DID 0x2111 [1]） */
 
 /** @brief  SIT1145 Normal + CAN online. Power-on is Normal (idle 30 s → Sleep). */
 static uint8_t  g_can_awake = 0;
@@ -1353,13 +1352,8 @@ static void qi_nvm_load_config(void)
     /* 充电次数计数器（uint32 LE） */
     if (nvm_drv_read(NVM_OFFSET_CHARGE_COUNT, buf, 4U) == NVM_STATUS_OK)
     {
-      uint32_t cnt = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) |
-                     ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 24);
-      /* 0xFFFFFFFF=未写入/擦除态（旧布局迁移），0=未使用——均不采用 */
-      if ((cnt != 0xFFFFFFFFU) && (cnt != 0U))
-      {
-        g_qi_charge_count = cnt;
-      }
+      g_qi_charge_count = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) |
+                          ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 24);
     }
   }
 }
@@ -1696,12 +1690,10 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 4U;
       return 0;
     case DID_QI_STATUS_RAW:
-      /* Qi 状态报文 data[0..1] 原始字节，供上位机逐位显示：
-       * [0] b0=PING b1=CHARGING b2=FULL b3=OVP b4=UVP b5=OCP b6=OTP b7=FOD
-       * [1] b0=充电触发位（30s 去抖，充电中持续 1）——真充判据之一 */
+      /* Qi 状态报文 data[0] 原始字节（含保护位），供上位机逐位显示：
+       * b0=PING b1=CHARGING b2=FULL b3=OVP b4=UVP b5=OCP b6=OTP b7=FOD */
       out[0] = g_qi_status_raw;
-      out[1] = g_qi_status2_raw;
-      *olen = 2U;
+      *olen = 1U;
       return 0;
     case 0x21FFU:
       out[0] = sit1145_get_mode();  /* 0x04=Standby, 0x07=Normal, 0x01=Sleep */
@@ -2630,7 +2622,6 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
      * （DID 0x210E）。仅上升沿计数，下降沿只更新采样值。 */
     {
       uint8_t trig = (uint8_t)(frame->data[1] & 0x01U);
-      g_qi_status2_raw = frame->data[1];  /* DID 0x2111 [1]：b0=充电触发位（真充判据） */
       if ((trig != 0U) && (g_qi_charge_trig_bit == 0U))
       {
         uint8_t nb[4];

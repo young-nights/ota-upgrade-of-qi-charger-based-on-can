@@ -118,6 +118,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 
 | 工具 | 版本要求 |
 |------|----------|
+| 2026-11-05 | **revert(fw)+fix(tool): 固件回退 1.1.65 基线（用户指令）+ 读版本重复发送修复**。**固件**：按用户指令 `qi_wireless_code_app/` 整树回退至 1.1.65 状态（撤销 1.1.66：0x2111 2B/计数校验/NVM 遗留迁移；撤销 1.1.67：FF 确认不重发/fast tx_pump），`SW_VERSION_STR` 回 **1.1.65**（用户指定版本号回退，覆盖递增规则）。⚠️ 风险注记：1.1.65 仍含 1.1.60 的 FF「确认失败即重发」——15:43 SA 应答 FF×3 风暴的固件端来源；若回退后复现，可单独重打 1.1.67 的 isotp 两处（FF 不重发 + fast 补触发）。**工具**（20:21 读版本日志实锤）：①`TryAsciiDidRetry` 失败即重试不看取消——15s 截止瞬间 `22 F1 80`/`22 F1 93` 被「已取消」触发重试各发两遍（重复 TX 实锤）；改为取消不重试。②`TryReadAllVersions` 取消后仍继续读后续 DID——改为逐段检查 ct 提前收束。③上位机兼容 1.1.65 的 0x2111 1B（≥2B 才取触发位，缺失按功率/电流证据判定）。④WakeUdsReadyAsync 唤醒帧注释同步 3E 80。WSL 验证：Core 0W/0E，tests 21/21 |
 | 2026-11-05 | **fix(isotp): FF 重发风暴与 CF 卡顿根治——SA「无应答」失败链条（fw 1.1.67）**。15:43 关闭充电 FAIL 实证链条：SA seed 应答 FF 被工具收到却显示 3 份（3ms 间隔）→ FF×3 堵满 PTB+STB 邮箱 →CF 发送找不到空位、fast 重试环无补触发 → CF 1s 级卡顿 → 34B seed 应答拖过 5s 超时 → 27 01 无应答 → SA 解锁失败。根因两层：①TSTAT 报 ABORTED 不可信——ACK 位被车辆流量撞掉时硬件自动重传，帧已上线而发送方报中止（工具实收 3 份 FF 为证）；②我 1.1.60 的「确认失败→重发 FF」在此现象上叠加软件重复。修复：①isotp_can_send full 模式确认失败**一律不重发**（真丢失由主机请求重发/g_tx_pend 冲刷恢复）；②fast 模式（CF/SF）重试环补 `can_driver_tx_pump()`——邮箱滞留时靠补触发腾位，CF 连发不再卡 500ms。归因更正：此前判为纯上位机问题的「FF 重复/FC 风暴」实为固件侧（1.1.60 改动 + fast 路径缺补触发）。`SW_VERSION_STR` 1.1.66→1.1.67 |
 | 2026-11-05 | **fix(tool): 15:26 日志三问题修复（纯上位机，无固件改动）**。①唤醒帧改 `02 3E 80`（suppressPosRsp 形态，WUF byte1=0x3E 照匹配）——不再产生 7E 应答/组包标记噪声（旧 02 3E 00 双重身份=唤醒帧+TesterPresent，每个唤醒都触发派发+7E+AA55）；②`IsoTpClient.DrainStale()`：新请求前排空接收队列并复位 ISO-TP 半包——迟到/串台旧应答不带入当前窗口（根治「SF 不匹配 67 03 06」类噪声与错配）；③AA55 超时提示带 SID 并区分归因（sid 一致=本请求已派发·应答丢失；不一致=保活/唤醒帧标记）——旧提示把唤醒帧的 AA55 误判成本请求组包标记。WSL 验证：Core 0W/0E，tests 21/21 |
 | 2026-11-05 | **fix(tool): 无应答不再抛异常/中断——调试期设备不应答软处理**。现象：设备挂调试器/不应答时 `UdsException:"UDS 无应答…"` 被抛出，中断调用流程与 VS 调试会话。修复：①`UdsClient.ReadDid` 失败（含无应答）返回 null、**不抛**；`ReadQiChipStatus` 返回 `QiChipStatus?`（首读无应答=null）；②「Qi 状态检测」轮询收到 null 静默跳过并节流记「无应答，继续轮询」——不打红字不停轮询；③`RunOpAsync` 对 `UdsException`(Nrc=0 无应答) 改软状态「无应答」（灰）：不 FAIL 红字、不打断后续；④Station 步骤 QiStatusQueryStep 空值防护（非 Critical 不阻断产线）。NRC（设备明确答复）仍按原 FAIL 语义。WSL 验证：两 Core 0W/0E；tests 21/21 |
@@ -187,7 +188,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.67** | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.65**（回退基线） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 

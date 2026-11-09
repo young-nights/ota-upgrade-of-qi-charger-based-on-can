@@ -196,23 +196,9 @@ nvm_status_t nvm_drv_init(void)
 
   if ((ok_a == 0U) && (ok_b == 0U))
   {
-    /* 无有效镜像：若 A 扇区留有 1.1.65 前旧布局的字段数据（无头，
-     * 0x100.. 区非全 FF），按遗留数据接管——读走原值、首次写入时
-     * 迁移成新镜像，升级不丢用户设置（功率档位/充电次数等）。 */
-    uint32_t off;
-    uint8_t  legacy = 0U;
-    for (off = 0x100U; off < 0x110U; off++)
-    {
-      if (*(volatile uint8_t *)(bank_base(0U) + off) != 0xFFU)
-      {
-        legacy = 1U;
-        break;
-      }
-    }
-    nvm_active_bank = 0U;
-    nvm_active_seq  = 0U;
-    nvm_initialized = legacy;
-    return (legacy != 0U) ? NVM_STATUS_OK : NVM_STATUS_NOT_INIT;
+    nvm_initialized  = 0U;
+    nvm_active_seq   = 0U;
+    return NVM_STATUS_NOT_INIT;
   }
 
   /* 活动镜像 = 有效者中 seq 大者（序号在每次写入时 +1） */
