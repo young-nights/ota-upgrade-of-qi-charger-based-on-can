@@ -218,6 +218,10 @@ public sealed class IsoTpClient
         _sawBootup = false;
         _sawAa55 = false;
         _sawAa55Sid = 0;
+        // 本次等待的诊断必须本次生成：残留上次的 detail 会把旧窗口的
+        // 噪声计数误报到新请求头上（实测 HW 读把首轮 BOOTUP 窗口的
+        // 「收 8 帧/噪声 8」安到自己头上）
+        LastTimeoutDetail = "";
 
         // 半包看门狗：FF 已收但 5s 内没凑齐 → 丢弃半包，防下一次误拼
         if (_ffBuf is not null && Environment.TickCount64 > _ffDeadline)
@@ -229,7 +233,11 @@ public sealed class IsoTpClient
 
         while (Environment.TickCount64 < deadline)
         {
-            if (ct.IsCancellationRequested) return null;
+            if (ct.IsCancellationRequested)
+            {
+                LastTimeoutDetail = "已取消";
+                return null;
+            }
             Pump();
             while (_rxq.TryDequeue(out var f))
             {

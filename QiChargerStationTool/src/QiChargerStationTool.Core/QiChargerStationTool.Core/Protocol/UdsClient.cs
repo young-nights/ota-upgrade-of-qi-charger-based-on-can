@@ -93,6 +93,9 @@ public sealed class UdsClient
     {
         try
         {
+            // 已取消就不再发：否则截止瞬间仍会补一发 TX（幽灵请求）
+            if (ct.IsCancellationRequested)
+                return UdsResult.Fail("已取消");
             // 清残留：上一请求的迟到应答/半包不带入本窗口（防 SF 不匹配与错配）
             _tp.DrainStale();
             var uds = new byte[1 + payload.Length];
@@ -128,6 +131,9 @@ public sealed class UdsClient
                 if (data is null)
                 {
                     LastRecvMs = Environment.TickCount64 - tRecv;
+                    // 取消导致的返回 null 不能报「无应答」——会带上上次的陈旧诊断
+                    if (ct.IsCancellationRequested)
+                        return UdsResult.Fail("已取消");
                     return UdsResult.Fail($"UDS 无应答: {_tp.LastTimeoutDetail}");
                 }
 

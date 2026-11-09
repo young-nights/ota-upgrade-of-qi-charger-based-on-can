@@ -606,8 +606,20 @@ public partial class MainWindow : Window
     // ---------- 测试操作按钮 ----------
 
     private async void OnReadVersion(object sender, RoutedEventArgs e)
-        => await RunOpAsync("读版本", TimeSpan.FromSeconds(15), async (uds, ct) =>
+        => await RunOpAsync("读版本", TimeSpan.FromSeconds(40), async (uds, ct) =>
         {
+            // 与读 SN/写 SN 同前置：真休眠=整板断电，单帧请求会唤醒设备但丢在
+            // 重启窗口里；设备不在总线时也在 10s 内给出明确定诊而不是逐 DID 空超时
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 8, log: AppendLog);
+            if (!ready)
+            {
+                await UiAsync(() =>
+                {
+                    AppendResult("FAIL", "读版本", readyErr);
+                    SetState("失败", Colors.Crimson, readyErr);
+                });
+                return false;
+            }
             // 若设备刚 BOOTUP，自动多等 1s 再读
             var ver = await Task.Run(() =>
             {
@@ -708,9 +720,11 @@ public partial class MainWindow : Window
         {
             if (ct.IsCancellationRequested) return (false, "已取消");
             n++;
+            // 探测超时 3s：设备请求派发实测有 ~2s 延迟，1.5s 窗口会漏掉自己的
+            // 迟到应答（且 DrainStale 会把迟到应答清掉），探测永远追不上
             var r = await Task.Run(() =>
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 },
-                    timeoutMs: 1500, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
+                    timeoutMs: 3000, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
             if (r.Ok)
             {
                 log?.Invoke($"[就绪] 第 {n} 次探测 UDS 应答，设备就绪");
@@ -728,7 +742,7 @@ public partial class MainWindow : Window
             log?.Invoke($"[就绪] 第 {n} 次探测无应答，0.5s 后重试…");
             await Task.Delay(500, ct);
         }
-        return (false, $"等待 UDS 就绪超时 {waitSec}s（设备可能仍在 Boot 或未上电）");
+        return (false, $"等待 UDS 就绪超时 {waitSec}s（设备未上电/被编程中/休眠未唤醒；确认接线无误仍无回包请断电重启设备再试）");
     }
 
     private async Task RunUpgradeAsync(string name, byte otaTarget, int transferBlock,
