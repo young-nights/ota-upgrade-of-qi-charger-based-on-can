@@ -171,7 +171,7 @@
                        Foreground="#0D47A1" Margin="0,2,0,0"
                        ToolTip="PA0 霍尔（DID 0x2118，实测极性）：0x00=磁铁不存在·充电中，0x01=磁铁存在·未充电"/>
             <TextBlock FontSize="10" Foreground="#78909C" Margin="0,3,0,0" TextWrapping="Wrap"
-                       Text="绿=磁铁不存在·充电中（充电使能+无磁铁）&#x0a;红=磁铁存在·未充电&#x0a;灰=磁铁状态未知（读取失败）&#x0a;蓝=充电失能"/>
+                       Text="绿=磁铁不存在·充电中（充电使能+无磁铁）&#x0a;红=磁铁存在·未充电（充电使能+有磁铁）&#x0a;蓝=充电失能"/>
           </StackPanel>
         </Border>
         <TextBlock Text="保护位" FontWeight="Bold" Foreground="#333" Margin="0,0,0,4"/>
