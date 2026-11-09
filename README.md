@@ -118,6 +118,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 
 | 工具 | 版本要求 |
 |------|----------|
+| 2026-11-09 | **fix(can): TX 发送路径三处根治——重传上限/PTB 孤儿 abort/触发位卡死解锁（fw 1.1.71）**。station_log_20261109_233945 实证请求全程恒 ~2s（AA55 派发 +1.98s ±10ms）+ MF 组包 CF4 卡 ~1s，全为 500/1000/2000ms 超时粒度=发送缓冲排队。根因链：`can_retransmission_limit_set` 全工程无人调用（复位默认不限次）→ 丢 ACK 的帧无限重传咬死触发位 → PTB/STB 后续帧全锁 1~2s；且 `can_try_txbuf` PTB 触发失败回退 STB 后孤儿帧会被后续 PTB 触发带上线=同一帧发 2~3 份（FF×3）；`can_driver_tx_pump` 补触发守卫在卡死时永不放行。修复：①init 设 RETLIM/REALIM=3（~2ms 出 ABORTED 终态，上层补发恢复）；②PTB 触发失败先 `can_transmit_abort(PTB)` 杀孤儿再回退 STB；③pump 触发位滞留 >50ms 强制 abort 解锁重触发。`SW_VERSION_STR`→**1.1.71** |
 | 2026-11-09 | **fix(isotp): 叠加 FF 不重发 + fast 补触发到 5687add 基线（fw 1.1.70，用户指令版本号）**。station_log_20261109_204150 实证同一链条：MF 应答 FF×3（3ms 间隔=确认报 ABORTED 即软件重发，帧实际已上线）→ 邮箱被重复 FF 堵满 → CF 1s 级卡顿 + E0~E3 诊断帧 1s/帧 → **请求派发晚 2s**（AA55 实证，主循环被阻塞 MF 发送卡住）→ 15s 预算被吃光 → Boot/HW 版本「读取失败」。修复=1.1.67 的两处 isotp 改动叠上 5687add 基线（其余固件不动、上位机不动）：①FF 确认失败一律不重发（TSTAT ABORTED 常=已上线，硬件自动重传所致；真丢失由主机重发/g_tx_pend 冲刷恢复）；②fast 模式（CF/SF）重试环补 `can_driver_tx_pump()`——邮箱滞留补触发腾位。`SW_VERSION_STR`→**1.1.70** |
 | 2026-11-05 | **revert(fw): 固件基线定档 5687add（fw 1.1.66），上位机不动（用户指令）**。固件 `qi_wireless_code_app/` 整树取 5687add 状态（=1.1.66：NVM 乒乓+遗留迁移、0x2111 2B、充电次数加载校验；isotp 为 1.1.60 FF 确认重发形态）。用户实证该版固件可用，此前问题定位在上位机侧（08cb5fc 已修读版本取消重发等）。上位机代码保持现状不再改动；docs/3 0x2111 行同步回 2B 口径。`SW_VERSION_STR`=1.1.66 |
 | 2026-11-05 | **revert(fw)+fix(tool): 固件回退 1.1.65 基线（用户指令）+ 读版本重复发送修复**。**固件**：按用户指令 `qi_wireless_code_app/` 整树回退至 1.1.65 状态（撤销 1.1.66：0x2111 2B/计数校验/NVM 遗留迁移；撤销 1.1.67：FF 确认不重发/fast tx_pump），`SW_VERSION_STR` 回 **1.1.65**（用户指定版本号回退，覆盖递增规则）。⚠️ 风险注记：1.1.65 仍含 1.1.60 的 FF「确认失败即重发」——15:43 SA 应答 FF×3 风暴的固件端来源；若回退后复现，可单独重打 1.1.67 的 isotp 两处（FF 不重发 + fast 补触发）。**工具**（20:21 读版本日志实锤）：①`TryAsciiDidRetry` 失败即重试不看取消——15s 截止瞬间 `22 F1 80`/`22 F1 93` 被「已取消」触发重试各发两遍（重复 TX 实锤）；改为取消不重试。②`TryReadAllVersions` 取消后仍继续读后续 DID——改为逐段检查 ct 提前收束。③上位机兼容 1.1.65 的 0x2111 1B（≥2B 才取触发位，缺失按功率/电流证据判定）。④WakeUdsReadyAsync 唤醒帧注释同步 3E 80。WSL 验证：Core 0W/0E，tests 21/21 |
@@ -190,7 +191,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.70**（基线 5687add + isotp 修复） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.71**（TX 发送路径根治） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 

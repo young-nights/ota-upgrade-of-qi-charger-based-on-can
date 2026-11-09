@@ -104,6 +104,15 @@ static void can_hw_config_in_reset(void)
   /* 正常通信模式（非 Listen-only / 自测） */
   can_mode_set(CAN1, CAN_MODE_COMMUNICATE);
 
+  /* 重传/仲裁次数限制（fw 1.1.71）：不设（复位默认不限次）时丢 ACK 的
+   * 帧按 RETLIM 无限重传，TSTAT 长期停在 DISTURBED/LOST_ARBITRATION，
+   * 触发位被咬住——PTB/STB 后续帧全部锁在缓冲里 1~2s（实测 FF×3、
+   * CF4 卡 1s、AA55 迟 2s、OTA 每块 4.5s 的总根因）。限 3 次即止：
+   * ~2ms 内出 ABORTED 终态，wait_tx_frame 回 -2 由上层补发/幂等恢复。
+   * 宁可丢一帧（上层有重试）不可让发送路径停摆。 */
+  can_retransmission_limit_set(CAN1, CAN_RE_TRANS_TIMES_3);
+  can_rearbitration_limit_set(CAN1, CAN_RE_ARBI_TIMES_3);
+
   /* 250 kbps / 75% SP：18 MHz tq / 72 = 250k */
   can_bittime_default_para_init(&can_bittime_struct);
   can_bittime_struct.bittime_div  = CAN_BITTIME_DIV;
@@ -392,9 +401,12 @@ static int8_t can_try_txbuf(can_txbuf_select_type sel, can_txbuf_type *tx_buf)
     {
       /* 触发失败（tpe/tpa 未清）：帧已写入 PTB 但没有触发就不会上
        * 总线，而 PTB 无补触发通道（can_driver_poll 只补 STB）——这正是
-       * 76/7F 应答"入队成功却静默消失"的根因路径。返回 -1 让调用方
-       * 双邮箱回退把同一帧经 STB 送出（poll 补触发兜底送达）；PTB
-       * 孤儿帧没有任何后续触发入口，不会重复上线。 */
+       * 76/7F 应答"入队成功却静默消失"的根因路径。
+       * fw 1.1.71：先 abort 掉 PTB 里的孤儿帧再回退 STB。旧注释假设
+       * 「PTB 孤儿帧不会重复上线」实测错误——后续任一次 PTB 触发会把
+       * 孤儿带上线，同一帧发 2~3 份（日志 FF×3 的根因）。abort 后回退
+       * STB 唯一上线，poll 补触发兜底送达。 */
+      can_transmit_abort(CAN1, CAN_ABORT_TRANSMIT_PTB);
       return -1;
     }
   }
@@ -745,12 +757,40 @@ void can_driver_tx_pump(void)
    * 主机侧表现为「UDS 无应答」）。can_try_txbuf 无法在写入点重试
    * （触发位要等当前帧发完才清），故每轮检测 STB 非空且无触发挂起
    * 即补发 STB_ALL，滞留帧一轮主循环内出队。 */
+  static uint32_t s_stuck_since = 0U;
+
   if ((can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY) &&
       (CAN1->ctrlstat_bit.tsall == 0U) &&
       (CAN1->ctrlstat_bit.tsone == 0U) &&
       (CAN1->ctrlstat_bit.tsa == 0U))
   {
     (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
+    s_stuck_since = 0U;
+    return;
+  }
+
+  /* 触发位持续置位超过 50ms 判卡死（正常一帧 250kbps 上线 <2ms）：
+   * 重传环/终态位未清会把后续帧全锁在 STB FIFO（CF4 卡 1s、AA55
+   * 迟 2s 的放大器），而上面的补触发守卫在卡死时永不放行。强制
+   * abort 解锁后重触发——宁可丢在途帧（上层补发/幂等）不可停摆。 */
+  if (can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY)
+  {
+    uint32_t now = timer_get_tick();
+    if (s_stuck_since == 0U)
+    {
+      s_stuck_since = now;
+    }
+    else if ((now - s_stuck_since) > 50U)
+    {
+      can_transmit_abort(CAN1, CAN_ABORT_TRANSMIT_PTB);
+      can_transmit_abort(CAN1, CAN_ABORT_TRANSMIT_STB);
+      (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
+      s_stuck_since = 0U;
+    }
+  }
+  else
+  {
+    s_stuck_since = 0U;
   }
 }
 
