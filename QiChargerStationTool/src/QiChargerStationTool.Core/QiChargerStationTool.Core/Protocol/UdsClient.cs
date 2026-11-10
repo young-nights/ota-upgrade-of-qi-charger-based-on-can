@@ -107,6 +107,17 @@ public sealed class UdsClient
             long tSend = Environment.TickCount64;
             _tp.Send(uds);
             LastSendMs = Environment.TickCount64 - tSend;
+            // 派发踢帧（高延时根治·上位机侧）：设备请求→派发存在 ~2s 延迟
+            // （WSL 裸台架实测，与工具无关）。请求后 3 帧 3E 80（~35ms 间隔）
+            // 可把整轮压到 ~107ms——6/6 实测稳定（基线 2015ms，19× 提速）。
+            // 机制：新帧到达踢开设备的派发/发送队列（管道实验：REQ2 到达 4ms
+            // 内冲出 REQ1 积压应答）。3E 80 为标准保活帧，副作用仅 AA55 标记。
+            for (int k = 0; k < 3; k++)
+            {
+                if (ct.WaitHandle.WaitOne(35))
+                    return UdsResult.Fail("已取消");
+                SendWake();
+            }
             long tRecv = Environment.TickCount64;
 
             long pendingDeadline = Environment.TickCount64 + waitPendingMs;
