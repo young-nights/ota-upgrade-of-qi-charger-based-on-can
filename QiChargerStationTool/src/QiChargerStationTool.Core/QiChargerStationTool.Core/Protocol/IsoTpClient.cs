@@ -104,13 +104,6 @@ public sealed class IsoTpClient
         return "";
     }
 
-    /// <summary>
-    /// 高速传输模式：跳过逐帧生命周期解码/噪声日志（DecodeDiag、Hex、
-    /// SF 不匹配等），只计数——升级 0x36 大批量传输期间每帧解码+日志是
-    /// 纯开销，且日志膨胀会拖慢 UI 追加。
-    /// </summary>
-    public bool FastTransfer { get; set; }
-
     /// <summary>Move transport RX into local queue (called by UdsClient pump loop).</summary>
     public void Pump()
     {
@@ -149,11 +142,7 @@ public sealed class IsoTpClient
         int total = uds.Length;
         CanFrame? fc = null;
         LastFcTries = 0;
-        // 单 FF + 耐心窗 6s：FF 重试会诱发设备每个 FF 回一个 FC——多余
-        // FC 全进设备拥堵的 TX 队（实测发 2438→2511ms 逐块增长=队列在
-        // 积，"时间越来越久"）。一发一等把饲料砍半；FC 真丢时由 UDS 层
-        // requestRetries 整块重发兜底。
-        for (int tryN = 0; tryN < 1 && fc is null; tryN++)
+        for (int tryN = 0; tryN < 3 && fc is null; tryN++)
         {
             var ff = new byte[8];
             ff[0] = (byte)(0x10 | ((total >> 8) & 0x0F));
@@ -164,7 +153,9 @@ public sealed class IsoTpClient
             _tp.Send(new CanFrame(_txId, ff));
             LastFcTries = tryN + 1;
             if (!quiet) Log($"[TX] FF try{tryN + 1} len={total} {Hex(uds.AsSpan(0, Math.Min(6, total)).ToArray())}");
-            fc = WaitFc(6000);
+            // FC 正常 <50ms 内到（设备 send_fc 最坏 50ms pre-wait）；
+            // 1500ms 超时会把丢 FC 的每次重试放大成 1.5s/块
+            fc = WaitFc(300);
         }
         if (fc is null)
             throw new InvalidOperationException("ISO-TP FC timeout (ECU did not send FlowControl)");
@@ -226,11 +217,6 @@ public sealed class IsoTpClient
         var noiseIds = new Dictionary<uint, int>();
         _sawBootup = false;
         _sawAa55 = false;
-        _sawAa55Sid = 0;
-        // 本次等待的诊断必须本次生成：残留上次的 detail 会把旧窗口的
-        // 噪声计数误报到新请求头上（实测 HW 读把首轮 BOOTUP 窗口的
-        // 「收 8 帧/噪声 8」安到自己头上）
-        LastTimeoutDetail = "";
 
         // 半包看门狗：FF 已收但 5s 内没凑齐 → 丢弃半包，防下一次误拼
         if (_ffBuf is not null && Environment.TickCount64 > _ffDeadline)
@@ -242,11 +228,7 @@ public sealed class IsoTpClient
 
         while (Environment.TickCount64 < deadline)
         {
-            if (ct.IsCancellationRequested)
-            {
-                LastTimeoutDetail = "已取消";
-                return null;
-            }
+            if (ct.IsCancellationRequested) return null;
             Pump();
             while (_rxq.TryDequeue(out var f))
             {
@@ -264,11 +246,7 @@ public sealed class IsoTpClient
                     // AA55 组包标记（18FF270D AA 55 …）：设备已完整组包并派发 UDS 请求
                     if (nid == ProtoIds.LpDiagId && f.Data.Length >= 2
                         && f.Data[0] == 0xAA && f.Data[1] == 0x55)
-                    {
                         _sawAa55 = true;
-                        if (f.Data.Length >= 4) _sawAa55Sid = f.Data[3];
-                    }
-                    if (FastTransfer) continue; // 传输模式：不解码不打日志，只计数
                     string diag = DecodeDiag(nid, f.Data);
                     if (noiseIds[nid] <= 3)
                         Log($"[RX?] id={nid:X8} {Hex(f.Data)}{(diag.Length > 0 ? "  → " + diag : "")}");
@@ -282,7 +260,7 @@ public sealed class IsoTpClient
                     var data = f.Data.AsSpan(1, n).ToArray();
                     if (match(data)) return data;
                     // 7E(3E 保活应答)/7F(NRC) 是等待期间的过路流量，不刷屏
-                    if (!FastTransfer && (data.Length == 0 || (data[0] != 0x7E && data[0] != 0x7F)))
+                    if (data.Length == 0 || (data[0] != 0x7E && data[0] != 0x7F))
                         Log($"[RX] SF 不匹配 {Hex(data)}");
                 }
                 else if (pci == 0x10)
@@ -324,7 +302,7 @@ public sealed class IsoTpClient
                         _ffBuf = null;
                         _cfBuf.Clear();
                         if (match(data)) return data;
-                        if (!FastTransfer) Log($"[RX] MF 不匹配 {Hex(data)}");
+                        Log($"[RX] MF 不匹配 {Hex(data)}");
                     }
                 }
                 else if (pci == 0x20 && _ffBuf is null)
@@ -355,8 +333,7 @@ public sealed class IsoTpClient
         else if (dropped == 0 && seen == 0)
             hint = "；总线无任何回包，查 CANH/CANL/终端电阻/盒子 TX";
         if (_sawAa55)
-            hint += $"；AA55 组包标记 sid=0x{_sawAa55Sid:X2}（与请求 SID 一致=设备已派发·应答丢失·重发可自愈；"
-                    + "不一致=保活/唤醒帧标记，与本请求无关）";
+            hint += "；见 AA55 组包标记=设备已完整收到并派发请求，应答在回程丢失（重发同一块可自愈）";
 
         Log($"[RX] 超时: 收 {seen} 帧/噪声 {dropped}，目标 0x{_rxId:X8}" +
             (noise.Length > 0 ? $"，噪声ID: {noise}" : "，无任何帧") + hint);
@@ -371,20 +348,6 @@ public sealed class IsoTpClient
 
     /// <summary>本次等待中是否见过 AA55 组包标记（18FF270D AA 55…）。</summary>
     private bool _sawAa55;
-
-    /// <summary>最近一次 AA55 标记的 UDS SID（标记帧第 4 字节），供超时提示归因。</summary>
-    private byte _sawAa55Sid;
-
-    /// <summary>
-    /// 新请求前清残留：排空接收队列并复位 ISO-TP 半包状态——迟到/串台的
-    /// 旧应答不带入当前请求窗口（防「SF 不匹配」噪声与错配）。
-    /// </summary>
-    public void DrainStale()
-    {
-        while (_rxq.TryDequeue(out _)) { }
-        _ffBuf = null;
-        _cfBuf.Clear();
-    }
 
     /// <summary>最近一次 <see cref="TryReceive"/> 超时的诊断摘要。</summary>
     public string LastTimeoutDetail { get; private set; } = "";

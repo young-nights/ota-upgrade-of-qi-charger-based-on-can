@@ -51,9 +51,6 @@ public sealed class UdsClient
 
     private void Log(string m) => OnLog?.Invoke(m);
 
-    /// <summary>高速传输模式（透传 IsoTpClient）：升级批量传输期间跳过逐帧解码/噪声日志。</summary>
-    public bool FastTransfer { get => _tp.FastTransfer; set => _tp.FastTransfer = value; }
-
     /// <summary>上一次 <see cref="TryRequest"/> 的组帧发送耗时（ms，含 STmin 间隔）。</summary>
     public long LastSendMs { get; private set; }
 
@@ -96,11 +93,6 @@ public sealed class UdsClient
     {
         try
         {
-            // 已取消就不再发：否则截止瞬间仍会补一发 TX（幽灵请求）
-            if (ct.IsCancellationRequested)
-                return UdsResult.Fail("已取消");
-            // 清残留：上一请求的迟到应答/半包不带入本窗口（防 SF 不匹配与错配）
-            _tp.DrainStale();
             var uds = new byte[1 + payload.Length];
             uds[0] = sid;
             payload.CopyTo(uds, 1);
@@ -134,9 +126,6 @@ public sealed class UdsClient
                 if (data is null)
                 {
                     LastRecvMs = Environment.TickCount64 - tRecv;
-                    // 取消导致的返回 null 不能报「无应答」——会带上上次的陈旧诊断
-                    if (ct.IsCancellationRequested)
-                        return UdsResult.Fail("已取消");
                     return UdsResult.Fail($"UDS 无应答: {_tp.LastTimeoutDetail}");
                 }
 
@@ -198,12 +187,10 @@ public sealed class UdsClient
     public void KeepAlive() => RequestSuppress(ProtoIds.SidTp, new byte[] { 0x80 });
 
     /// <summary>
-    /// 发一帧唤醒帧：ID=UdsReqId、DLC=8、数据 02 3E 80 CC CC CC CC CC（0xCC 填充，
-    /// 与普通 UDS SF 同线格式）。WUF 严格匹配 ID+DLC=8+数据位（PNDM=1），
-    /// byte1=0x3E 命中掩码；用 suppressPosRsp 形态（3E 80）使唤醒帧不产生
-    /// 7E 应答/组包标记噪声（2026-11-05 日志实证 3E 00 双重身份噪声）。
+    /// 发一帧唤醒帧：ID=UdsReqId、DLC=8、数据 02 3E 00 CC CC CC CC CC（0xCC 填充，
+    /// 与普通 UDS SF 同线格式）。WUF 严格匹配 ID+DLC=8+数据位（PNDM=1）。
     /// </summary>
-    public void SendWake() => _tp.SendRaw(new byte[] { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC });
+    public void SendWake() => _tp.SendRaw(new byte[] { 0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC });
 
     /// <summary>读软件版本；失败返回 (false, 错误信息)。</summary>
     public (bool Ok, string Version, string Error) TryReadSwVersion(CancellationToken ct = default)
@@ -219,22 +206,17 @@ public sealed class UdsClient
     public VersionSet TryReadAllVersions(CancellationToken ct = default)
     {
         var v = new VersionSet();
-        if (ct.IsCancellationRequested) return v;
-
         var (ok1, mcu1, e1) = TryAsciiDidRetry(ProtoIds.DidSwVersion, ct);
         v.Mcu1App = ok1 ? mcu1 : null;
         if (!ok1) v.Errors.Add($"MCU1(F195): {e1}");
-        if (ct.IsCancellationRequested) return v;
 
         var (ok2, mcu2, e2) = TryReadQiFwVersion(ct);
         v.Mcu2Qi = ok2 ? mcu2 : null;
         if (!ok2) v.Errors.Add($"MCU2(2133): {e2}");
-        if (ct.IsCancellationRequested) return v;
 
         var (okb, boot, eb) = TryAsciiDidRetry(ProtoIds.DidBootVersion, ct);
         v.Bootloader = okb ? boot : null;
         if (!okb) v.Errors.Add($"Boot(F180): {eb}");
-        if (ct.IsCancellationRequested) return v;
 
         var (okh, hw, eh) = TryAsciiDidRetry(ProtoIds.DidHwVersion, ct);
         v.Hardware = okh ? hw : null;
@@ -243,14 +225,11 @@ public sealed class UdsClient
         return v;
     }
 
-    /// <summary>
-    /// ASCII DID 读取 + 一次重试（多帧应答偶发 FF/FC 竞态，重试即过）。
-    /// 已取消（ct）不重试——否则会在截止瞬间把请求再发一遍（重复 TX）。
-    /// </summary>
+    /// <summary>ASCII DID 读取 + 一次重试（多帧应答偶发 FF/FC 竞态，重试即过）。</summary>
     private (bool Ok, string Text, string Error) TryAsciiDidRetry(ushort did, CancellationToken ct)
     {
         var r = TryReadAsciiDid(did, ct);
-        if (r.Ok || ct.IsCancellationRequested)
+        if (r.Ok)
             return r;
         return TryReadAsciiDid(did, ct);
     }
@@ -314,28 +293,17 @@ public sealed class UdsClient
         return (r.Data[3..], "");
     }
 
-    /// <summary>
-    /// ReadDataByIdentifier → 数据区（去掉 62 xx xx）。
-    /// 失败（含无应答）返回 null，**不抛异常**——调试期设备不应答属常态，
-    /// 异常会中断调用流程/VS 调试会话。
-    /// </summary>
-    public byte[]? ReadDid(ushort did, int timeoutMs = 3000)
+    /// <summary>ReadDataByIdentifier → 数据区（去掉 62 xx xx）。</summary>
+    public byte[] ReadDid(ushort did, int timeoutMs = 3000)
     {
-        var (data, _) = TryReadDid(did, timeoutMs);
-        return data;
+        var (data, err) = TryReadDid(did, timeoutMs);
+        return data ?? throw new UdsException(ProtoIds.SidRdbi, 0, err);
     }
 
-    /// <summary>
-    /// Qi 芯片状态全量查询（任意会话可读，无需 SA）。
-    /// 首读 0x2132 无应答时返回 null（不抛），调用方按「设备不应答」跳过。
-    /// </summary>
-    public QiChipStatus? ReadQiChipStatus(CancellationToken ct = default)
+    /// <summary>Qi 芯片状态全量查询（任意会话可读，无需 SA）。</summary>
+    public QiChipStatus ReadQiChipStatus(CancellationToken ct = default)
     {
         var iapRaw = ReadDid(ProtoIds.DidQiIapStatus, timeoutMs: 4000);
-        if (iapRaw == null || iapRaw.Length < 9)
-        {
-            return null;
-        }
         QiChipStatusCodec.ParseIapStatus(iapRaw,
             out var st, out var prog, out var maj, out var min, out var pat, out var sent, out var total);
 
@@ -359,17 +327,7 @@ public sealed class UdsClient
         try
         {
             var vi = ReadDid(ProtoIds.DidInputVi);
-            if (vi is { Length: >= 2 }) { vRaw = vi[0]; iRaw = vi[1]; }
-        }
-        catch { /* optional */ }
-
-        // 0x2111 现为 2 字节：[0]=状态1（保护位）[1]=状态2（b0=充电触发位，真充判据）
-        byte? st1 = null, st2 = null;
-        try
-        {
-            var sd = ReadDid(ProtoIds.DidQiStatusRaw);
-            if (sd is { Length: >= 1 }) st1 = sd[0];
-            if (sd is { Length: >= 2 }) st2 = sd[1];
+            if (vi.Length >= 2) { vRaw = vi[0]; iRaw = vi[1]; }
         }
         catch { /* optional */ }
 
@@ -392,8 +350,7 @@ public sealed class UdsClient
             ThermalDerate = TryU8(ProtoIds.DidThermalDerate),
             PowerLimit = TryU8(ProtoIds.DidPowerLimit),
             ChargeCount = TryU32(ProtoIds.DidChargeCount),
-            StatusRaw = st1,
-            Status2Raw = st2,
+            StatusRaw = TryU8(ProtoIds.DidQiStatusRaw),
             ClampState = TryU8(ProtoIds.DidClampState),
         };
     }

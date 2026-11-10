@@ -75,13 +75,15 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
         if ((can_driver_last_tx_handle(&h_after) == 0) &&
             ((have_prev == 0U) || (h_after != h_before)))
         {
-          /* 确认仅快速放行用；失败一律不重发——TSTAT 报 ABORTED 的帧
-           * 常已实际上线（ACK 位被车辆流量撞掉→硬件自动重传→接收方
-           * 收到重复帧而发送方报 ABORTED，2026-11-09 SA 应答 FF×3 实证）。
-           * 软件重发叠加重复 FF、堵满 PTB+STB 邮箱，拖垮 CF 发送节奏
-           * （1s 级卡顿→请求派发晚 2s→15s 预算被吃光）。真丢失由上层
-           * 恢复（主机请求重发 / g_tx_pend 冲刷）。 */
-          (void)can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS);
+          /* 确认窗口 50ms 即可（帧上总线 ~0.5ms）；1000ms 会在
+           * handle 确认偶尔丢失时把主循环卡死，拖垮后续 FC/应答。
+           * 确认失败视为未发出并重试：FF 没上总线时主机等不到 FC，
+           * 整个多帧响应必死；重复 FF 对主机幂等（与 FC 重试同权衡）。 */
+          if (can_driver_wait_tx_frame(h_after, ISOTP_FC_CONFIRM_TIMEOUT_MS) == 0)
+          {
+            return 0;
+          }
+          continue;
         }
         return 0;
       }
@@ -94,9 +96,6 @@ static int8_t isotp_can_send(uint32_t can_id, uint8_t *frame, uint8_t len,
     start = timer_get_tick();
     while ((timer_get_tick() - start) < 500U)
     {
-      /* STB 滞留时补触发：邮箱被前帧占满时靠补触发腾位，否则 CF 连发
-       * 卡在重试环里（1s 级 CF 卡顿，2026-11-09 版本应答实证） */
-      can_driver_tx_pump();
       if (can_driver_send(can_id, frame, len) == 0)
       {
         return 0;
@@ -217,13 +216,10 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
    * can_busoff_reset 仅请求恢复（需 5.6ms 隐性位），不够可靠；
    * offline→online 完整重初始化：复位 CAN 外设、重挂中断、
    * 重配时序/滤波、清错误计数器。 */
-  /* fw 1.1.74：撤回 offline→online 完整重初始化——它会清 RX FIFO，
-   * 把主机已按上一 FC 发来的 CF 抹掉（0x34 有 FC 无应答的丢帧根因）。
-   * 改用 can_busoff_reset 温和恢复（仅请求恢复，不碰 FIFO）；真
-   * bus-off 时 FC 发不出由主机重发请求兜底，绝不丢已到数据。 */
   if (can_busoff_get(CAN1) != RESET)
   {
-    can_busoff_reset(CAN1);
+    can_driver_offline();
+    can_driver_online();
   }
 
   if (can_driver_last_tx_handle(&prev_handle) == 0)
@@ -237,10 +233,11 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     {
       isotp_delay_ms(ISOTP_FC_ATTEMPT_GAP_MS);
     }
-    /* 重试间再查 bus-off：首次恢复可能未完成（温和恢复，不碰 RX FIFO） */
+    /* 重试间再查 bus-off：首次恢复可能未完成 */
     if ((attempt > 0U) && (can_busoff_get(CAN1) != RESET))
     {
-      can_busoff_reset(CAN1);
+      can_driver_offline();
+      can_driver_online();
     }
     {
       int8_t rc = isotp_send_fc_try(can_id, fc_data);
