@@ -70,6 +70,12 @@ public sealed class ZqwlSerialTransport : ICanTransport
                     $"ZQWL 盒子已失联（{_portName}）：请拔插 CAN 盒子后重新连接");
             var port = _port;
             var writeTask = Task.Run(() => port.Write(buf, 0, buf.Length));
+            // 观察僵尸写任务的异常：超时弃写后 Close 会让卡住的 Write 抛
+            // "The port is closed"，不显式观察会以未观察任务异常弹出/炸进程
+            // （2026-11-10 第二次升级实测现场）。
+            _ = writeTask.ContinueWith(t => _ = t.Exception,
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
             try
             {
                 if (!writeTask.Wait(2000))

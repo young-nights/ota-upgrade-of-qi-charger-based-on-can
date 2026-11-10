@@ -21,6 +21,11 @@ public partial class MainWindow : Window
     private bool _chargeEnabled = false;
     /// <summary>真充判定滑动去抖（~2s）：空载功率小幅跳动不判充电中。</summary>
     private readonly DebounceFilter _chargingFilter = new(2000);
+    /// <summary>0x37 后设备自复位搬运窗（Tick64 截止点）：期间设备 CAN 离线，
+    /// 写入无 ACK 会堵死盒子发送队列→写看门狗超时杀口（第二次升级必败）。
+    /// WaitUdsReadyAsync 入口等完剩余宽限再探测。static：所有操作共用一个设备。</summary>
+    private static long s_resetGraceUntilMs;
+    private const int ResetGraceMs = 10_000;
     /// <summary>Qi 状态持续检查开关（按钮切换）。</summary>
     private volatile bool _pollRunning;
     /// <summary>持续检查轮询任务的取消源。</summary>
@@ -710,6 +715,16 @@ public partial class MainWindow : Window
     private static async Task<(bool Ok, string Error)> WaitUdsReadyAsync(
         UdsClient uds, CancellationToken ct, int waitSec = 8, Action<string>? log = null)
     {
+        // 0x37 自复位搬运窗：设备 CAN 离线期间写入无 ACK 会堵死盒子发送队列
+        // （串口写看门狗超时→杀口），先等完剩余宽限再探测/踢帧。
+        long graceLeftMs = s_resetGraceUntilMs - Environment.TickCount64;
+        if (graceLeftMs > 0)
+        {
+            int gs = (int)((graceLeftMs + 999) / 1000);
+            log?.Invoke($"[就绪] 设备自复位搬运中，等待 {gs}s 后再探测…");
+            try { await Task.Delay((int)graceLeftMs, ct); }
+            catch (TaskCanceledException) { return (false, "已取消"); }
+        }
         // 快路径：设备已醒时单探即就绪，跳过 2s 唤醒 burst（进入升级提速）。
         // 睡眠设备会被该探测（03 22 头命中 WUF 近似掩码）误唤醒但应答丢在
         // 重启窗里，落下面 burst+轮询慢路径，无碍。
@@ -964,6 +979,11 @@ public partial class MainWindow : Window
                 {
                     AppendLog($"37 异常（设备可能已自复位）: {ex.Message}");
                 }
+                // 登记复位宽限：设备随后进入 Boot 搬运（数秒离线），下一次
+                // 操作等完宽限再写总线（否则探测/踢帧全打在离线设备上，无 ACK
+                // 堵死盒子 → 串口写超时 → 第二次升级必败）。
+                s_resetGraceUntilMs = Environment.TickCount64 + ResetGraceMs;
+                AppendLog($"[复位] 设备自复位搬运中，{ResetGraceMs / 1000}s 内勿写总线（下一次操作自动等待）");
             }
             finally
             {
