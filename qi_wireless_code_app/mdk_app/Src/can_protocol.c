@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.79";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.80";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -195,6 +195,11 @@ static uint8_t  g_lp_last_wake_src = 0;
 static uint16_t g_lp_last_sleep_sec = 0;
 /** sticky：can_lp_enter_sleep 两次 standby_mode_set 失败置 1（DID 0x2119 flags bit2） */
 static uint8_t  g_lp_sleep_fail = 0;
+/** Sleep-entry abort guard: any UDS frame arriving during the sleep-entry
+ *  sequence sets this; the entry checks it and cancels the sleep instead of
+ *  dropping the request (2026-11-10 host-at-sleep-entry no-response fix).
+ *  Cleared at can_lp_go_sleep() entry. */
+static volatile uint8_t g_lp_rx_seen = 0;
 /** 上电（trial/非 trial 同路径）推迟到 __enable_irq() 之后再 enter_normal：
  *  harvest/wait_cts 依赖 SysTick；init 统一置 1 */
 static uint8_t  g_lp_need_online = 0;
@@ -442,8 +447,48 @@ static void can_lp_enter_normal(void)
  * Sleep 模式（唯一，2026-10-16 起 Standby 路径已移除）：
  * SPI 断开，CAN 唤醒（CWE），PA11 电平检测唤醒。 */
 #if !defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)
+/** Cancel a sleep entry because host traffic arrived mid-sequence (2026-11-10:
+ *  a command landing in the SLEEP-marker..commit window used to be dropped and
+ *  the host saw "no response"). Restores the awake baseline unconditionally:
+ *  by the time the deep guard fires, sit1145_sleep_config has already
+ *  programmed WUF/PN registers (PNCOK|CPNC locked, CWE armed), so
+ *  can_lp_enter_normal's assumption that CAN_CONTROL holds the init value no
+ *  longer holds - rewash the whole chain here: pins -> Normal mode -> clear
+ *  wake events -> CAN_CONTROL back to init (PNCOK=0/CPNC=0/CMC=active) ->
+ *  CAN online. Shallow guard sites (SIT1145 untouched) pay a few redundant
+ *  SPI writes - simpler than depth tracking. Not a config failure:
+ *  g_lp_sleep_fail stays untouched ("有人来访不睡" is normal). */
+static void can_lp_abort_sleep(void)
+{
+  can_driver_pins_active();
+  (void)sit1145_normal_mode_set();
+  sit1145_wakeup_clear();
+  sit1145_write_reg(SIT1145_REG_CAN_CONTROL,
+                    SIT1145_CAN_FD_TOLERANCE_EN    /* CFDC=1  */
+                  | SIT1145_CAN_NETW_INVALID       /* PNCOK=0 */
+                  | SIT1145_SEL_WAKEUP_DIS         /* CPNC=0  */
+                  | SIT1145_CAN_MODE_NORMAL);      /* CMC=01  */
+  can_driver_online();
+  /* Restart the idle window so the request that cancelled us actually gets
+   * served before the next sleep attempt. */
+  can_lp_mark_uds();
+  /* SLEEP(0x04) marker may already be on the bus - announce OPERATIONAL so
+   * the host learns the device did not sleep. */
+  g_need_lifecycle_announce = 1U;
+  g_announce_due_ms = timer_get_tick() + CAN_LP_ANNOUNCE_DELAY_MS;
+}
+
 static void can_lp_enter_sleep(void)
 {
+  /* Sleep-entry abort guard (shallow): traffic seen since go_sleep entry
+   * (e.g. during the MF-clear wait window) - nothing has been touched yet
+   * beyond the SLEEP marker, cancel cheaply. */
+  if (g_lp_rx_seen != 0U)
+  {
+    can_lp_abort_sleep();
+    return;
+  }
+
   /* Sequence follows the official FAE SIT1145 example (SleepMode_Set):
    * clear every wake/event register -> enable wake detection -> switch mode.
    * 1) MCU CAN offline first: no ACK/TX while the transceiver is reconfigured.
@@ -585,6 +630,28 @@ static void can_lp_enter_sleep(void)
   }
 #endif /* CAN_LP_EFRAME_ENABLE（E0~E3 诊断帧，app_config.h 宏屏蔽） */
 
+  /* ---- Sleep-entry abort guard (deep): RX harvest before commit ----
+   * Frames can only reach us while the controller is online; the E-frame
+   * window above parked some in the SW FIFO (offline does not clear it) and
+   * the host's CAN-layer retransmits of frames lost during the offline
+   * config stretch may land here too. Briefly go online and pump
+   * can_driver_poll - any dispatched request cancels the sleep (and is
+   * answered on the spot). Mirrors the wake-side CAN_LP_RX_HARVEST_MS. */
+  {
+    uint32_t ht = timer_get_tick();
+    can_driver_online();
+    while ((timer_get_tick() - ht) < CAN_LP_RX_HARVEST_MS)
+    {
+      can_driver_poll();
+    }
+    if (g_lp_rx_seen != 0U)
+    {
+      can_lp_abort_sleep();
+      return;
+    }
+    can_driver_offline();
+  }
+
   /* ---- 提交 Sleep 模式 ----
    * sit1145_sleep_commit：Mode=Sleep（回读验证 + CMC 兜底）。失败时不进
    * Sleep——CAN 唤醒不可靠，保持 CAN 在线等下次空闲超时重试。 */
@@ -617,6 +684,7 @@ static void can_lp_go_sleep(void)
   {
     uint32_t t0;
 
+    g_lp_rx_seen = 0U;
     session_reset_to_default();
 
     /* SLEEP(0x04) 帧必须确认送达后再入睡（CCU 要求）：先有界等 MF UDS
@@ -629,6 +697,16 @@ static void can_lp_go_sleep(void)
       isotp_poll();
       proto_flush_pending_tx();
       can_driver_poll();
+    }
+
+    /* Sleep-entry abort guard (shallow): the wait loop above is live RX - a
+     * request arriving there has been (or is being) dispatched and answered.
+     * Cancel before the SLEEP marker so the host never sees "SLEEP" and no
+     * request is dropped (2026-11-10 host-at-sleep-entry no-response fix). */
+    if (g_lp_rx_seen != 0U)
+    {
+      can_lp_abort_sleep();
+      return;
     }
 
     /* SLEEP 取代一切未发状态帧（最坏丢 1 条 1s 周期 OPERATIONAL） */
@@ -947,6 +1025,10 @@ static void proto_can_busoff_recover(void)
 static void proto_send_pending(uint8_t service_id)
 {
   uint8_t sf[8];
+  /* 0x78 on the bus = the device is actively working on a request - the
+   * 10s idle window must not run during a long op (0x31 erase can stay
+   * silent for 55s; 0x37 verify likewise). */
+  can_lp_mark_uds();
   sf[0] = 0x03U;
   sf[1] = UDS_NEGATIVE_RESPONSE;
   sf[2] = service_id;
@@ -2910,6 +2992,10 @@ static void can_protocol_rx_handler(uint32_t id, uint8_t *data, uint8_t len)
   }
 
   can_lp_mark_uds();
+  /* Sleep-entry abort guard: a request arriving mid sleep-entry must cancel
+   * the sleep (checked by can_lp_go_sleep/can_lp_enter_sleep) instead of
+   * being dropped on the floor. */
+  g_lp_rx_seen = 1U;
   /* 多帧请求（FF+CF…）发送期间也要刷 S3：0x36 128B 块约 18 CF，
    * 主机环路 ~2s/请求，5s S3 会在组包中途 session_reset 清 g_active，
    * complete 后 handler 回 NRC 0x22。 */
@@ -3542,7 +3628,18 @@ void can_protocol_poll(void)
     {
       idle_limit = 30000;
     }
-    if ((int32_t)(now - g_uds_last_ms) >= idle_limit)
+    /* Busy gate (2026-11-10): long ops / response debt must never be
+     * interrupted by Sleep. can_lp_go_sleep() starts with
+     * session_reset_to_default() which wipes g_tx_pend (a stranded 67 02
+     * after SA verify got destroyed this way) and aborts an active OTA
+     * download; also skip while an MF is still assembling or a multi-frame
+     * response is pending. All conditions self-clear (flush budget, 0x37/
+     * error paths), so no permanent no-sleep source. */
+    if ((uds_mf_busy() == 0U) &&
+        (g_tx_pend_len == 0U) &&
+        (g_uds_mf_pending == 0U) &&
+        (ota_dl_active() == 0U) &&
+        ((int32_t)(now - g_uds_last_ms) >= idle_limit))
     {
       /* 入睡失败退避（fw 1.1.77）：sit1145_sleep_config 失败时本次不睡，
        * 旧逻辑 g_uds_last_ms 不刷新 → 下一轮 poll 立刻重试——每轮 SPI

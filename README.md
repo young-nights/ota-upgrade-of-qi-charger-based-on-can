@@ -199,7 +199,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.79**（S3 下溢误杀会话修复） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.80**（入睡临界窗取消守卫 + 长操作禁睡） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -209,6 +209,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-10 | **fix(can): 入睡临界窗取消守卫 + 长操作/挂起应答禁睡（fw 1.1.80）**。现象：上位机在设备入睡瞬间（SLEEP 标记后 0~4s）发命令全无应答。根因三段：①go_sleep 的 MF 等待环收到并派发了请求也不取消入睡；②enter_sleep 的 E0~E3 online 窗帧入 FIFO 后无人 poll，commit 后随断电消失；③offline 配置段帧根本不入 FIFO。另：入睡路径 session_reset 清 g_tx_pend——滞留的 67 02 应答被销毁（27 02 实证）。修复：①g_lp_rx_seen 标志（rx_handler 置位）+ 三级取消守卫（go_sleep MF 环后浅取消 / enter_sleep 入口浅取消 / commit 前 RX 收割深取消），取消走 can_lp_abort_sleep 全链补洗（pins→Normal→清事件→CAN_CONTROL 回 init 0x41→online→mark_uds→OPERATIONAL 补播）；②睡眠判定加忙守卫（uds_mf_busy/g_tx_pend/g_uds_mf_pending/ota_dl_active 一律不睡）；③proto_send_pending（0x78）刷 g_uds_last_ms（长操作静默期续命）。SW_VERSION_STR=1.1.80 |
 | 2026-11-07 | **feat(prodtool): 工位机接入全自动——心跳上报 + 汇总机按 IP 自动登记 + 状态卡片**。去掉手动登记：①**接入通道**（新增 Core `Station/StationPresence.cs`）：`StationPresenceReporter` 工位机侧 15s 心跳 POST `/hello`（JSON 身份 code/stationNo/machineId → `http://{serverHost}:5000`，失败静默重试）；`StationPresenceListener` 汇总机侧 TcpListener 监听 5000（自实现极简 HTTP，免 HttpListener URL ACL），按**连接远端 IP** 抛 `MachineSeen(StationPresence)`；单测 3 例（上报身份+IP、心跳端到端、坏报文仍按 IP 记录）②**自动登记**：收到上报按编码覆盖更新 `station_access.json`（IP/最近接入时间自动记，`StationAccessEntry` 增 `LastSeen`），无需手动录入③**状态卡片**：检测到接入自动生成卡片（工位1·机位1 / 编码 / IP / **●在线绿·离线灰**（45s 无上报转离线）/ 最近接入 / 测试概况 PASS·FAIL·良率），卡片上可切换允许/禁止接入、移除记录（再接入自动重建），5s 定时刷新在线状态；工位机侧 MainWindow 启动心跳。注意：汇总机防火墙需放行 5000 端口，各工位机「设置→机位与网络」的服务器地址指向汇总机 IP。编译 0 错误、单测 25/25 |
 | 2026-11-07 | **feat(prodtool): 工位机接入登记增加 IP 地址**。接入管理原只有工位号/机位号/备注——服务器侧管理接入应登记工位机局域网 IP（接入白名单/排查用）：①`StationAccessEntry` 增 `Ip` 字段（station_access.json 随登记存取）；②登记编辑组件增「IP 地址」输入（机位号→工位号→IP→备注），点行回填/保存/移除全链路带 IP，校验点分四段 0~255（可空，填了才校验）；③接入表增「IP 地址」列（Consolas）；未登记转登记保留 IP。编译 0 错误、单测 22/22 |
 | 2026-11-07 | **fix(prodtool): 机位号强制纯阿拉伯数字——编码预览 ST-01-ST-01- 脏拼接修复**。根因：机位号输入框混入「ST-01-」这类编码串后被 CodeOf 直接拼进编码 → 预览出「ST-01-ST-01-」。修复（SummaryMachinePage）：①机位号输入**即时过滤非数字**（Editor_Changed→DigitsOnly，只留阿拉伯数字），Tooltip 改「纯阿拉伯数字，1~8 位」；②编码预览只在工位号有效+机位号为纯数字时拼装，否则显示「—」；③保存校验「机位号需 1~8 位纯阿拉伯数字」；④脏数据清洗：点行回填与 LabelOf 用 TrailingDigits 取尾部数字（"ST-01-1"→"1"），已污染登记保存一次即恢复干净编码；⑤删除无引用的 StationAccessRegistry.ValidateCode。编译 0 错误、单测 22/22 |
