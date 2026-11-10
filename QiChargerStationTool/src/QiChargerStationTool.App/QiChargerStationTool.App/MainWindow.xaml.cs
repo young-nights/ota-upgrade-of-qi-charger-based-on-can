@@ -755,10 +755,16 @@ public partial class MainWindow : Window
                 log?.Invoke($"[就绪] 第 {n} 次探测有 NRC 0x{r.Nrc:X2}，UDS 栈已活");
                 return (true, "");
             }
-            // 无应答时再发 2 帧唤醒
-            uds.SendWake();
-            uds.SendWake();
-            log?.Invoke($"[就绪] 第 {n} 次探测无应答，0.5s 后重试…");
+            // 无应答时补唤醒：静默（连生命周期都没有）说明设备睡死/入睡
+            // 未醒——发满 8 帧 WUF burst（250ms 间隔，≥6 帧是 SIT1145
+            // 唤醒的既定门槛），比 2 踢有效；仍无回包才下一轮。
+            for (int w = 0; w < 8; w++)
+            {
+                if (ct.IsCancellationRequested) return (false, "已取消");
+                uds.SendWake();
+                await Task.Delay(250, ct);
+            }
+            log?.Invoke($"[就绪] 第 {n} 次探测无应答，已发 8 帧唤醒 burst，0.5s 后重试…");
             await Task.Delay(500, ct);
         }
         return (false, $"等待 UDS 就绪超时 {waitSec}s（设备未上电/被编程中/休眠未唤醒；确认接线无误仍无回包请断电重启设备再试）");
