@@ -10,5 +10,9 @@
   <PropertyGroup>
     <BaseIntermediateOutputPath>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'build', 'obj', '$(MSBuildProjectName)'))</BaseIntermediateOutputPath>
     <BaseOutputPath>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'build', 'bin', '$(MSBuildProjectName)'))</BaseOutputPath>
+    <!-- BaseIntermediateOutputPath 改道后，SDK 默认排除（$(BaseIntermediateOutputPath)/**）
+         不再覆盖工程目录下的旧 obj/bin；残留的 *.AssemblyInfo.cs 会被当源码编译，
+         报 CS0579 Duplicate attribute。此处显式排除，旧残留目录无论存在与否都安全。 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 </Project>
