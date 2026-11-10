@@ -1160,6 +1160,16 @@ public partial class MainWindow : Window
         try { _pollCts?.Cancel(); } catch { /* ignore */ }
         _pollCts = null;
         UpdateQiStatusButton();
+        // 检测停止即退出检测态：清去抖器、面板回「充电使能·需开qi检测」，
+        // 下次开检测重新起算（仅充电仍使能时；关充路径已由 ResetMagnetDisplay
+        // 显示「充电失能」，此处不得覆盖）。
+        if (_chargeEnabled)
+        {
+            _chargingFilter.Reset();
+            TxtMagnetState.Text = "充电使能·需开qi检测";
+            TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+            TxtQiSummary.Text = "充电使能 — 点击「Qi 状态检测」开始刷新状态";
+        }
         AppendLog($"[状态检测] 已停止（{reason}）");
     }
 
@@ -1194,6 +1204,9 @@ public partial class MainWindow : Window
     /// <summary>把 Qi 状态刷进左侧仪表盘（充电功率 + 保护位指示灯 + 摘要行）。</summary>
     private void UpdateQiPanel(QiChipStatus st)
     {
+        // 检测已停/在途轮询迟到一拍不回画：面板保持停止态（需开qi检测），
+        // 避免旧判定把已复位的显示刷回去。
+        if (!_pollRunning) return;
         // 关闭充电后（含在途轮询迟到一拍）不回画状态：面板保持清除态，
         // 避免已清除的磁铁/真充旧值被轮询刷回来。
         if (!_chargeEnabled)
