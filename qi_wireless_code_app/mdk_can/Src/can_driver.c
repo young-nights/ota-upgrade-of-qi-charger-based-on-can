@@ -610,6 +610,7 @@ int8_t can_driver_wait_tx_idle(uint32_t timeout_ms)
 
   do
   {
+    can_driver_tx_pump();
     can_transmit_status_get(CAN1, &tx_status);
     if ((tx_status.current_tstat == CAN_TSTAT_IDLE) ||
         (tx_status.current_tstat == CAN_TSTAT_TRANSMITTED))
@@ -676,6 +677,10 @@ int8_t can_driver_wait_tx_frame(uint8_t handle, uint32_t timeout_ms)
 
   do
   {
+    /* fw 1.1.73：等待环内维持 pump——发送确认链（SF 30×15ms、FC
+     * 5×55ms）本身把主循环占死，pump 只在 can_driver_poll 跑的话
+     * 楔子在确认链期间永远没机会解锁（每块 ~4s 的构成层）。 */
+    can_driver_tx_pump();
     can_transmit_status_get(CAN1, &tx_status);
 
     /* 指定帧完成的正证据：任一组 handle 匹配且状态 TRANSMITTED */
