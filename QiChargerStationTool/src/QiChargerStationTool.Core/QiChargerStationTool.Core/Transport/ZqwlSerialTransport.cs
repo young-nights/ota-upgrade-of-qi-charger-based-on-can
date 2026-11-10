@@ -50,13 +50,16 @@ public sealed class ZqwlSerialTransport : ICanTransport
     /// <summary>
     /// 带看门狗的串口写入。USB-CDC 驱动挂起时 SerialPort.Write 可无限
     /// 阻塞（WriteTimeout 对 USB 串口并不总是生效），会把 UI/操作线程
-    /// 永久卡死（点击「连接」卡住、必须重启软件的根因）。后台写 + 2s
+    /// 永久卡死（点击「连接」卡住、必须重启软件的根因）。后台写 + 5s
     /// 看门狗：超时抛错让上层提示拔插盒子，调用线程不再被拖死。
     /// 超时后必须杀口（2026-11-10 station_log_184741 教训）：被遗弃的
     /// 僵尸写任务仍阻塞在 SerialPort.Write 里并占着内部写锁，此后每次
-    /// 写都会挂满 2s 再超时（日志实证首写卡死后全部写超时、永不自愈）——
+    /// 写都会挂满看门狗再超时（日志实证首写卡死后全部写超时、永不自愈）——
     /// 置 _writeDead + 后台 Close 杀掉僵尸写，后续快速失败；写路径
     /// 串行化（_writeLock）杜绝并发 Write（SerialPort 并发写即卡死）。
+    /// 写异常在 lambda 内就地消化（2026-11-10 第二次升级现场教训）：
+    /// 让它以任务异常形态抛出会弹「The port is closed」调试中断/未观察
+    /// 任务异常——错误统一在同步路径转成 InvalidOperationException。
     /// </summary>
     private void WriteBytes(byte[] buf)
     {
@@ -69,29 +72,24 @@ public sealed class ZqwlSerialTransport : ICanTransport
                 throw new InvalidOperationException(
                     $"ZQWL 盒子已失联（{_portName}）：请拔插 CAN 盒子后重新连接");
             var port = _port;
-            var writeTask = Task.Run(() => port.Write(buf, 0, buf.Length));
-            // 观察僵尸写任务的异常：超时弃写后 Close 会让卡住的 Write 抛
-            // "The port is closed"，不显式观察会以未观察任务异常弹出/炸进程
-            // （2026-11-10 第二次升级实测现场）。
-            _ = writeTask.ContinueWith(t => _ = t.Exception,
-                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-            try
+            Exception? writeEx = null;
+            var writeTask = Task.Run(() =>
             {
-                if (!writeTask.Wait(2000))
-                {
-                    _writeDead = true;
-                    _ = Task.Run(() => { try { port.Close(); } catch { /* ignore */ } });
-                    throw new InvalidOperationException(
-                        "串口写入超时（2s）：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
-                }
-            }
-            catch (AggregateException ae)
+                try { port.Write(buf, 0, buf.Length); }
+                catch (Exception ex) { writeEx = ex; }   // 就地消化，任务永不 fault
+            });
+            if (!writeTask.Wait(5000))
             {
-                // 写任务已异常（端口被拔/驱动报错）：同样标死，别再排队写
                 _writeDead = true;
+                _ = Task.Run(() => { try { port.Close(); } catch { /* ignore */ } });
                 throw new InvalidOperationException(
-                    "串口写入失败：" + (ae.InnerException?.Message ?? ae.Message), ae);
+                    "串口写入超时（5s）：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
+            }
+            if (writeEx is not null)
+            {
+                // 端口被拔/被关/驱动报错：标死，别再排队写
+                _writeDead = true;
+                throw new InvalidOperationException("串口写入失败：" + writeEx.Message, writeEx);
             }
         }
     }
