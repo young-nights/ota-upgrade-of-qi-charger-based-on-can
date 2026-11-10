@@ -864,11 +864,15 @@ public partial class MainWindow : Window
                     return false;
                 AppendLog("31 擦除完成");
 
+                // requestRetries=2：74 应答可能被设备冲刷策略静默丢弃
+                // （STB 楔子致发送 3 连败即 drop，2026-11-10 10:54 实测
+                // 「有 FC 无 74」）——首个 0x34 尚未下载任何数据，重发=重开
+                // 下载，幂等无害；比整轮 OTA 失败强。
                 var rdResp = await Task.Run(() => uds.TryRequest(ProtoIds.SidRd, new byte[]
                 {
                     0x00, 0x44, 0x08, 0x01, 0x00, 0x00,
                     (byte)(size >> 24), (byte)(size >> 16), (byte)(size >> 8), (byte)size,
-                }, timeoutMs: 8000), ct);
+                }, timeoutMs: 8000, requestRetries: 2), ct);
                 if (!await MustStep(rdResp, "34 RequestDownload"))
                     return false;
                 // 34 正响应 74 20 <maxBlockLen:2B>：按设备宣告取块长（固件

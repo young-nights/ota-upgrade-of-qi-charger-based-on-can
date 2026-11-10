@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.77";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.78";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -675,7 +675,10 @@ static void proto_flush_pending_tx(void)
   }
   /* Only clear on success a few times: unlimited retry of a stuck multi-frame
    * (isotp_wait_cts 1s timeout each) starves can_driver_poll and delays FC
-   * for the next host multi-frame request by 1~3s. Drop after 3 failures. */
+   * for the next host multi-frame request by 1~3s.
+   * fw 1.1.78: 预算 3→10——3 次即 drop 会把应答静默扔掉（STB 楔子下
+   * 0x34 的 74 发送 3 连败被 drop，主机只见「无应答」，2026-11-10 实测）。
+   * 10 次仍失败才丢（此时主机已超时重发，旧应答本就该让位）。 */
   if (isotp_tx_send(CAN_PROTO_UDS_RESPONSE, g_tx_pend, n) == 0)
   {
     g_tx_pend_len = 0U;
@@ -684,7 +687,7 @@ static void proto_flush_pending_tx(void)
     return;
   }
   g_tx_pend_retries++;
-  if (g_tx_pend_retries >= 3U)
+  if (g_tx_pend_retries >= 10U)
   {
     g_tx_pend_len = 0U;
     g_uds_mf_pending = 0U;
