@@ -118,6 +118,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 
 | 工具 | 版本要求 |
 |------|----------|
+| 2026-11-10 | **fix(can): E0~E3 快照节流 + 入睡失败退避（fw 1.1.77）**。答用户之问「快照为何多组/减少可否判断」：多组=「sit1145_sleep_config 失败→下一轮 poll 立刻重试」的无退避风暴 × 每次尝试发 4 帧（每组含 5 次 SPI 回读+确认发送 ~1s）；同一风暴里配置值冗余重复，判断只需 **E2（WUF ID/掩码真值）+ E0 fl（sleep_fail/ever_sleep）**。修复：①快照 10s 节流（每入睡风暴最多一组，判断力保留）；②入睡失败 1s 退避（刷屏源头，旧逻辑每轮 poll 重试）。CAN_LP_EFRAME_ENABLE 恢复 1（1.1.76 曾整体关闭）。SW_VERSION_STR=1.1.77 |
 | 2026-11-10 | **fix(can): 关闭 E0~E3 入睡诊断帧刷屏（fw 1.1.76）**。实测入睡重试环连发十几组 E0~E3 快照刷屏总线/日志（用户「帧太多」）。app_config.h 的 CAN_LP_EFRAME_ENABLE 置 0（设计时即留的屏蔽口，注释原话「量产不需要时省 4 帧/次」）；AA55 组包标记不受影响，唤醒快照 E1 保留（仅唤醒决策发一次）。排睡死问题时改回 1 即可。SW_VERSION_STR=1.1.76 |
 | 2026-11-10 | **fix(can): STB 队列强制重触发——上位机通信 2s 延迟总根治（fw 1.1.75）**。WSL 直连 CAN 盒子帧级实测定案：请求→应答恒 ~2s（AA55 派发同），盒子/设备 TX 实为 1~2ms（FC→CF1 实测 1.6ms），空闲生命周期 1028ms 稳定；管道实验（两请求隔 2.5s）证实 STB 队列滞留到下一次新帧触发才整队喷出（REQ1 积压 5 帧在 REQ2 到达瞬间同发）。根因=can_txbuf_transmit 软件守卫（tsall/tsone/tsa 置位即拒触发）让 pump 补触发永远被拒。修复=绕过守卫每轮直接重写 STB_ALL 触发位（纯重触发不丢帧），队列一轮主循环内必出。SW_VERSION_STR=1.1.75 |
 | 2026-11-10 | **revert+fix(can): 撤回 TX 路径破坏性实验，修复 FC 兜底丢帧（fw 1.1.74）**。09:29 日志「越改越糟糕」：34 RequestDownload 有 FC（Send 成功）却无 74 应答=帧被丢。丢帧源两个均为 1.1.71~73 引入：①pump 50ms 强制 abort 杀在途帧（1.1.73 让它在确认链高频触发）；②RETLIM=6 截断重传。另拆一颗更早的雷：isotp_send_fc 兜底路径的 bus-off 恢复 offline→online **清 RX FIFO**，把主机已发来的 CF 抹掉（有 FC 无应答的直接根因）——改 can_busoff_reset 温和恢复。回退内容：pump 恢复纯 STB 补触发、撤 RETLIM 配置、撤 PTB abort；保留：等待环内跑 pump（1.1.73）、工具单 FF+6s 耐心窗。SW_VERSION_STR=1.1.74 |
@@ -196,7 +197,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.76**（E0~E3 刷屏关闭） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.77**（快照节流+入睡退避） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 

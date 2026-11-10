@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.76";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.77";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -480,7 +480,16 @@ static void can_lp_enter_sleep(void)
    * 发送用 handle 确认（同 can_lp_tx_marker），防止 wait_tx_idle
    * 提前返回导致帧丢在邮箱被 offline 截断。
    * 配置段在 CAN offline 下完成，此处短暂上线发帧，发完立刻离线进睡。 */
-  can_driver_online();
+  /* fw 1.1.77 节流：10s 内最多一组快照（判断只需 E2 真值 + E0 fl 结果位，
+   * 同一入睡风暴里反复重试的配置值冗余重复）。配合入睡失败 1s 退避，
+   * 根治「E0~E3 连发十几组」刷屏（2026-11-10 实测）。 */
+  {
+    static uint32_t s_eframe_last_ms = 0U;
+    uint32_t efn = timer_get_tick();
+    if ((int32_t)(efn - s_eframe_last_ms) >= 10000)
+    {
+    s_eframe_last_ms = efn;
+    can_driver_online();
   {
     uint8_t diag[8];
     uint8_t mc, ce, ev24, ev63, cctl;
@@ -572,6 +581,8 @@ static void can_lp_enter_sleep(void)
   }
 
   can_driver_offline();
+    }
+  }
 #endif /* CAN_LP_EFRAME_ENABLE（E0~E3 诊断帧，app_config.h 宏屏蔽） */
 
   /* ---- 提交 Sleep 模式 ----
@@ -3530,8 +3541,21 @@ void can_protocol_poll(void)
     }
     if ((int32_t)(now - g_uds_last_ms) >= idle_limit)
     {
-      can_lp_go_sleep();
-      return;
+      /* 入睡失败退避（fw 1.1.77）：sit1145_sleep_config 失败时本次不睡，
+       * 旧逻辑 g_uds_last_ms 不刷新 → 下一轮 poll 立刻重试——每轮 SPI
+       * 回读+诊断帧 ~1s，形成「E0~E3 连发十几组」刷屏风暴（2026-11-10
+       * 实测）。失败后 1s 内不重试；成功入睡不返回此处无需退避。 */
+      static uint32_t s_sleep_retry_after_ms = 0U;
+      if ((int32_t)(now - s_sleep_retry_after_ms) >= 0)
+      {
+        can_lp_go_sleep();
+        if (g_can_awake != 0U)
+        {
+          s_sleep_retry_after_ms = now + 1000U;
+        }
+        return;
+      }
+      /* 退避窗口内不重试，继续 poll 其余判定 */
     }
   }
 #endif
