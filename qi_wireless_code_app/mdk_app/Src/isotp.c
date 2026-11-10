@@ -217,10 +217,13 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
    * can_busoff_reset 仅请求恢复（需 5.6ms 隐性位），不够可靠；
    * offline→online 完整重初始化：复位 CAN 外设、重挂中断、
    * 重配时序/滤波、清错误计数器。 */
+  /* fw 1.1.74：撤回 offline→online 完整重初始化——它会清 RX FIFO，
+   * 把主机已按上一 FC 发来的 CF 抹掉（0x34 有 FC 无应答的丢帧根因）。
+   * 改用 can_busoff_reset 温和恢复（仅请求恢复，不碰 FIFO）；真
+   * bus-off 时 FC 发不出由主机重发请求兜底，绝不丢已到数据。 */
   if (can_busoff_get(CAN1) != RESET)
   {
-    can_driver_offline();
-    can_driver_online();
+    can_busoff_reset(CAN1);
   }
 
   if (can_driver_last_tx_handle(&prev_handle) == 0)
@@ -234,11 +237,10 @@ static void isotp_send_fc(uint32_t can_id, uint8_t status, uint8_t bs, uint8_t s
     {
       isotp_delay_ms(ISOTP_FC_ATTEMPT_GAP_MS);
     }
-    /* 重试间再查 bus-off：首次恢复可能未完成 */
+    /* 重试间再查 bus-off：首次恢复可能未完成（温和恢复，不碰 RX FIFO） */
     if ((attempt > 0U) && (can_busoff_get(CAN1) != RESET))
     {
-      can_driver_offline();
-      can_driver_online();
+      can_busoff_reset(CAN1);
     }
     {
       int8_t rc = isotp_send_fc_try(can_id, fc_data);

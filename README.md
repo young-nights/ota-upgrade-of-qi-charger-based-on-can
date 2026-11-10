@@ -118,6 +118,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 
 | 工具 | 版本要求 |
 |------|----------|
+| 2026-11-10 | **revert+fix(can): 撤回 TX 路径破坏性实验，修复 FC 兜底丢帧（fw 1.1.74）**。09:29 日志「越改越糟糕」：34 RequestDownload 有 FC（Send 成功）却无 74 应答=帧被丢。丢帧源两个均为 1.1.71~73 引入：①pump 50ms 强制 abort 杀在途帧（1.1.73 让它在确认链高频触发）；②RETLIM=6 截断重传。另拆一颗更早的雷：isotp_send_fc 兜底路径的 bus-off 恢复 offline→online **清 RX FIFO**，把主机已发来的 CF 抹掉（有 FC 无应答的直接根因）——改 can_busoff_reset 温和恢复。回退内容：pump 恢复纯 STB 补触发、撤 RETLIM 配置、撤 PTB abort；保留：等待环内跑 pump（1.1.73）、工具单 FF+6s 耐心窗。SW_VERSION_STR=1.1.74 |
 | 2026-11-10 | **fix(can/tool): 等待环内跑 pump + 单 FF 耐心窗（fw 1.1.73）**。08:43 日志：发 2438→2511ms 逐块增长（队列积压，"时间越来越久"）、等恒 ~3953ms。①pump 此前只在 can_driver_poll 跑——发送确认链（SF 30×15ms、FC 5×55ms）自己把主循环占死，楔子在确认链期间永远没机会解锁：现在 wait_tx_frame/wait_tx_idle 等待环内也跑 pump；②工具 FF 重试 2→1 + FC 窗 1500×2→6000×1（FF 重试诱发设备每个 FF 回一个 FC=队列饲料，砍半；FC 真丢由 UDS requestRetries 整块兜底）。SW_VERSION_STR=1.1.73 |
 | 2026-11-10 | **fix(can/tool): pump 补 PTB 盲区 + RETLIM 6 + FC 耐心窗（fw 1.1.72）**。1.1.71 后派发延迟仍在（1.6s）且 34 RequestDownload FC 超时：pump 卡死解锁只盯 STB 触发位且要求 STB 非空——**PTB 的 tpe 挂起位在盲区**，TSTAT 报 ABORTED 的帧 tpe/写锁不释放=PTB 卡死，后续帧全挤 STB、STB 满则整队卡 1~2s。修复：①pump 挂起判定并入 tpe（PTB/STB 全覆盖），滞留 >50ms abort 解锁后补触发；②RETLIM/REALIM 3→6（3 太激进，丢 ACK 场景把慢变丢）；③工具 FC 窗 800×2→1500×2（0x34 的 FC 在擦除后 >1.6s 才出，短窗踩空）。`SW_VERSION_STR`→**1.1.72** |
 | 2026-11-09 | **fix(can): TX 发送路径三处根治——重传上限/PTB 孤儿 abort/触发位卡死解锁（fw 1.1.71）**。station_log_20261109_233945 实证请求全程恒 ~2s（AA55 派发 +1.98s ±10ms）+ MF 组包 CF4 卡 ~1s，全为 500/1000/2000ms 超时粒度=发送缓冲排队。根因链：`can_retransmission_limit_set` 全工程无人调用（复位默认不限次）→ 丢 ACK 的帧无限重传咬死触发位 → PTB/STB 后续帧全锁 1~2s；且 `can_try_txbuf` PTB 触发失败回退 STB 后孤儿帧会被后续 PTB 触发带上线=同一帧发 2~3 份（FF×3）；`can_driver_tx_pump` 补触发守卫在卡死时永不放行。修复：①init 设 RETLIM/REALIM=3（~2ms 出 ABORTED 终态，上层补发恢复）；②PTB 触发失败先 `can_transmit_abort(PTB)` 杀孤儿再回退 STB；③pump 触发位滞留 >50ms 强制 abort 解锁重触发。`SW_VERSION_STR`→**1.1.71** |
@@ -193,7 +194,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.73**（等待环 pump + 单 FF） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.74**（撤破坏性实验+FC 兜底丢帧修复） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 

@@ -104,14 +104,6 @@ static void can_hw_config_in_reset(void)
   /* 正常通信模式（非 Listen-only / 自测） */
   can_mode_set(CAN1, CAN_MODE_COMMUNICATE);
 
-  /* 重传/仲裁次数限制（fw 1.1.71）：不设（复位默认不限次）时丢 ACK 的
-   * 帧按 RETLIM 无限重传，TSTAT 长期停在 DISTURBED/LOST_ARBITRATION，
-   * 触发位被咬住——PTB/STB 后续帧全部锁在缓冲里 1~2s（实测 FF×3、
-   * CF4 卡 1s、AA55 迟 2s、OTA 每块 4.5s 的总根因）。限 3 次即止：
-   * ~2ms 内出 ABORTED 终态，wait_tx_frame 回 -2 由上层补发/幂等恢复。
-   * 宁可丢一帧（上层有重试）不可让发送路径停摆。 */
-  can_retransmission_limit_set(CAN1, CAN_RE_TRANS_TIMES_6);
-  can_rearbitration_limit_set(CAN1, CAN_RE_ARBI_TIMES_6);
 
   /* 250 kbps / 75% SP：18 MHz tq / 72 = 250k */
   can_bittime_default_para_init(&can_bittime_struct);
@@ -401,12 +393,10 @@ static int8_t can_try_txbuf(can_txbuf_select_type sel, can_txbuf_type *tx_buf)
     {
       /* 触发失败（tpe/tpa 未清）：帧已写入 PTB 但没有触发就不会上
        * 总线，而 PTB 无补触发通道（can_driver_poll 只补 STB）——这正是
-       * 76/7F 应答"入队成功却静默消失"的根因路径。
-       * fw 1.1.71：先 abort 掉 PTB 里的孤儿帧再回退 STB。旧注释假设
-       * 「PTB 孤儿帧不会重复上线」实测错误——后续任一次 PTB 触发会把
-       * 孤儿带上线，同一帧发 2~3 份（日志 FF×3 的根因）。abort 后回退
-       * STB 唯一上线，poll 补触发兜底送达。 */
-      can_transmit_abort(CAN1, CAN_ABORT_TRANSMIT_PTB);
+       * 76/7F 应答"入队成功却静默消失"的根因路径。返回 -1 让调用方
+       * 双邮箱回退把同一帧经 STB 送出（poll 补触发兜底送达）。
+       * fw 1.1.74：撤回 1.1.71 的 PTB abort——abort 杀帧不可靠且有
+       * 丢帧风险，宁可偶发重复帧（主机幂等）不可丢应答。 */
       return -1;
     }
   }
@@ -759,49 +749,17 @@ void can_driver_tx_pump(void)
    * (STB_*) 在上一次触发位（tsone/tsall/tsa）未清时返回 ERROR——帧
    * 已写入 STB FIFO 却拿不到触发信号，滞留到下一次 can_driver_send
    * 的触发才被带走。can_try_txbuf 无法在写入点重试（触发位要等当前
-   * 帧发完才清），故每轮检测 STB 非空且无触发挂起即补发 STB_ALL。
-   *
-   * fw 1.1.72 卡死解锁（补 1.1.71 的 PTB 盲区）：挂起位不只 STB 的
-   * tsall/tsone/tsa——PTB 的 tpe 同是「帧已入队在等上线」的挂起位。
-   * TSTAT 报 ABORTED 的帧常已实际上线但 tpe/写锁不释放 → PTB 卡死，
-   * 后续帧全挤 STB、STB 满则整队卡 1~2s（AA55 迟 2s、CF 卡 1s、OTA
-   * 每块 4.6s 的总根因；1.1.71 只盯 STB 故无效）。触发位滞留 >50ms
-   * （正常一帧 250kbps 上线 <2ms）即 abort 解锁后补触发——宁可丢
-   * 在途帧（上层补发/幂等）不可让发送路径停摆。 */
-  static uint32_t s_stuck_since = 0U;
-  uint8_t trig_pend;
-
-  trig_pend = (uint8_t)((CAN1->ctrlstat_bit.tsall != 0U) ||
-                       (CAN1->ctrlstat_bit.tsone != 0U) ||
-                       (CAN1->ctrlstat_bit.tsa != 0U) ||
-                       (CAN1->ctrlstat_bit.tpe != 0U));
-
-  if (trig_pend == 0U)
+   * 帧发完才清），故每轮检测 STB 非空且无触发挂起即补发 STB_ALL，
+   * 滞留帧一轮主循环内出队。
+   * fw 1.1.74 回退说明：1.1.71~73 的「触发位滞留强制 abort」会杀在途
+   * 帧（实测 34 应答/FC 被丢，OTA 直接无应答），已撤——只保留本补触
+   * 发；等待环内仍调用本函数（1.1.73）让补触发在确认链期间也能跑。 */
+  if ((can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY) &&
+      (CAN1->ctrlstat_bit.tsall == 0U) &&
+      (CAN1->ctrlstat_bit.tsone == 0U) &&
+      (CAN1->ctrlstat_bit.tsa == 0U))
   {
-    s_stuck_since = 0U;
-    if (can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY)
-    {
-      (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
-    }
-    return;
-  }
-
-  {
-    uint32_t now = timer_get_tick();
-    if (s_stuck_since == 0U)
-    {
-      s_stuck_since = now;
-    }
-    else if ((now - s_stuck_since) > 50U)
-    {
-      can_transmit_abort(CAN1, CAN_ABORT_TRANSMIT_PTB);
-      can_transmit_abort(CAN1, CAN_ABORT_TRANSMIT_STB);
-      if (can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY)
-      {
-        (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
-      }
-      s_stuck_since = 0U;
-    }
+    (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
   }
 }
 
