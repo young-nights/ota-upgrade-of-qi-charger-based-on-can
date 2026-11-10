@@ -11,6 +11,7 @@ namespace QiChargerStationTool.Core.Protocol;
 public sealed class IsoTpClient
 {
     private static readonly byte[] FcCts = { 0x30, 0x00, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC };
+    private static readonly byte[] WakeFrame = { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC };
 
     private readonly ICanTransport _tp;
     private readonly uint _txId;
@@ -148,16 +149,6 @@ public sealed class IsoTpClient
         // FF + CFs
         int total = uds.Length;
         LastFcTries = 0;
-        // 踢帧必须在 FF *之前*（关键！）：①踢开设备派发/TX 队列；②绝不可
-        // 放在 FF 与 CF 之间——踢帧是 SF，设备 isotp_rx_process 的 SF 分支
-        // 无条件 rx_ctx.state=IDLE，会把刚武装的 MF 组包杀掉，CF 变孤帧
-        // （0x34/0x36 全灭实证：5 个踢帧标记都在、组包零完成）。
-        for (int k = 0; k < 2; k++)
-        {
-            _tp.Send(new CanFrame(_txId,
-                new byte[] { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC }));
-            TimerResolution.PreciseSleep(30);
-        }
         // 盲发 CF，不等 FC（2026-11-10 实测定案）：设备 FC 被 TX 楔子压
         // ~2.1s 才上线（FF@T→FC@T+2.1s），而 N_Cr=2s 自 FF 起算——等 FC
         // 再发 CF 必踩 N_Cr 死线，组包中止、0x34 三次全灭且无任何应答。
@@ -166,6 +157,8 @@ public sealed class IsoTpClient
         // CF 早于 N_Cr 一个数量级，组包必成；迟到的 FC 属噪声由
         // DrainStale/TryReceive 排除。对照实验（wsl_run/exp_kick.py）：
         // 等 FC 再发 CF=组包未完成，盲发 CF=组包完成（SN 重复帧固件只忽略）。
+        // 踢帧不放 FF 之前（对 FC 无益）也不放 FF/CF 之间（SF 杀组包），
+        // 统一由 UdsClient 收尾踢 + TryReceive 等待踢承担。
         var ff = new byte[8];
         ff[0] = (byte)(0x10 | ((total >> 8) & 0x0F));
         ff[1] = (byte)(total & 0xFF);
@@ -235,6 +228,14 @@ public sealed class IsoTpClient
         // 噪声计数误报到新请求头上（实测 HW 读把首轮 BOOTUP 窗口的
         // 「收 8 帧/噪声 8」安到自己头上）
         LastTimeoutDetail = "";
+
+        // 等待期踢帧（应答 TX 解锁，2026-11-10 kick 线程实验定案）：设备
+        // 应答生成后卡 TX 队列（实测恒 ~1s 不出），新 RX 事件 0~2ms 内踢出
+        // （76 恒在踢帧后 0~2ms 到达；块耗时 1100ms→209ms 的唯一差异就是
+        // 等待期有无踢帧）。首踢 +30ms（应答就绪点），间隔倍增至 250ms
+        // 封顶——快路径一次踢即出，长等待（擦除/探测）不刷噪声。
+        long nextKickAt = Environment.TickCount64 + 30;
+        long kickInterval = 30;
 
         // 半包看门狗：FF 已收但 5s 内没凑齐 → 丢弃半包，防下一次误拼
         if (_ffBuf is not null && Environment.TickCount64 > _ffDeadline)
@@ -340,6 +341,12 @@ public sealed class IsoTpClient
                 {
                     Log($"[RX] FC {Hex(f.Data)}");
                 }
+            }
+            if (Environment.TickCount64 >= nextKickAt)
+            {
+                kickInterval = Math.Min(kickInterval * 2, 250);
+                nextKickAt = Environment.TickCount64 + kickInterval;
+                _tp.Send(new CanFrame(_txId, WakeFrame));
             }
             PollPause(deadline - timeoutMs);
         }
