@@ -387,6 +387,20 @@ public partial class MainWindow : Window
             }
             transport = _transport;
         }
+        // 入睡临界窗避让：设备正在进睡眠（SLEEP/E0~E3 标记刚出现）时先等其
+        // 睡稳（末标记 +2.5s，封顶 8s）再写总线——临界窗内的探测/唤醒帧打在
+        // 入睡途中无效（2026-11-10 实测：21:07 操作踩中入睡窗致「无应答」）。
+        {
+            long t0 = Environment.TickCount64;
+            while (Environment.TickCount64 - t0 < 8000)
+            {
+                long marker = transport.LastSleepMarkerTickMs;
+                if (marker == 0 || Environment.TickCount64 - marker >= 2500) break;
+                await Task.Delay(250);
+            }
+            if (Environment.TickCount64 - t0 >= 250)
+                AppendLog($"[就绪] 设备正在进入休眠，已等待 {(Environment.TickCount64 - t0) / 1000.0:F1}s 让入睡完成，再唤醒…");
+        }
         try
         {
             string failMsg = "";
@@ -754,12 +768,13 @@ public partial class MainWindow : Window
         {
             if (ct.IsCancellationRequested) return (false, "已取消");
             n++;
-            // 探测超时 6s：实测设备请求→应答全程 ≈3.0s（派发 ~2s + 组包
-            // CF 卡顿 ~1s），3s 窗口三轮全差 5~14ms 撞线（23:14 日志），
-            // 且窗口短于设备周期会叠加排队恶化
+            // 探测超时 4s：有踢帧后设备应答 ~100-200ms 级，4s 足够覆盖慢路
+            // 余量；更短的窗让 waitSec 预算内容纳 2~3 轮「探测→唤醒 burst→
+            // 探测」循环——设备入睡/重启途中错过首个请求时，后续轮次重新
+            // 请求即自愈（2026-11-10 实测：单轮 6s 探测错过 boot 窗即无应答）。
             var r = await Task.Run(() =>
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x95 },
-                    timeoutMs: 6000, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
+                    timeoutMs: 4000, ct: ct, expectDid: ProtoIds.DidSwVersion), ct);
             if (r.Ok)
             {
                 log?.Invoke($"[就绪] 第 {n} 次探测 UDS 应答，设备就绪");
@@ -1385,7 +1400,7 @@ public partial class MainWindow : Window
         string name = enable ? "开启充电" : "关闭充电";
         await RunOpAsync(name, TimeSpan.FromSeconds(30), async (uds, ct) =>
         {
-            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 6, log: AppendLog);
+            var (ready, readyErr) = await WaitUdsReadyAsync(uds, ct, waitSec: 12, log: AppendLog);
             if (!ready)
             {
                 await FailAsync(name, readyErr);

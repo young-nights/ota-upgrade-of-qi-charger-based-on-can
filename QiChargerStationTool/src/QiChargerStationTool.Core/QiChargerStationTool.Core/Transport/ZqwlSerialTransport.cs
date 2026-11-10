@@ -38,6 +38,13 @@ public sealed class ZqwlSerialTransport : ICanTransport
         _port.DataReceived += OnData;
     }
 
+    /// <summary>
+    /// 最近一次收到睡眠入口标记帧（SLEEP 生命周期 0x04 / E0~E3 睡前快照）的
+    /// Tick64；0=未见。供上层在设备入睡临界窗（SLEEP→E0~E3→commit 约 4s）
+    /// 内避让不写总线——临界窗内帧打在入睡途中无效，且挤占 WUF 配置期。
+    /// </summary>
+    public long LastSleepMarkerTickMs { get; private set; }
+
     public bool IsOpen => _port?.IsOpen == true;
 
     private void WriteRaw(byte[] pkt, string tag)
@@ -384,6 +391,14 @@ public sealed class ZqwlSerialTransport : ICanTransport
             var data = new byte[dlc];
             Buffer.BlockCopy(_buf, i + 7, data, 0, dlc);
             _rxQueue.Enqueue(new CanFrame(id, data));
+            // 睡眠入口标记（SLEEP 生命周期 0x18FF260D[0]=04 / E0~E3 快照
+            // 0x18FF270D[0]=E0..E3）：记录时刻供上层入睡临界窗避让
+            if (data.Length > 0 &&
+                ((id == 0x18FF260DU && data[0] == 0x04) ||
+                 (id == 0x18FF270DU && data[0] is >= 0xE0 and <= 0xE3)))
+            {
+                LastSleepMarkerTickMs = Environment.TickCount64;
+            }
             OnRawLog?.Invoke($"[CAN-RX] {id:X8} {Convert.ToHexString(data)}");
             i += total;
         }
