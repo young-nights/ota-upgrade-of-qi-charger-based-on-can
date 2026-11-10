@@ -1,0 +1,14 @@
+<Project>
+  <!--
+    Windows MAX_PATH(260) 规避：WPF 标记编译为带 x:Class 的 XAML 生成临时工程
+    <Proj>_<rand>_wpftmp，其 <Proj>_<rand>_wpftmp.GeneratedMSBuildEditorConfig.editorconfig
+    文件名长达 83 字符；叠加 src\<Proj>\<Proj>\obj\Debug\net8.0-windows\ 深目录后
+    全路径达 264 字符（超限 4），构建报「未能找到路径 ..._wpftmp.GeneratedMSBuildEditorConfig.editorconfig」。
+    将 obj/bin 收拢到仓库根 build\ 下（仅作用于 ProductionStationTool 子树，
+    QiChargerStationTool 等不受影响）。本机实测改后最长路径 ≈235 字符，余量 25。
+  -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'build', 'obj', '$(MSBuildProjectName)'))</BaseIntermediateOutputPath>
+    <BaseOutputPath>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'build', 'bin', '$(MSBuildProjectName)'))</BaseOutputPath>
+  </PropertyGroup>
+</Project>
