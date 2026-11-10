@@ -158,10 +158,10 @@ dotnet test     # 14/14 Passed
 - Core 库是 `net8.0`，WSL 可编译可测
 - 修改 StationTool 代码后，WSL 侧至少验证 Core 库 `dotnet build` + `dotnet test`
 
-### 唤醒 burst 约定（2026-10-28 修订，2026-11-05 改 3E 80）
+### 唤醒 burst 约定（2026-10-28 修订，2026-11-10 客户规定 3E 00）
 
 - SIT1145 WUF 匹配 ID=`0x18DA0D03` + **DLC=8** + 数据位 DM0=0x02/DM1=0x3E（PNDM=1；第三字节 `00/80` 不参与匹配，超集帧如 `02 10 00 CC…` 会误唤醒）——E2 快照 `03 0D DA 18 02 3E` 即该配置实证
-- 唤醒/踢帧 = **`02 3E 80 CC CC CC CC CC`（DLC=8，0xCC 填充）**——与 `02 3E 00` 唤醒等效（匹配只看 DM0/DM1），但 `80`=TesterPresent suppressPosRsp，设备不回 `7E 00` 正响应（2026-11-05 定，免逐踢 7E+组包标记噪声）；**全链路统一 DLC=8**（其余 UDS 指令/应答同为 DLC=8+0xCC 填充），DLC=3 裸帧不再唤醒
+- 唤醒/踢帧 = **`02 3E 00 CC CC CC CC CC`（DLC=8，0xCC 填充）**——**客户规定用 3E 00 标准 TesterPresent 形态**（2026-11-10）；与 `02 3E 80` 唤醒等效（匹配只看 DM0/DM1），设备回 `7E 00` 正响应属预期（工具侧按过路流量消化）；**全链路统一 DLC=8**（其余 UDS 指令/应答同为 DLC=8+0xCC 填充），DLC=3 裸帧不再唤醒
 - `ConnectStep`（BasicSteps.cs）、`WaitUdsReadyAsync`（MainWindow.xaml.cs）为唤醒发送点（python_tools 旧脚本已删除）
 - 发 ≥6 帧（常用 8）、间隔 250ms（burst 对抗工具链无 ACK 丢帧）
 - 生命周期广播 0x18FF260D 字节 0 仅 4 值：`01` BOOTUP / `02` OPERATIONAL / `03` WAKEUP（保留不发） / `04` SLEEP，`[1..7]` 全零（CCU 词汇表）

@@ -107,7 +107,7 @@ public sealed class ChargeTestStep : ITestStep
         try
         {
             ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }, expectSub: 0x03); // extended
-            ctx.Uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x80 });
+            ctx.Uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
             // enable
             ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x01 }, expectSub: 0x21, expectDid: ProtoIds.DidChargerEnable);
             await Task.Delay(1000, ct);

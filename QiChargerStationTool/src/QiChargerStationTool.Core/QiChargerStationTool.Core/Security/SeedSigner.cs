@@ -122,7 +122,7 @@ public static class SecurityAccess
                 var sig = signer.SignSeed(seed);
                 log("签名完成 64B，27 03 分片…");
 
-                // 27 03 chunks 4B × 16 + 3E 80 keepalive every 4
+                // 27 03 chunks 4B × 16 + 3E 00 keepalive every 4
                 bool chunksOk = true;
                 for (int seq = 1; seq <= 16; seq++)
                 {

@@ -108,10 +108,11 @@ public sealed class UdsClient
             _tp.Send(uds);
             LastSendMs = Environment.TickCount64 - tSend;
             // 派发踢帧（高延时根治·上位机侧）：设备请求→派发存在 ~2s 延迟
-            // （WSL 裸台架实测，与工具无关）。请求后 3 帧 3E 80（~35ms 间隔）
+            // （WSL 裸台架实测，与工具无关）。请求后 3 帧 3E 00（~35ms 间隔）
             // 可把整轮压到 ~107ms——6/6 实测稳定（基线 2015ms，19× 提速）。
             // 机制：新帧到达踢开设备的派发/发送队列（管道实验：REQ2 到达 4ms
-            // 内冲出 REQ1 积压应答）。3E 80 为标准保活帧，副作用仅 AA55 标记。
+            // 内冲出 REQ1 积压应答）。唤醒/踢帧统一 02 3E 00（客户规定），
+            // 设备回 7E 00 属预期，由 TryReceive 的过路流量逻辑消化。
             for (int k = 0; k < 3; k++)
             {
                 if (ct.WaitHandle.WaitOne(35))
@@ -198,7 +199,7 @@ public sealed class UdsClient
 
     public byte[] RequestSuppress(byte sid, byte[] payload)
     {
-        // 3E 80 etc. — fire and forget
+        // 3E 00 etc. — fire and forget
         var uds = new byte[1 + payload.Length];
         uds[0] = sid;
         payload.CopyTo(uds, 1);
@@ -206,15 +207,16 @@ public sealed class UdsClient
         return Array.Empty<byte>();
     }
 
-    public void KeepAlive() => RequestSuppress(ProtoIds.SidTp, new byte[] { 0x80 });
+    public void KeepAlive() => RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
 
     /// <summary>
-    /// 发一帧唤醒帧：ID=UdsReqId、DLC=8、数据 02 3E 80 CC CC CC CC CC（0xCC 填充，
-    /// 与普通 UDS SF 同线格式）。WUF 严格匹配 ID+DLC=8+数据位（PNDM=1），
-    /// byte1=0x3E 命中掩码；用 suppressPosRsp 形态（3E 80）使唤醒帧不产生
-    /// 7E 应答/组包标记噪声（2026-11-05 日志实证 3E 00 双重身份噪声）。
+    /// 发一帧唤醒帧：ID=UdsReqId、DLC=8、数据 02 3E 00 CC CC CC CC CC（0xCC 填充，
+    /// 与普通 UDS SF 同线格式）。WUF 匹配 ID+DLC=8+DM0/DM1=02/3E（第三字节
+    /// 00/80 不参与匹配，E2 快照实证），故 3E 00/3E 80 唤醒等效。
+    /// 客户规定用 3E 00 标准 TesterPresent 形态（2026-11-10）——设备回
+    /// 7E 00 正响应属预期，由 TryReceive 的 7E 过路流量逻辑消化（不刷屏）。
     /// </summary>
-    public void SendWake() => _tp.SendRaw(new byte[] { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC });
+    public void SendWake() => _tp.SendRaw(new byte[] { 0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC });
 
     /// <summary>读软件版本；失败返回 (false, 错误信息)。</summary>
     public (bool Ok, string Version, string Error) TryReadSwVersion(CancellationToken ct = default)

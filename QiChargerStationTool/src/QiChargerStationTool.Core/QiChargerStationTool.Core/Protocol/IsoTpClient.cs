@@ -11,7 +11,10 @@ namespace QiChargerStationTool.Core.Protocol;
 public sealed class IsoTpClient
 {
     private static readonly byte[] FcCts = { 0x30, 0x00, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC };
-    private static readonly byte[] WakeFrame = { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC };
+    // 唤醒/踢帧（客户规定）：02 3E 00 CC CC CC CC CC——WUF 匹配 DM0/DM1=02/3E
+    // 与 00/80 无关，唤醒等效；客户要求用 3E 00 标准形态（设备回 7E 00 属预期，
+    // 由 TryReceive 的 7E 过路流量逻辑消化）。
+    private static readonly byte[] WakeFrame = { 0x02, 0x3E, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC };
 
     private readonly ICanTransport _tp;
     private readonly uint _txId;

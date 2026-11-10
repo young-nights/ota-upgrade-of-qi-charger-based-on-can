@@ -738,7 +738,8 @@ public partial class MainWindow : Window
                 return (true, "");
             }
         }
-        // SIT1145 WUF 唤醒 burst：≥6 帧 02 3E 80 CC…（DLC=8，suppressPosRsp 静默形态），PNDM=1 严格匹配
+        // SIT1145 WUF 唤醒 burst：≥6 帧 02 3E 00 CC…（DLC=8，客户规定的标准
+        // TesterPresent 形态；WUF 匹配 DM0/DM1=02/3E，00/80 唤醒等效）
         log?.Invoke("[就绪] 发送唤醒 burst (8 帧)…");
         for (int i = 0; i < 8; i++)
         {
