@@ -745,21 +745,20 @@ int8_t can_driver_wait_tx_all_idle(uint32_t timeout_ms)
  */
 void can_driver_tx_pump(void)
 {
-  /* STB 滞留帧补触发（SF 应答迟到 ~3s 的根因）：can_txbuf_transmit
-   * (STB_*) 在上一次触发位（tsone/tsall/tsa）未清时返回 ERROR——帧
-   * 已写入 STB FIFO 却拿不到触发信号，滞留到下一次 can_driver_send
-   * 的触发才被带走。can_try_txbuf 无法在写入点重试（触发位要等当前
-   * 帧发完才清），故每轮检测 STB 非空且无触发挂起即补发 STB_ALL，
-   * 滞留帧一轮主循环内出队。
-   * fw 1.1.74 回退说明：1.1.71~73 的「触发位滞留强制 abort」会杀在途
-   * 帧（实测 34 应答/FC 被丢，OTA 直接无应答），已撤——只保留本补触
-   * 发；等待环内仍调用本函数（1.1.73）让补触发在确认链期间也能跑。 */
-  if ((can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY) &&
-      (CAN1->ctrlstat_bit.tsall == 0U) &&
-      (CAN1->ctrlstat_bit.tsone == 0U) &&
-      (CAN1->ctrlstat_bit.tsa == 0U))
+  /* STB 滞留帧补触发（fw 1.1.75 强制版）：实测 STB 队列会滞留 ~2s，
+   * 直到下一次 can_driver_send 的触发才被带走（WSL 直连实验：两请求
+   * 相隔 2.5s，REQ1 的标记+应答积压整队在 REQ2 到达瞬间 5 帧同时喷出；
+   * 空闲生命周期走 PTB 直发故 1028ms 稳定）。根因=can_txbuf_transmit
+   * 的软件守卫（tsall/tsone/tsa 任一置位即拒触发，注释自称「避免重复
+   * 置位」的保守写法）——位卡置位时 pump 的补触发永远被拒，帧全排队。
+   * 修复=绕过守卫每轮直接重写触发位：硬件接受重复触发写（置位期间
+   * 重写=无变化），队列一轮主循环内必出，把派发/应答 2s 延迟压到 ms。
+   * 纯重触发，不 abort 不丢帧。 */
+  if (can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY)
   {
-    (void)can_txbuf_transmit(CAN1, CAN_TRANSMIT_STB_ALL);
+    uint8_t *reg = (uint8_t *)&CAN1->ctrlstat + 1U;
+    uint8_t tmp = *reg & 0xE0U;
+    *reg = (uint8_t)(tmp | CAN_TRANSMIT_STB_ALL);
   }
 }
 
