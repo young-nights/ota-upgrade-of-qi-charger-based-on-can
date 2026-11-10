@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.78";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.79";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -3565,7 +3565,13 @@ void can_protocol_poll(void)
 
   if (current_session != SESSION_DEFAULT)
   {
-    if ((now - last_tester_present_tick) >= SESSION_TIMEOUT_MS)
+    /* 有符号比较（fw 1.1.79，同上方睡眠判定风格）：proto_flush_pending_tx
+     * 在本检查之前（3505）——MF 应答冲刷可阻塞数秒，期间 isotp_wait_cts
+     * 内联处理的踢帧经 uds_process_message 把 last_tester_present_tick 刷成
+     * now+数秒；回到此处无符号 now-tick 下溢成巨大值 ≥30s → 会话被无条件
+     * 误杀（实测 2E 20 10 回 NRC 0x22 的根因：AA55 标记会话字节 02→01
+     * 恰发生在种子 MF 滴流窗口）。 */
+    if ((int32_t)(now - last_tester_present_tick) >= (int32_t)SESSION_TIMEOUT_MS)
     {
       session_reset_to_default();
     }

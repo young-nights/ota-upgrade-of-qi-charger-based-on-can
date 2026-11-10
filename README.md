@@ -118,6 +118,7 @@ ota-upgrade-of-qi-charger-based-on-can/
 
 | 工具 | 版本要求 |
 |------|----------|
+| 2026-11-10 | **fix(can): S3 会话超时判定下溢误杀会话（fw 1.1.79）**。14:07 完整 OTA 日志定案：2E 20 10 报 NRC 0x22 的根因=**S3 检查（can_protocol_poll:3568）用无符号减法**，而它在 proto_flush_pending_tx（3505）之后——MF 应答冲刷阻塞数秒，期间 isotp_wait_cts 内联处理的踢帧把 last_tester_present_tick 刷成 now+数秒，回到 S3 检查时 now−tick 下溢成巨大无符号值 ≥30s → session_reset_to_default() 无条件误杀会话（AA55 标记会话字节 02→01 恰发生在种子 MF 滴流窗口，两轮 SA 均复现）。修复=改有符号比较（同上方睡眠判定风格——那个坑 2026-11-10 早已修过并留注释，S3 侧漏改）。SW_VERSION_STR=1.1.79 |
 | 2026-11-10 | **fix(tool/can): 0x34 应答静默丢弃根治（fw 1.1.78）**。10:54 日志「有 FC 无 74」定案：STB 楔子让 74 的 SF 直发 30 连败→落 g_tx_pend→冲刷 3 连败→**「3 次即丢弃」策略把应答静默扔掉**（主机只见无应答）。修复：①工具 0x34 加 requestRetries=2（首包未下载数据，重发=重开下载，幂等无害）；②冲刷丢弃预算 3→10（10 次仍败才丢，彼时主机已重发）。注：10:54 日志的 2s 派发延迟说明当时固件仍非 1.1.75——STB 强制重触发（1.1.75）+ 本版叠刷才是完整解。SW_VERSION_STR=1.1.78 |
 | 2026-11-10 | **fix(can): E0~E3 快照节流 + 入睡失败退避（fw 1.1.77）**。答用户之问「快照为何多组/减少可否判断」：多组=「sit1145_sleep_config 失败→下一轮 poll 立刻重试」的无退避风暴 × 每次尝试发 4 帧（每组含 5 次 SPI 回读+确认发送 ~1s）；同一风暴里配置值冗余重复，判断只需 **E2（WUF ID/掩码真值）+ E0 fl（sleep_fail/ever_sleep）**。修复：①快照 10s 节流（每入睡风暴最多一组，判断力保留）；②入睡失败 1s 退避（刷屏源头，旧逻辑每轮 poll 重试）。CAN_LP_EFRAME_ENABLE 恢复 1（1.1.76 曾整体关闭）。SW_VERSION_STR=1.1.77 |
 | 2026-11-10 | **fix(can): 关闭 E0~E3 入睡诊断帧刷屏（fw 1.1.76）**。实测入睡重试环连发十几组 E0~E3 快照刷屏总线/日志（用户「帧太多」）。app_config.h 的 CAN_LP_EFRAME_ENABLE 置 0（设计时即留的屏蔽口，注释原话「量产不需要时省 4 帧/次」）；AA55 组包标记不受影响，唤醒快照 E1 保留（仅唤醒决策发一次）。排睡死问题时改回 1 即可。SW_VERSION_STR=1.1.76 |
@@ -198,7 +199,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.78**（0x34 应答丢弃根治） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.79**（S3 下溢误杀会话修复） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
