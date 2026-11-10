@@ -155,6 +155,17 @@ public sealed class IsoTpClient
         // requestRetries 整块重发兜底。
         for (int tryN = 0; tryN < 1 && fc is null; tryN++)
         {
+            // 踢帧必须在 FF *之前*（关键！）：①踢开设备派发/TX 队列——
+            // FF 的派发与 FC 都快（~80ms），CF 早于设备 N_Cr=2s 一个数量级；
+            // ②绝不可放在 FF 与 CF 之间——踢帧是 SF，设备 isotp_rx_process
+            // 的 SF 分支无条件 rx_ctx.state=IDLE，会把刚武装的 MF 组包杀掉，
+            // CF 变孤帧（0x34/0x36 全灭实证：5 个踢帧标记都在、组包零完成）。
+            for (int k = 0; k < 2; k++)
+            {
+                _tp.Send(new CanFrame(_txId,
+                    new byte[] { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC }));
+                TimerResolution.PreciseSleep(30);
+            }
             var ff = new byte[8];
             ff[0] = (byte)(0x10 | ((total >> 8) & 0x0F));
             ff[1] = (byte)(total & 0xFF);
@@ -164,16 +175,6 @@ public sealed class IsoTpClient
             _tp.Send(new CanFrame(_txId, ff));
             LastFcTries = tryN + 1;
             if (!quiet) Log($"[TX] FF try{tryN + 1} len={total} {Hex(uds.AsSpan(0, Math.Min(6, total)).ToArray())}");
-            // FF 后立即踢帧（关键！）：设备的 FC 被 TX 队列压 ~2s 才出，
-            // 而设备 N_Cr=2s（FF→首 CF 超时）恰在同时到期 → CF 成孤帧、
-            // MF 组包永不完成（0x34 三次全灭实证：AA55 派发标记全程缺席）。
-            // 踢帧踢开队列 → FC ~80ms 内到 → CF 早于 N_Cr ✓。
-            for (int k = 0; k < 2; k++)
-            {
-                _tp.Send(new CanFrame(_txId,
-                    new byte[] { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC }));
-                TimerResolution.PreciseSleep(30);
-            }
             fc = WaitFc(6000);
         }
         if (fc is null)
