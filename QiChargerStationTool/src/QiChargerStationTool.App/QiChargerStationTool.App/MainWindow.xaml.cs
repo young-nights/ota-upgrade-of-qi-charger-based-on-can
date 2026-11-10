@@ -1090,7 +1090,7 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    ZqwlSerialTransport transport;
+                    ZqwlSerialTransport? transport;
                     lock (_transportLock) { transport = _transport; }
                     if (transport is { IsOpen: true })
                     {
@@ -1377,51 +1377,19 @@ public partial class MainWindow : Window
             }
             _chargeEnabled = enable;
 
-            // 真充判定：0x2101 写成功只是「使能」；磁铁不存在(0x01)时按
-            // 充电功率/电流原值 + 充电触发位（0x2111[1] b0）+ 2s 滑动去抖
-            // 区分「充电中 / 未充电」（不换算单位，直接用 Qi 传回值）。
-            byte? clamp = null;
-            ushort? powerMw = null;
-            byte? currentRaw = null;
-            byte? status2 = null;
-            if (enable)
-            {
-                try
-                {
-                    clamp = QiChipStatusCodec.ReadU8(uds.ReadDid(ProtoIds.DidClampState, timeoutMs: 3000));
-                }
-                catch { /* 霍尔读取失败不阻断充电操作本身 */ }
-                try
-                {
-                    var sd = uds.ReadDid(ProtoIds.DidQiStatusRaw, timeoutMs: 3000);
-                    if (sd.Length >= 2) status2 = sd[1];
-                }
-                catch { /* optional */ }
-                try
-                {
-                    powerMw = QiChipStatusCodec.ReadU16Le(uds.ReadDid(ProtoIds.DidOutputPower, timeoutMs: 3000));
-                }
-                catch { /* optional */ }
-                try
-                {
-                    var vd = uds.ReadDid(ProtoIds.DidInputVi, timeoutMs: 3000);
-                    if (vd.Length >= 2) currentRaw = vd[1];
-                }
-                catch { /* optional */ }
-            }
-
             await UiAsync(() =>
             {
                 if (enable)
                 {
                     Pass(name, "充电使能");
-                    if (clamp == 0x00)
-                        AppendLog("[充电] 提示：磁铁存在，未充电（磁铁未放上时才充电中）");
-                    // 重新使能：清去抖器后喂首采样（避免旧状态残留）
+                    // 开充后 Qi 状态侧不动作（2026-11-10 用户定）：不读不判
+                    // 不刷新——Qi 芯片刚上电的首采样不可信（实测直接误显
+                    // 「磁铁不存在·充电中」）。仪表盘只在「Qi 状态检测」
+                    // 轮询期间由 UpdateQiPanel 更新，此处仅显示使能回执。
                     _chargingFilter.Reset();
-                    bool active = QiChipStatusCodec.ChargingActiveFrom(
-                        powerMw, currentRaw, status2, _chargingFilter, Environment.TickCount64);
-                    UpdateMagnetDisplay(clamp, active);
+                    TxtMagnetState.Text = "充电使能·磁铁状态未知";
+                    TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+                    TxtQiSummary.Text = "充电使能 — 点击「Qi 状态检测」开始刷新状态";
                 }
                 else
                 {
