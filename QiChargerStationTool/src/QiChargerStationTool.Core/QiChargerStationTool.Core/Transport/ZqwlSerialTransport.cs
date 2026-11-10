@@ -13,10 +13,12 @@ public sealed class ZqwlSerialTransport : ICanTransport
     private readonly string _portName;
     private readonly System.IO.Ports.SerialPort? _port;
     private readonly object _rxLock = new();
+    private readonly object _writeLock = new();
     private readonly Queue<CanFrame> _rxQueue = new();
     private readonly byte[] _buf = new byte[4096];
     private int _bufLen;
     private bool _disposed;
+    private volatile bool _writeDead;
 
     /// <summary>
     /// 调试日志：只报 CAN 数据帧。盒子心跳(5A FF/FE)、配置应答(49 3B) 一律不上报。
@@ -50,15 +52,42 @@ public sealed class ZqwlSerialTransport : ICanTransport
     /// 阻塞（WriteTimeout 对 USB 串口并不总是生效），会把 UI/操作线程
     /// 永久卡死（点击「连接」卡住、必须重启软件的根因）。后台写 + 2s
     /// 看门狗：超时抛错让上层提示拔插盒子，调用线程不再被拖死。
+    /// 超时后必须杀口（2026-11-10 station_log_184741 教训）：被遗弃的
+    /// 僵尸写任务仍阻塞在 SerialPort.Write 里并占着内部写锁，此后每次
+    /// 写都会挂满 2s 再超时（日志实证首写卡死后全部写超时、永不自愈）——
+    /// 置 _writeDead + 后台 Close 杀掉僵尸写，后续快速失败；写路径
+    /// 串行化（_writeLock）杜绝并发 Write（SerialPort 并发写即卡死）。
     /// </summary>
     private void WriteBytes(byte[] buf)
     {
-        if (_port is not { IsOpen: true })
-            throw new InvalidOperationException($"ZQWL port {_portName} not open");
-        var writeTask = Task.Run(() => _port.Write(buf, 0, buf.Length));
-        if (!writeTask.Wait(2000))
+        if (_writeDead || _port is not { IsOpen: true })
             throw new InvalidOperationException(
-                "串口写入超时（2s）：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
+                $"ZQWL 盒子已失联（{_portName}）：请拔插 CAN 盒子后重新连接");
+        lock (_writeLock)
+        {
+            if (_writeDead || _port is not { IsOpen: true })
+                throw new InvalidOperationException(
+                    $"ZQWL 盒子已失联（{_portName}）：请拔插 CAN 盒子后重新连接");
+            var port = _port;
+            var writeTask = Task.Run(() => port.Write(buf, 0, buf.Length));
+            try
+            {
+                if (!writeTask.Wait(2000))
+                {
+                    _writeDead = true;
+                    _ = Task.Run(() => { try { port.Close(); } catch { /* ignore */ } });
+                    throw new InvalidOperationException(
+                        "串口写入超时（2s）：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
+                }
+            }
+            catch (AggregateException ae)
+            {
+                // 写任务已异常（端口被拔/驱动报错）：同样标死，别再排队写
+                _writeDead = true;
+                throw new InvalidOperationException(
+                    "串口写入失败：" + (ae.InnerException?.Message ?? ae.Message), ae);
+            }
+        }
     }
 
     /// <summary>49 3B 配置帧：func + rw + 16B payload + 45 2E。</summary>
@@ -79,6 +108,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
     public void Open()
     {
         if (_port is null) throw new ObjectDisposedException(nameof(ZqwlSerialTransport));
+        _writeDead = false;   // 重开（含拔插后新实例）恢复写通道
         TimerResolution.Enter();   // 1ms 节拍：Thread.Sleep(1) 才是真 1ms，否则 15ms
         bool ok = false;
         try
