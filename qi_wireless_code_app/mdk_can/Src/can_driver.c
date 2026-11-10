@@ -104,6 +104,7 @@ static void can_hw_config_in_reset(void)
   /* 正常通信模式（非 Listen-only / 自测） */
   can_mode_set(CAN1, CAN_MODE_COMMUNICATE);
 
+
   /* 250 kbps / 75% SP：18 MHz tq / 72 = 250k */
   can_bittime_default_para_init(&can_bittime_struct);
   can_bittime_struct.bittime_div  = CAN_BITTIME_DIV;
@@ -393,8 +394,9 @@ static int8_t can_try_txbuf(can_txbuf_select_type sel, can_txbuf_type *tx_buf)
       /* 触发失败（tpe/tpa 未清）：帧已写入 PTB 但没有触发就不会上
        * 总线，而 PTB 无补触发通道（can_driver_poll 只补 STB）——这正是
        * 76/7F 应答"入队成功却静默消失"的根因路径。返回 -1 让调用方
-       * 双邮箱回退把同一帧经 STB 送出（poll 补触发兜底送达）；PTB
-       * 孤儿帧没有任何后续触发入口，不会重复上线。 */
+       * 双邮箱回退把同一帧经 STB 送出（poll 补触发兜底送达）。
+       * fw 1.1.74：撤回 1.1.71 的 PTB abort——abort 杀帧不可靠且有
+       * 丢帧风险，宁可偶发重复帧（主机幂等）不可丢应答。 */
       return -1;
     }
   }
@@ -598,6 +600,7 @@ int8_t can_driver_wait_tx_idle(uint32_t timeout_ms)
 
   do
   {
+    can_driver_tx_pump();
     can_transmit_status_get(CAN1, &tx_status);
     if ((tx_status.current_tstat == CAN_TSTAT_IDLE) ||
         (tx_status.current_tstat == CAN_TSTAT_TRANSMITTED))
@@ -664,6 +667,10 @@ int8_t can_driver_wait_tx_frame(uint8_t handle, uint32_t timeout_ms)
 
   do
   {
+    /* fw 1.1.73：等待环内维持 pump——发送确认链（SF 30×15ms、FC
+     * 5×55ms）本身把主循环占死，pump 只在 can_driver_poll 跑的话
+     * 楔子在确认链期间永远没机会解锁（每块 ~4s 的构成层）。 */
+    can_driver_tx_pump();
     can_transmit_status_get(CAN1, &tx_status);
 
     /* 指定帧完成的正证据：任一组 handle 匹配且状态 TRANSMITTED */
@@ -741,10 +748,12 @@ void can_driver_tx_pump(void)
   /* STB 滞留帧补触发（SF 应答迟到 ~3s 的根因）：can_txbuf_transmit
    * (STB_*) 在上一次触发位（tsone/tsall/tsa）未清时返回 ERROR——帧
    * 已写入 STB FIFO 却拿不到触发信号，滞留到下一次 can_driver_send
-   * 的触发才被带走（实测每个 SF 应答都迟到到下一个请求到达时才出线，
-   * 主机侧表现为「UDS 无应答」）。can_try_txbuf 无法在写入点重试
-   * （触发位要等当前帧发完才清），故每轮检测 STB 非空且无触发挂起
-   * 即补发 STB_ALL，滞留帧一轮主循环内出队。 */
+   * 的触发才被带走。can_try_txbuf 无法在写入点重试（触发位要等当前
+   * 帧发完才清），故每轮检测 STB 非空且无触发挂起即补发 STB_ALL，
+   * 滞留帧一轮主循环内出队。
+   * fw 1.1.74 回退说明：1.1.71~73 的「触发位滞留强制 abort」会杀在途
+   * 帧（实测 34 应答/FC 被丢，OTA 直接无应答），已撤——只保留本补触
+   * 发；等待环内仍调用本函数（1.1.73）让补触发在确认链期间也能跑。 */
   if ((can_stb_status_get(CAN1) != CAN_STB_STATUS_EMPTY) &&
       (CAN1->ctrlstat_bit.tsall == 0U) &&
       (CAN1->ctrlstat_bit.tsone == 0U) &&

@@ -125,20 +125,54 @@ public class QiChipStatusTests
     [Fact]
     public void MagnetName_And_ChargingVerdict_MatchHallGate()
     {
-        // DID 0x2118：0x00=磁铁在位，0x01=不在位
+        // DID 0x2118 实测极性：0x00=磁铁存在（未充电），0x01=磁铁不存在
         Assert.Equal("磁铁存在", QiChipStatusCodec.MagnetName(0x00));
         Assert.Equal("磁铁不存在", QiChipStatusCodec.MagnetName(0x01));
         Assert.Equal("读取失败", QiChipStatusCodec.MagnetName(null));
 
-        // 真充判定 = 0x2101 使能 且 霍尔在位（与固件 board_charge_poll 门禁一致）
-        Assert.Equal("实际充电已开启（磁铁存在）",
-            QiChipStatusCodec.ChargingVerdict(true, 0x00));
-        Assert.Equal("实际充电未开启（磁铁不存在）",
-            QiChipStatusCodec.ChargingVerdict(true, 0x01));
-        Assert.Equal("实际充电未开启（充电未使能）",
-            QiChipStatusCodec.ChargingVerdict(false, 0x00));
-        Assert.Equal("实际充电待确认（磁铁状态读取失败）",
-            QiChipStatusCodec.ChargingVerdict(true, null));
+        // 磁铁不存在(0x01)按真充证据分充电中/未充电；磁铁存在(0x00)恒未充电
+        Assert.Equal("磁铁不存在·充电中",
+            QiChipStatusCodec.ChargingVerdict(true, 0x01, true));
+        Assert.Equal("磁铁不存在·未充电",
+            QiChipStatusCodec.ChargingVerdict(true, 0x01, false));
+        Assert.Equal("磁铁存在·未充电",
+            QiChipStatusCodec.ChargingVerdict(true, 0x00, true));
+        Assert.Equal("充电失能",
+            QiChipStatusCodec.ChargingVerdict(false, 0x01, true));
+        Assert.Equal("充电使能·磁铁状态未知",
+            QiChipStatusCodec.ChargingVerdict(true, null, true));
+    }
+
+    [Fact]
+    public void ChargingEvidence_UsesRawValues_NoConversion()
+    {
+        // 电流/功率用 Qi 传回原值判断（不换算单位）：任一非 0 或触发位=1 即有证据
+        Assert.True(QiChipStatusCodec.ChargingEvidenceFrom(500, 20, 0x00));
+        Assert.True(QiChipStatusCodec.ChargingEvidenceFrom(0, 0, 0x01));   // 触发位
+        Assert.True(QiChipStatusCodec.ChargingEvidenceFrom(50, 0, 0x00));  // 功率抖动也算单点证据（去抖滤）
+        Assert.False(QiChipStatusCodec.ChargingEvidenceFrom(0, 0, 0x00));
+        Assert.False(QiChipStatusCodec.ChargingEvidenceFrom(null, null, null));
+    }
+
+    [Fact]
+    public void DebounceFilter_FiltersJitter_BothDirections()
+    {
+        var f = new DebounceFilter(2000);
+        // 空载小幅跳动：单点 true 不翻转
+        Assert.False(f.Update(false, 0));
+        Assert.False(f.Update(true, 1000));
+        Assert.False(f.Update(false, 2000));
+        // 持续证据 ~2s 才判充电中
+        Assert.False(f.Update(true, 3000));
+        Assert.False(f.Update(true, 4000));
+        Assert.True(f.Update(true, 5000));
+        // 充电中瞬时回落不翻转
+        Assert.True(f.Update(false, 6000));
+        Assert.True(f.Update(true, 7000));
+        // 持续回落 ~2s 才关
+        Assert.True(f.Update(false, 8000));
+        Assert.True(f.Update(false, 9000));
+        Assert.False(f.Update(false, 10000));
     }
 
     [Fact]

@@ -30,7 +30,9 @@ public sealed class QiChipStatus
     public uint? ChargeCount { get; init; }
     /// <summary>DID 0x2111 Qi 状态字节（含保护位，见 <see cref="QiChipStatusCodec.QiStatusBits"/>）。</summary>
     public byte? StatusRaw { get; init; }
-    /// <summary>DID 0x2118 PA0 霍尔：0x00=磁铁/手机在位，0x01=不在位。</summary>
+    /// <summary>DID 0x2111 [1] 状态字节2：b0=充电触发位（30s 去抖，充电中持续 1）。</summary>
+    public byte? Status2Raw { get; init; }
+    /// <summary>DID 0x2118 PA0 霍尔：0x00=磁铁存在，0x01=磁铁不存在（实测极性）。</summary>
     public byte? ClampState { get; init; }
 
     public string IapStateName => QiChipStatusCodec.IapStateName(IapState);
@@ -38,11 +40,14 @@ public sealed class QiChipStatus
     public string FodName => FodStatus is { } f ? QiChipStatusCodec.FodName(f) : "读取失败";
     public string FaultName => FaultCode is { } f ? QiChipStatusCodec.FaultName(f) : "读取失败";
     public string PowerLimitName => PowerLimit is { } p ? QiChipStatusCodec.PowerLimitName(p) : "读取失败";
-    /// <summary>磁铁存在与否（霍尔触发）；读取失败为 null。</summary>
+    /// <summary>磁铁存在与否（实测极性：0x00=存在）；读取失败为 null。</summary>
     public bool? MagnetPresent => ClampState is { } s ? s == 0x00 : null;
     public string MagnetName => QiChipStatusCodec.MagnetName(ClampState);
-    /// <summary>实际充电判定（与固件 board_charge_poll 门禁同逻辑）。</summary>
-    public string ChargingVerdict(bool chargeEnabled) => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState);
+    /// <summary>单采样真充证据（原值判定、未去抖）；显示层请经 DebounceFilter 滑动平滑。</summary>
+    public bool ChargingEvidence => QiChipStatusCodec.ChargingEvidenceFrom(OutputPowerMw, InputCurrentRaw, Status2Raw);
+    /// <summary>充电状态判定（chargingActive 由调用方经 2s 滑动去抖后传入）。</summary>
+    public string ChargingVerdict(bool chargeEnabled, bool? chargingActive)
+        => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState, chargingActive);
     /// <summary>激活的保护位名列表（如 [OVP, FOD]）；StatusRaw 读取失败返回 null。</summary>
     public IReadOnlyList<string>? ActiveProtections
         => StatusRaw is { } raw ? QiChipStatusCodec.ActiveProtectionNames(raw) : null;
@@ -114,8 +119,9 @@ public static class QiChipStatusCodec
         return list;
     }
 
-    // ---- DID 0x2118 PA0 霍尔 / 实际充电判定 ----
-    /// <summary>磁铁（霍尔）状态名。0x00=在位，0x01=不在位，null=读取失败。</summary>
+    // ---- DID 0x2118 PA0 霍尔 / 充电状态判定 ----
+    /// <summary>磁铁状态名。实测极性：0x00=磁铁存在（未充电），0x01=磁铁不存在（充电中），
+    /// null=读取失败。</summary>
     public static string MagnetName(byte? clampState) => clampState switch
     {
         0x00 => "磁铁存在",
@@ -125,19 +131,42 @@ public static class QiChipStatusCodec
     };
 
     /// <summary>
-    /// 实际充电判定——与固件 board_charge_poll 门禁同逻辑（0x2101 已使能 且 霍尔在位）。
-    /// 开启充电指令只是使能；磁铁不在位时固件不会真正接通充电。
+    /// 真充证据（单采样，全部用 Qi 传回原值、不做单位换算）：
+    /// 电流 raw>0 或 功率>0 或 充电触发位=1——任一为真即有证据。
+    /// 充电时电流远大于 1A（raw 显著非 0）；空载时功率仅小幅跳动、电流趋 0。
     /// </summary>
-    public static string ChargingVerdict(bool chargeEnabled, byte? clampState)
+    public static bool ChargingEvidenceFrom(ushort? powerMw, byte? currentRaw, byte? status2)
+    {
+        bool? trig = status2 is { } s ? (s & 0x01) != 0 : null;
+        return (powerMw is { } p && p > 0)
+            || (currentRaw is { } c && c > 0)
+            || trig == true;
+    }
+
+    /// <summary>
+    /// 真充判定（含 ~2s 滑动采样去抖）：单采样证据经 <see cref="DebounceFilter"/>
+    /// 平滑后再出结论——空载小幅跳动不翻转状态，持续证据 2s 才判充电中。
+    /// </summary>
+    public static bool ChargingActiveFrom(ushort? powerMw, byte? currentRaw,
+                                          byte? status2, DebounceFilter filter, long nowMs)
+    {
+        return filter.Update(ChargingEvidenceFrom(powerMw, currentRaw, status2), nowMs);
+    }
+
+    /// <summary>
+    /// 充电状态判定：未使能=充电失能；磁铁存在=未充电；磁铁不存在时按真充
+    /// 证据区分「充电中 / 未充电」。
+    /// </summary>
+    public static string ChargingVerdict(bool chargeEnabled, byte? clampState, bool? chargingActive)
     {
         if (!chargeEnabled)
-            return "实际充电未开启（充电未使能）";
+            return "充电失能";
         return clampState switch
         {
-            0x00 => "实际充电已开启（磁铁存在）",
-            0x01 => "实际充电未开启（磁铁不存在）",
-            null => "实际充电待确认（磁铁状态读取失败）",
-            _ => $"实际充电待确认（磁铁状态未知 0x{clampState:X2}）",
+            0x00 => "磁铁存在·未充电",
+            0x01 => chargingActive == true ? "磁铁不存在·充电中" : "磁铁不存在·未充电",
+            null => "充电使能·磁铁状态未知",
+            _ => $"充电使能·磁铁状态未知(0x{clampState:X2})",
         };
     }
     public static readonly IReadOnlyDictionary<byte, string> IapStates = new Dictionary<byte, string>
@@ -245,5 +274,65 @@ public static class QiChipStatusCodec
     {
         if (rdbiResponse.Length < 3) throw new ArgumentException("RDBI 响应过短");
         return rdbiResponse[3..];
+    }
+}
+
+/// <summary>
+/// 滑动采样去抖（时间窗）：新状态连续保持 ≥windowMs 才切换，双向滤除
+/// 单点跳变——空载功率小幅跳动不翻状态、充电中功率瞬时回落也不翻状态。
+/// 采样时刻由调用方注入（便于单测）。
+/// </summary>
+public sealed class DebounceFilter
+{
+    private readonly long _windowMs;
+    private bool _state;
+    private bool _pending;
+    private long _pendingSinceMs;
+    private bool _hasSample;
+
+    public DebounceFilter(long windowMs) => _windowMs = windowMs;
+
+    /// <summary>当前平滑后的状态。</summary>
+    public bool State => _state;
+
+    /// <summary>喂一个采样，返回平滑后的状态。</summary>
+    public bool Update(bool sample, long nowMs)
+    {
+        if (!_hasSample)
+        {
+            _hasSample = true;
+            _state = sample;
+            _pending = sample;
+            _pendingSinceMs = nowMs;
+            return _state;
+        }
+        if (sample == _state)
+        {
+            /* 现态成立：清挂起切换 */
+            _pending = sample;
+            _pendingSinceMs = nowMs;
+            return _state;
+        }
+        if (sample != _pending)
+        {
+            /* 新的反向采样：起算持续时间 */
+            _pending = sample;
+            _pendingSinceMs = nowMs;
+            return _state;
+        }
+        if ((nowMs - _pendingSinceMs) >= _windowMs)
+        {
+            _state = sample;
+        }
+        return _state;
+    }
+
+    /// <summary>清零（充电使能/失能切换时调用，避免旧状态残留）。</summary>
+    public void Reset()
+    {
+        _hasSample = false;
+        _state = false;
+        _pending = false;
+        _pendingSinceMs = 0;
     }
 }

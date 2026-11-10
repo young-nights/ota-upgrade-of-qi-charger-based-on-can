@@ -212,8 +212,16 @@ public sealed class ZqwlSerialTransport : ICanTransport
             off += p.Length;
         }
         WriteBytes(buf);
-        foreach (var f in frames)
-            OnRawLog?.Invoke($"[CAN-TX] {f.Id & 0x1FFFFFFF:X8} {Convert.ToHexString(f.Data)}");
+        // 批量帧只打一条汇总：逐帧日志在 0x36 传输（36 CF/块）期间是纯开销
+        if (frames.Count <= 4)
+        {
+            foreach (var f in frames)
+                OnRawLog?.Invoke($"[CAN-TX] {f.Id & 0x1FFFFFFF:X8} {Convert.ToHexString(f.Data)}");
+        }
+        else
+        {
+            OnRawLog?.Invoke($"[CAN-TX] batch {frames.Count} 帧 id={frames[0].Id & 0x1FFFFFFF:X8}");
+        }
     }
 
     public bool TryReceive(out CanFrame frame, int timeoutMs = 0)
