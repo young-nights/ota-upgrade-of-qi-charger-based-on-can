@@ -176,6 +176,22 @@ public class QiChipStatusTests
     }
 
     [Fact]
+    public void DebounceFilter_FirstSampleTrue_NotAdoptedInstantly()
+    {
+        // 开检测首采样为真（Qi 上电瞬态/单点证据）不瞬时判充电中：
+        // 初态未充电，持续证据 ≥2s 才翻转（2026-11-10 误显「充电中」修复）
+        var f = new DebounceFilter(2000);
+        Assert.False(f.Update(true, 0));     // 首采样真 → 仍未充电
+        Assert.False(f.Update(true, 1000));  // 持续 1s → 仍未充电
+        Assert.True(f.Update(true, 2000));   // 持续 2s → 充电中
+        // 回落后 Reset 再开：首采样真同样不瞬时采纳
+        f.Reset();
+        Assert.False(f.Update(true, 3000));
+        Assert.False(f.Update(true, 4000));
+        Assert.True(f.Update(true, 5000));
+    }
+
+    [Fact]
     public void PowerLimitName_KnownAndUnknown()
     {
         Assert.Equal("5W (0x01)", QiChipStatusCodec.PowerLimitName(0x01));

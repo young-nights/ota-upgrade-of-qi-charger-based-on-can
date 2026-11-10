@@ -280,7 +280,9 @@ public static class QiChipStatusCodec
 /// <summary>
 /// 滑动采样去抖（时间窗）：新状态连续保持 ≥windowMs 才切换，双向滤除
 /// 单点跳变——空载功率小幅跳动不翻状态、充电中功率瞬时回落也不翻状态。
-/// 采样时刻由调用方注入（便于单测）。
+/// 初态=false（未充电）：**首采样不再瞬时采纳**（2026-11-10 实测教训：开
+/// 检测瞬间 Qi 芯片上电瞬态/单点证据被立即判「充电中」，数秒后才自愈），
+/// 转「充电中」同样须持续证据 ≥windowMs。采样时刻由调用方注入（便于单测）。
 /// </summary>
 public sealed class DebounceFilter
 {
@@ -300,8 +302,10 @@ public sealed class DebounceFilter
     {
         if (!_hasSample)
         {
+            /* 首采样只起算持续时间，不瞬时采纳：初态未充电（false），
+             * 有证据也须持续 windowMs 才判充电中——单点瞬态（Qi 芯片
+             * 上电/检测起步首帧）不再一锤定音。 */
             _hasSample = true;
-            _state = sample;
             _pending = sample;
             _pendingSinceMs = nowMs;
             return _state;
