@@ -17,7 +17,7 @@
         <!-- ② 流程区 + ③ 数据展示区 -->
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="300"/>
                 <ColumnDefinition Width="12"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
@@ -38,61 +38,71 @@
                 </DockPanel>
             </Border>
 
-            <!-- 数据展示区 -->
+            <!-- 数据展示区：结果/剩余时间/进度三列一行，老化项目列表占满剩余行 -->
             <Border Grid.Column="2" Style="{StaticResource Card}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Text="数据展示" Style="{StaticResource SectionTitle}"/>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                        <!-- 结果大字 -->
-                        <Border x:Name="BadgeResult" Background="#F1F5F9" CornerRadius="8"
-                                Padding="24,12" Margin="0,12,0,16" HorizontalAlignment="Left">
-                            <TextBlock x:Name="TxtResult" Text="待老化" FontSize="44"
-                                       FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
+                               Margin="0,0,0,8"/>
+
+                    <!-- 结果大字 + 老化进度 并排 -->
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="1.2*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border x:Name="BadgeResult" Grid.Column="0" Background="#F1F5F9" CornerRadius="8"
+                                Padding="20,10" VerticalAlignment="Stretch">
+                            <TextBlock x:Name="TxtResult" Text="待老化" FontSize="32"
+                                       FontWeight="Bold" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
                         </Border>
 
-                        <!-- 老化进度 -->
-                        <Grid Margin="0,0,0,16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="1.2*"/>
-                            </Grid.ColumnDefinitions>
+                        <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="剩余时间" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtRemaining" Text="30:00"
+                                           FontSize="28" FontWeight="Bold"
+                                           Foreground="{StaticResource AccentBrush}"/>
+                                <TextBlock Text="老化时长 30 分钟" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Border>
 
-                            <Border Grid.Column="0" Background="{StaticResource FieldBgBrush}"
-                                    CornerRadius="8" Padding="14">
-                                <StackPanel>
-                                    <TextBlock Text="剩余时间" Style="{StaticResource FieldLabel}"/>
-                                    <TextBlock x:Name="TxtRemaining" Text="30:00"
-                                               FontSize="32" FontWeight="Bold"
-                                               Foreground="{StaticResource AccentBrush}"/>
-                                    <TextBlock Text="老化时长 30 分钟" FontSize="12"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                               Margin="0,4,0,0"/>
-                                </StackPanel>
-                            </Border>
+                        <Border Grid.Column="4" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="老化进度" Style="{StaticResource FieldLabel}"/>
+                                <ProgressBar x:Name="ProgressAging" Height="22"
+                                             Minimum="0" Maximum="100"/>
+                                <TextBlock x:Name="TxtProgressPct" Text="0%"
+                                           FontSize="12" HorizontalAlignment="Right"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
 
-                            <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                    CornerRadius="8" Padding="14">
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="老化进度" Style="{StaticResource FieldLabel}"/>
-                                    <ProgressBar x:Name="ProgressAging" Height="22"
-                                                 Minimum="0" Maximum="100"/>
-                                    <TextBlock x:Name="TxtProgressPct" Text="0%"
-                                               FontSize="12" HorizontalAlignment="Right"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                               Margin="0,4,0,0"/>
-                                </StackPanel>
-                            </Border>
-                        </Grid>
-
-                        <!-- 老化说明 -->
-                        <TextBlock Text="老化项目" Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
-                        <ListBox x:Name="ListDetails" FontSize="14" MinHeight="80"
-                                 Background="{StaticResource FieldBgBrush}"
-                                 BorderBrush="{StaticResource CardBorderBrush}"/>
-                    </StackPanel>
-                </ScrollViewer>
+                    <!-- 老化说明 -->
+                    <TextBlock Grid.Row="2" Text="老化项目" Style="{StaticResource SectionTitle}"
+                               Margin="0,0,0,8"/>
+                    <ListBox x:Name="ListDetails" Grid.Row="3" FontSize="14"
+                             Background="{StaticResource FieldBgBrush}"
+                             BorderBrush="{StaticResource CardBorderBrush}"/>
+                </Grid>
             </Border>
         </Grid>
     </Grid>

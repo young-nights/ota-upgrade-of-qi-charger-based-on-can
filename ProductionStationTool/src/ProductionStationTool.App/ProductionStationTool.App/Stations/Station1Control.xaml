@@ -5,6 +5,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
             <RowDefinition Height="*" MinHeight="220"/>
         </Grid.RowDefinitions>
 
@@ -14,9 +15,9 @@
         </Border>
 
         <!-- ② 流程区 + ③ 数据展示区 -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="300"/>
                 <ColumnDefinition Width="12"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
@@ -37,80 +38,98 @@
                 </DockPanel>
             </Border>
 
-            <!-- 数据展示区 -->
+            <!-- 数据展示区：横向铺排压缩高度，异常项列表占满剩余行，整页免滚动 -->
             <Border Grid.Column="2" Style="{StaticResource Card}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Text="数据展示" Style="{StaticResource SectionTitle}"/>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                        <!-- 结果大字 -->
-                        <Border x:Name="BadgeResult" Background="#F1F5F9" CornerRadius="8"
-                                Padding="24,12" Margin="0,12,0,16" HorizontalAlignment="Left">
-                            <TextBlock x:Name="TxtResult" Text="待测试" FontSize="44"
-                                       FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
+                               Margin="0,0,0,8"/>
+
+                    <!-- 结果大字 + SN 码 并排 -->
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="BadgeResult" Grid.Column="0" Background="#F1F5F9" CornerRadius="8"
+                                Padding="20,10" VerticalAlignment="Stretch">
+                            <TextBlock x:Name="TxtResult" Text="待测试" FontSize="32"
+                                       FontWeight="Bold" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
                         </Border>
-
-                        <!-- SN 码 -->
-                        <Border Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                            <StackPanel>
+                        <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="SN 码" Style="{StaticResource FieldLabel}"/>
                                 <TextBlock x:Name="TxtSn" Text="—"
                                            FontSize="18" FontWeight="SemiBold" FontFamily="Consolas"
                                            Foreground="{StaticResource TextPrimaryBrush}"/>
                             </StackPanel>
                         </Border>
+                    </Grid>
 
-                        <!-- 线圈 A/B 判定：两个组件并排，绿=通过 / 红=未通过 / 灰=未测 -->
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <controls:CoilJudgeCard x:Name="CardCoilA" Grid.Column="0" Title="线圈 A"/>
-                            <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Column="2" Title="线圈 B"/>
-                        </Grid>
+                    <!-- 线圈 A/B 判定：两个组件并排，绿=通过 / 红=未通过 / 灰=未测 -->
+                    <Grid Grid.Row="2" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <controls:CoilJudgeCard x:Name="CardCoilA" Grid.Column="0" Title="线圈 A"/>
+                        <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Column="2" Title="线圈 B"/>
+                    </Grid>
 
-                        <!-- 电压 / 电流 大数 -->
-                        <Grid Margin="0,0,0,16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Background="{StaticResource FieldBgBrush}"
-                                    CornerRadius="8" Padding="14">
-                                <StackPanel>
-                                    <TextBlock Text="电压 (V)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBlock x:Name="TxtVoltage" Text="—"
-                                               FontSize="32" FontWeight="Bold"
-                                               Foreground="{StaticResource AccentBrush}"/>
-                                </StackPanel>
-                            </Border>
-                            <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                    CornerRadius="8" Padding="14">
-                                <StackPanel>
-                                    <TextBlock Text="电流 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBlock x:Name="TxtCurrent" Text="—"
-                                               FontSize="32" FontWeight="Bold"
-                                               Foreground="{StaticResource AccentBrush}"/>
-                                </StackPanel>
-                            </Border>
-                        </Grid>
+                    <!-- 电压 / 电流 大数 -->
+                    <Grid Grid.Row="3" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="电压 (V)" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtVoltage" Text="—"
+                                           FontSize="28" FontWeight="Bold"
+                                           Foreground="{StaticResource AccentBrush}"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="电流 (A)" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtCurrent" Text="—"
+                                           FontSize="28" FontWeight="Bold"
+                                           Foreground="{StaticResource AccentBrush}"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
 
-                        <!-- 检测参数只读提示（修改入口在「设置」页） -->
-                        <TextBlock Text="检测参数（A/B 阈值、窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
-                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                                   Margin="0,0,0,12"/>
+                    <!-- 检测参数只读提示（修改入口在「设置」页） -->
+                    <TextBlock Grid.Row="4"
+                               Text="检测参数（A/B 阈值、窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,8"/>
 
-                        <!-- 异常项 -->
-                        <TextBlock Text="异常项" Style="{StaticResource SectionTitle}" Margin="0,16,0,8"/>
-                        <ListBox x:Name="ListAbnormal" FontSize="14" MinHeight="60"
-                                 Background="{StaticResource FieldBgBrush}"
-                                 BorderBrush="{StaticResource CardBorderBrush}"/>
-                    </StackPanel>
-                </ScrollViewer>
+                    <!-- 异常项 -->
+                    <TextBlock Grid.Row="5" Text="异常项" Style="{StaticResource SectionTitle}"
+                               Margin="0,0,0,8"/>
+                    <ListBox x:Name="ListAbnormal" Grid.Row="6" FontSize="14"
+                             Background="{StaticResource FieldBgBrush}"
+                             BorderBrush="{StaticResource CardBorderBrush}"/>
+                </Grid>
             </Border>
         </Grid>
     </Grid>

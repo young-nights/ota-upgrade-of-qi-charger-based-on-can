@@ -7,7 +7,7 @@
         Background="{StaticResource BgBrush}">
     <Grid>
     <DockPanel x:Name="WorkstationView">
-        <!-- 顶部横幅：下拉菜单（设置 / 关于）+ 汇总机入口 -->
+        <!-- 顶部横幅：下拉菜单（设置 / 工位选择 / 关于）+ 汇总机入口 -->
         <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}"
                 BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1"
                 Padding="12,2">
@@ -17,6 +17,17 @@
                         <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
                         <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
                         <MenuItem Header="版本预设…" Click="MenuSettingsPresets_Click"/>
+                    </MenuItem>
+                    <!-- 工位切换：菜单栏下拉，勾选当前工位；默认工位1 -->
+                    <MenuItem x:Name="MenuStations" Header="工位选择">
+                        <MenuItem Header="工位1 — SN + 电流电压" Tag="0"
+                                  IsCheckable="True" IsChecked="True" Click="MenuStation_Click"/>
+                        <MenuItem Header="工位2 — 老化测试" Tag="1"
+                                  IsCheckable="True" Click="MenuStation_Click"/>
+                        <MenuItem Header="工位3 — SN复测 + 线圈A/B" Tag="2"
+                                  IsCheckable="True" Click="MenuStation_Click"/>
+                        <MenuItem Header="工位4 — 出货门禁 + 版本比对" Tag="3"
+                                  IsCheckable="True" Click="MenuStation_Click"/>
                     </MenuItem>
                     <MenuItem Header="关于">
                         <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
@@ -29,69 +40,14 @@
             </Grid>
         </Border>
         <Grid Margin="16">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="240"/>
-            <ColumnDefinition Width="16"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="12"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 左：工位选择 -->
-        <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource Card}">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="工位选择" Style="{StaticResource SectionTitle}"
-                           Margin="0,0,0,12"/>
-                <TextBlock DockPanel.Dock="Top"
-                           Text="一个 App 集成多个工位，点击切换页面"
-                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                           Margin="0,0,0,12" TextWrapping="Wrap"/>
-                <ListBox x:Name="ListStations" FontSize="16"
-                         SelectedIndex="0"
-                         Background="Transparent" BorderThickness="0"
-                         SelectionChanged="ListStations_SelectionChanged">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Padding" Value="14,12"/>
-                            <Setter Property="Margin" Value="0,0,0,8"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="bd" CornerRadius="8"
-                                                Background="#F8FAFC"
-                                                BorderBrush="#E2E8F0" BorderThickness="1"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="bd" Property="Background" Value="#EFF6FF"/>
-                                                <Setter TargetName="bd" Property="BorderBrush" Value="#93C5FD"/>
-                                            </Trigger>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="bd" Property="Background" Value="#2563EB"/>
-                                                <Setter TargetName="bd" Property="BorderBrush" Value="#2563EB"/>
-                                                <Setter Property="Foreground" Value="White"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBoxItem Content="工位1 — SN + 电流电压"/>
-                    <ListBoxItem Content="工位2 — 老化测试"/>
-                    <ListBoxItem Content="工位3 — SN复测 + 线圈A/B"/>
-                    <ListBoxItem Content="工位4 — 出货门禁 + 版本比对"/>
-                </ListBox>
-            </DockPanel>
-        </Border>
-
-        <!-- 右：操作栏 + 工位页面宿主 -->
-        <Grid Grid.Row="0" Grid.Column="2">
+        <!-- 操作栏 + 工位页面宿主 -->
+        <Grid Grid.Row="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="12"/>
@@ -137,8 +93,7 @@
         </Grid>
 
         <!-- 状态栏 -->
-        <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource Card}"
-                Padding="14,8">
+        <Border Grid.Row="2" Style="{StaticResource Card}" Padding="14,8">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>

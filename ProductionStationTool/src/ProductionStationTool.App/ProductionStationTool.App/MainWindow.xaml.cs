@@ -7,7 +7,7 @@ using ProductionStationTool.Core.Station;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// 工位外壳：一个 App 集成多个工位页面，左侧列表自主切换。
+/// 工位外壳：一个 App 集成多个工位页面，菜单栏「工位选择」下拉切换（默认工位1）。
 /// 「开始测试」「下一个」作用于当前选中工位。
 /// 本机身份（工位号+机位号）来自 machine.json——每工位机位数随产量动态增减，
 /// 增减机位只改配置文件，代码零改动。
@@ -49,11 +49,16 @@ public partial class MainWindow : Window
         Closed += (_, _) => _presence.Dispose();
     }
 
-    private void ListStations_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void MenuStation_Click(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded)
+        if (sender is not MenuItem { Tag: string tag } || !int.TryParse(tag, out var index))
             return;
-        ShowPage(ListStations.SelectedIndex);
+        for (var i = 0; i < MenuStations.Items.Count; i++)
+        {
+            if (MenuStations.Items[i] is MenuItem item)
+                item.IsChecked = i == index;
+        }
+        ShowPage(index);
     }
 
     private void ShowPage(int index)

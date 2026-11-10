@@ -5,6 +5,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="12"/>
             <RowDefinition Height="*" MinHeight="220"/>
         </Grid.RowDefinitions>
 
@@ -14,9 +15,9 @@
         </Border>
 
         <!-- ② 流程区 + ③ 数据展示区 -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="300"/>
                 <ColumnDefinition Width="12"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
@@ -37,103 +38,121 @@
                 </DockPanel>
             </Border>
 
-            <!-- 数据展示区 -->
+            <!-- 数据展示区：结果/SN/打印三列一行，门禁与版本比对横向铺排，异常项列表占满剩余行 -->
             <Border Grid.Column="2" Style="{StaticResource Card}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Text="数据展示" Style="{StaticResource SectionTitle}"/>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                        <!-- 结果大字 -->
-                        <Border x:Name="BadgeResult" Background="#F1F5F9" CornerRadius="8"
-                                Padding="24,12" Margin="0,12,0,16" HorizontalAlignment="Left">
-                            <TextBlock x:Name="TxtResult" Text="待测试" FontSize="44"
-                                       FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
+                               Margin="0,0,0,8"/>
+
+                    <!-- 结果大字 + SN 码 + SN 打印 并排 -->
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="BadgeResult" Grid.Column="0" Background="#F1F5F9" CornerRadius="8"
+                                Padding="20,10" VerticalAlignment="Stretch">
+                            <TextBlock x:Name="TxtResult" Text="待测试" FontSize="32"
+                                       FontWeight="Bold" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
                         </Border>
-
-                        <!-- SN 码 -->
-                        <Border Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                            <StackPanel>
+                        <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="SN 码（设备读取）" Style="{StaticResource FieldLabel}"/>
                                 <TextBlock x:Name="TxtSn" Text="—"
                                            FontSize="18" FontWeight="SemiBold" FontFamily="Consolas"
                                            Foreground="{StaticResource TextPrimaryBrush}"/>
                             </StackPanel>
                         </Border>
-
-                        <!-- 数据库门禁：工位1/2/3 全 PASS 才放行 -->
-                        <TextBlock Text="数据库流程门禁（工位 1/2/3 全 PASS 才放行）"
-                                   Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <controls:CoilJudgeCard x:Name="CardGate1" Grid.Column="0" Title="工位 1"/>
-                            <controls:CoilJudgeCard x:Name="CardGate2" Grid.Column="2" Title="工位 2"/>
-                            <controls:CoilJudgeCard x:Name="CardGate3" Grid.Column="4" Title="工位 3"/>
-                        </Grid>
-
-                        <!-- SN 打印 -->
-                        <Border Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14" Margin="0,0,0,12">
-                            <StackPanel>
+                        <Border Grid.Column="4" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="SN 打印（接口占位）" Style="{StaticResource FieldLabel}"/>
                                 <TextBlock x:Name="TxtPrint" Text="—"
                                            FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"
                                            Foreground="{StaticResource TextPrimaryBrush}"/>
                             </StackPanel>
                         </Border>
+                    </Grid>
 
-                        <!-- 版本比对 -->
-                        <TextBlock Text="软硬件版本比对（预设在 设置 → 版本预设）"
-                                   Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
-                        <Grid Margin="0,0,0,16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Border x:Name="CardSw" Grid.Column="0" Background="{StaticResource FieldBgBrush}"
-                                    CornerRadius="8" Padding="14">
-                                <StackPanel>
-                                    <TextBlock Text="软件版本（0xF195）" Style="{StaticResource FieldLabel}"/>
-                                    <TextBlock x:Name="TxtSwVerdict" Text="—" FontSize="18" FontWeight="Bold"
-                                               Foreground="{StaticResource TextSecondaryBrush}"/>
-                                    <TextBlock x:Name="TxtSwRead" Text="读取：—" FontSize="12"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                    <TextBlock x:Name="TxtSwPreset" Text="预设：—" FontSize="12"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-                            <Border x:Name="CardHw" Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                    CornerRadius="8" Padding="14">
-                                <StackPanel>
-                                    <TextBlock Text="硬件版本（0xF193）" Style="{StaticResource FieldLabel}"/>
-                                    <TextBlock x:Name="TxtHwVerdict" Text="—" FontSize="18" FontWeight="Bold"
-                                               Foreground="{StaticResource TextSecondaryBrush}"/>
-                                    <TextBlock x:Name="TxtHwRead" Text="读取：—" FontSize="12"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                               TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                    <TextBlock x:Name="TxtHwPreset" Text="预设：—" FontSize="12"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-                        </Grid>
+                    <!-- 数据库门禁：工位1/2/3 全 PASS 才放行 -->
+                    <TextBlock Grid.Row="2" Text="数据库流程门禁（工位 1/2/3 全 PASS 才放行）"
+                               Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
+                    <Grid Grid.Row="3" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <controls:CoilJudgeCard x:Name="CardGate1" Grid.Column="0" Title="工位 1"/>
+                        <controls:CoilJudgeCard x:Name="CardGate2" Grid.Column="2" Title="工位 2"/>
+                        <controls:CoilJudgeCard x:Name="CardGate3" Grid.Column="4" Title="工位 3"/>
+                    </Grid>
 
-                        <!-- 异常项 -->
-                        <TextBlock Text="异常项" Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
-                        <ListBox x:Name="ListAbnormal" FontSize="14" MinHeight="60"
-                                 Background="{StaticResource FieldBgBrush}"
-                                 BorderBrush="{StaticResource CardBorderBrush}"/>
-                    </StackPanel>
-                </ScrollViewer>
+                    <!-- 版本比对 -->
+                    <TextBlock Grid.Row="4" Text="软硬件版本比对（预设在 设置 → 版本预设）"
+                               Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
+                    <Grid Grid.Row="5" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="CardSw" Grid.Column="0" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="软件版本（0xF195）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtSwVerdict" Text="—" FontSize="16" FontWeight="Bold"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="TxtSwRead" Text="读取：—" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="TxtSwPreset" Text="预设：—" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="CardHw" Grid.Column="2" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="硬件版本（0xF193）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtHwVerdict" Text="—" FontSize="16" FontWeight="Bold"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="TxtHwRead" Text="读取：—" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="TxtHwPreset" Text="预设：—" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- 异常项 -->
+                    <TextBlock Grid.Row="6" Text="异常项" Style="{StaticResource SectionTitle}"
+                               Margin="0,0,0,8"/>
+                    <ListBox x:Name="ListAbnormal" Grid.Row="7" FontSize="14"
+                             Background="{StaticResource FieldBgBrush}"
+                             BorderBrush="{StaticResource CardBorderBrush}"/>
+                </Grid>
             </Border>
         </Grid>
     </Grid>
