@@ -60,7 +60,7 @@ public sealed class UdsClient
     /// <summary>上一次 <see cref="TryRequest"/> 的等应答耗时（ms，含 0x78 轮询）。</summary>
     public long LastRecvMs { get; private set; }
 
-    /// <summary>上一次多帧发送 FF→FC 的重试次数（3=FC 被丢 2 次）。</summary>
+    /// <summary>上一次多帧发送的 FF 发送次数（恒 1；MF 盲发 CF 不等 FC）。</summary>
     public int LastFcTries => _tp.LastFcTries;
 
     /// <summary>

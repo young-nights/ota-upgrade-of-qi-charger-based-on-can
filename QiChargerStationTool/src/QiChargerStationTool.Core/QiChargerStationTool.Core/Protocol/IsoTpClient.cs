@@ -147,44 +147,37 @@ public sealed class IsoTpClient
 
         // FF + CFs
         int total = uds.Length;
-        CanFrame? fc = null;
         LastFcTries = 0;
-        // 单 FF + 耐心窗 6s：FF 重试会诱发设备每个 FF 回一个 FC——多余
-        // FC 全进设备拥堵的 TX 队（实测发 2438→2511ms 逐块增长=队列在
-        // 积，"时间越来越久"）。一发一等把饲料砍半；FC 真丢时由 UDS 层
-        // requestRetries 整块重发兜底。
-        for (int tryN = 0; tryN < 1 && fc is null; tryN++)
+        // 踢帧必须在 FF *之前*（关键！）：①踢开设备派发/TX 队列；②绝不可
+        // 放在 FF 与 CF 之间——踢帧是 SF，设备 isotp_rx_process 的 SF 分支
+        // 无条件 rx_ctx.state=IDLE，会把刚武装的 MF 组包杀掉，CF 变孤帧
+        // （0x34/0x36 全灭实证：5 个踢帧标记都在、组包零完成）。
+        for (int k = 0; k < 2; k++)
         {
-            // 踢帧必须在 FF *之前*（关键！）：①踢开设备派发/TX 队列——
-            // FF 的派发与 FC 都快（~80ms），CF 早于设备 N_Cr=2s 一个数量级；
-            // ②绝不可放在 FF 与 CF 之间——踢帧是 SF，设备 isotp_rx_process
-            // 的 SF 分支无条件 rx_ctx.state=IDLE，会把刚武装的 MF 组包杀掉，
-            // CF 变孤帧（0x34/0x36 全灭实证：5 个踢帧标记都在、组包零完成）。
-            for (int k = 0; k < 2; k++)
-            {
-                _tp.Send(new CanFrame(_txId,
-                    new byte[] { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC }));
-                TimerResolution.PreciseSleep(30);
-            }
-            var ff = new byte[8];
-            ff[0] = (byte)(0x10 | ((total >> 8) & 0x0F));
-            ff[1] = (byte)(total & 0xFF);
-            int n = Math.Min(6, total);
-            Array.Copy(uds, 0, ff, 2, n);
-            for (int i = 2 + n; i < 8; i++) ff[i] = 0xCC;
-            _tp.Send(new CanFrame(_txId, ff));
-            LastFcTries = tryN + 1;
-            if (!quiet) Log($"[TX] FF try{tryN + 1} len={total} {Hex(uds.AsSpan(0, Math.Min(6, total)).ToArray())}");
-            fc = WaitFc(6000);
+            _tp.Send(new CanFrame(_txId,
+                new byte[] { 0x02, 0x3E, 0x80, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC }));
+            TimerResolution.PreciseSleep(30);
         }
-        if (fc is null)
-            throw new InvalidOperationException("ISO-TP FC timeout (ECU did not send FlowControl)");
+        // 盲发 CF，不等 FC（2026-11-10 实测定案）：设备 FC 被 TX 楔子压
+        // ~2.1s 才上线（FF@T→FC@T+2.1s），而 N_Cr=2s 自 FF 起算——等 FC
+        // 再发 CF 必踩 N_Cr 死线，组包中止、0x34 三次全灭且无任何应答。
+        // 固件 isotp_rx_process 的 CF 分支只校验 SN 与 rx_ctx 状态，FF 即
+        // 武装组包、不查 FC 是否已发（isotp.c CF 分支），故 FF 后立即发
+        // CF 早于 N_Cr 一个数量级，组包必成；迟到的 FC 属噪声由
+        // DrainStale/TryReceive 排除。对照实验（wsl_run/exp_kick.py）：
+        // 等 FC 再发 CF=组包未完成，盲发 CF=组包完成（SN 重复帧固件只忽略）。
+        var ff = new byte[8];
+        ff[0] = (byte)(0x10 | ((total >> 8) & 0x0F));
+        ff[1] = (byte)(total & 0xFF);
+        int n = Math.Min(6, total);
+        Array.Copy(uds, 0, ff, 2, n);
+        for (int i = 2 + n; i < 8; i++) ff[i] = 0xCC;
+        _tp.Send(new CanFrame(_txId, ff));
+        LastFcTries = 1;
+        if (!quiet) Log($"[TX] FF len={total} {Hex(uds.AsSpan(0, Math.Min(6, total)).ToArray())}");
 
-        byte bs = fc.Value.Data.Length > 1 ? fc.Value.Data[1] : (byte)0;
-        int stminMs = StminToMs(fc.Value.Data.Length > 2 ? fc.Value.Data[2] : (byte)0);
-
-        // CF 批写：全部 CF 拼一次串口写（Windows 每次 Write ~30ms 往返，
-        // 逐帧写 18 CF=540ms/块）。STmin 作为批前间隔保留。
+        byte bs = 0;               // 不等 FC：无块间隔
+        int stminMs = 0;           // 不等 FC：CF 连发（设备 RX 不校验 STmin）
         int offset = 6, sn = 1, inBlock = 0, cfCount = 0;
         var batch = new List<CanFrame>();
         while (offset < total)
@@ -400,7 +393,7 @@ public sealed class IsoTpClient
     /// <summary>最近一次 <see cref="TryReceive"/> 超时的诊断摘要。</summary>
     public string LastTimeoutDetail { get; private set; } = "";
 
-    /// <summary>最近一次多帧发送的 FF 重试次数（=FC 等到的次数，3=丢 2 次 FC）。</summary>
+    /// <summary>最近一次多帧发送的 FF 发送次数（恒 1；MF 盲发 CF 不等 FC，FC 迟到属噪声）。</summary>
     public int LastFcTries { get; private set; }
 
     private CanFrame? WaitFc(int timeoutMs)
