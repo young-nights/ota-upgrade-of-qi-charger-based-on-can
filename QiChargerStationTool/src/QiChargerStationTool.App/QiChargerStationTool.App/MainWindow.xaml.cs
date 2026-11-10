@@ -1266,7 +1266,7 @@ public partial class MainWindow : Window
                 }
                 break;
             default:
-                TxtMagnetState.Text = "充电使能·磁铁状态未知";
+                TxtMagnetState.Text = "充电使能·需开qi检测";
                 TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
                 break;
         }
@@ -1407,7 +1407,7 @@ public partial class MainWindow : Window
                     // 「磁铁不存在·充电中」）。仪表盘只在「Qi 状态检测」
                     // 轮询期间由 UpdateQiPanel 更新，此处仅显示使能回执。
                     _chargingFilter.Reset();
-                    TxtMagnetState.Text = "充电使能·磁铁状态未知";
+                    TxtMagnetState.Text = "充电使能·需开qi检测";
                     TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
                     TxtQiSummary.Text = "充电使能 — 点击「Qi 状态检测」开始刷新状态";
                 }

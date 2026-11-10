@@ -139,7 +139,7 @@ public class QiChipStatusTests
             QiChipStatusCodec.ChargingVerdict(true, 0x00, true));
         Assert.Equal("充电失能",
             QiChipStatusCodec.ChargingVerdict(false, 0x01, true));
-        Assert.Equal("充电使能·磁铁状态未知",
+        Assert.Equal("充电使能·需开qi检测",
             QiChipStatusCodec.ChargingVerdict(true, null, true));
     }
 

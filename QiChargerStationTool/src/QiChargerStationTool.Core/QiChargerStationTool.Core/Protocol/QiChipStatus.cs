@@ -165,8 +165,8 @@ public static class QiChipStatusCodec
         {
             0x00 => "磁铁存在·未充电",
             0x01 => chargingActive == true ? "磁铁不存在·充电中" : "磁铁不存在·未充电",
-            null => "充电使能·磁铁状态未知",
-            _ => $"充电使能·磁铁状态未知(0x{clampState:X2})",
+            null => "充电使能·需开qi检测",
+            _ => $"充电使能·需开qi检测(0x{clampState:X2})",
         };
     }
     public static readonly IReadOnlyDictionary<byte, string> IapStates = new Dictionary<byte, string>
