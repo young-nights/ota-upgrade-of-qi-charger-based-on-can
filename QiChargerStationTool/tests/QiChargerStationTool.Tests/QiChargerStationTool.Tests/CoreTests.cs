@@ -131,11 +131,12 @@ public class QiChipStatusTests
         Assert.Equal("读取失败", QiChipStatusCodec.MagnetName(null));
 
         // 磁铁不存在(0x01)按真充证据分充电中/未充电；磁铁存在(0x00)恒未充电
-        Assert.Equal("磁铁不存在·充电中",
+        // 摘要行三段式格式（2026-11-10）：充电使能·磁铁…·…
+        Assert.Equal("充电使能·磁铁不存在·充电中",
             QiChipStatusCodec.ChargingVerdict(true, 0x01, true));
-        Assert.Equal("磁铁不存在·未充电",
+        Assert.Equal("充电使能·磁铁不存在·未充电",
             QiChipStatusCodec.ChargingVerdict(true, 0x01, false));
-        Assert.Equal("磁铁存在·未充电",
+        Assert.Equal("充电使能·磁铁存在·未充电",
             QiChipStatusCodec.ChargingVerdict(true, 0x00, true));
         Assert.Equal("充电失能",
             QiChipStatusCodec.ChargingVerdict(false, 0x01, true));

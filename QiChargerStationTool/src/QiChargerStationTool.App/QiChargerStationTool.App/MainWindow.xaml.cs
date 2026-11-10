@@ -1248,9 +1248,12 @@ public partial class MainWindow : Window
         var countText = st.ChargeCount is { } c2 ? $"{c2} 次" : "—";
         // 真充判定：原值证据（功率/电流 raw/触发位）经 ~2s 滑动去抖，
         // 空载功率小幅跳动不翻状态（用户要求不换算单位、直接用传回值采样）
+        // 摘要行（2026-11-10 用户定格式）：状态段=「充电使能·磁铁不存在·未充电」
+        // 三段式判定（原「充电状态: 充电中(CHARGING)」Qi 芯片状态名弃用），
+        // 后接 PCB/档位/充电次数，第二行仅保护位（判定不再重复出现）。
         bool chargingActive = _chargingFilter.Update(st.ChargingEvidence, Environment.TickCount64);
-        TxtQiSummary.Text = $"充电状态: {st.ChargeStateName}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
-                            $"{st.ChargingVerdict(_chargeEnabled, chargingActive)}   {protText}";
+        TxtQiSummary.Text = $"{st.ChargingVerdict(_chargeEnabled, chargingActive)}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
+                            protText;
         UpdateMagnetDisplay(st.ClampState, chargingActive);
     }
 

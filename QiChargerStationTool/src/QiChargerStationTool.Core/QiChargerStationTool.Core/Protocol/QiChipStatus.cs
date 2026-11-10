@@ -154,8 +154,9 @@ public static class QiChipStatusCodec
     }
 
     /// <summary>
-    /// 充电状态判定：未使能=充电失能；磁铁存在=未充电；磁铁不存在时按真充
-    /// 证据区分「充电中 / 未充电」。
+    /// 充电状态判定（摘要行格式，2026-11-10 用户定）：「充电使能·磁铁存在·未充电」
+    /// 这类「使能·磁铁·充电」三段式；未使能=充电失能。磁铁大字（UpdateMagnetDisplay）
+    /// 仍用无前缀短句，此处仅服务灰色摘要行。
     /// </summary>
     public static string ChargingVerdict(bool chargeEnabled, byte? clampState, bool? chargingActive)
     {
@@ -163,8 +164,8 @@ public static class QiChipStatusCodec
             return "充电失能";
         return clampState switch
         {
-            0x00 => "磁铁存在·未充电",
-            0x01 => chargingActive == true ? "磁铁不存在·充电中" : "磁铁不存在·未充电",
+            0x00 => "充电使能·磁铁存在·未充电",
+            0x01 => chargingActive == true ? "充电使能·磁铁不存在·充电中" : "充电使能·磁铁不存在·未充电",
             null => "充电使能·需开qi检测",
             _ => $"充电使能·需开qi检测(0x{clampState:X2})",
         };
