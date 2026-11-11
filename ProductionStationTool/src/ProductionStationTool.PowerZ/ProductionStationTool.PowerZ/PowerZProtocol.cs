@@ -13,7 +13,8 @@ namespace ProductionStationTool.PowerZ;
 ///   [0]=0xAA ReportID  [1]=长度  [2]=服务|0x40  [3..4]=命令字(LE)  [5]=子命令  [6..]=数据
 ///
 /// 采样路径：服务 0x22（ReadDataByIdentifier）+ 命令字 0x0B05，
-/// 子命令 1 触发连续采样流，每帧含 V/I 原始值（mV/mA，/1000 → V/A）。
+/// 子命令 1 触发连续采样流，每帧 V/I 原始值在数据区前 8 字节（µV/µA，
+/// /1e6 → V/A，2026-11-12 真机校准）。
 /// </summary>
 public static class PowerZProtocol
 {
@@ -98,20 +99,23 @@ public static class PowerZProtocol
 
     /// <summary>
     /// 解析测量采样帧（服务 0x22 / 命令 0x0B05 / 子命令 1）。
-    /// 数据区（报文偏移 6）：
-    ///   [0..3]   u32 计数器/时间戳
-    ///   [4..7]   u32 状态标志（0xFFFFFFFF=无效/未充电，1/3/6=有效）
-    ///   [8..11]  u32 计数器2
-    ///   [12..15] u32 电压原始值（mV）→ /1000 = V
-    ///   [16..19] u32 电流原始值（mA）→ /1000 = A
-    ///   [20..23] u32 计数器3
-    ///   [24..27] u32 状态2
+    /// 数据区（报文偏移 6）——2026-11-12 真机 hex+万用表对读校准：
+    ///   [0..3]   u32 电压（µV）→ /1e6 = V      ← 11755565 ↔ 万用表 11.76V
+    ///   [4..7]   u32 电流（µA）→ /1e6 = A      ← 574674 ↔ 实测 ~0.5A
+    ///   [8..11]  u32 累计量/计数器（递增）
+    ///   [12..15] u32 未知（恒 ~1180，疑 D+/D- 参考电压 mV，勿作 V/I）
+    ///   [16..19] u32 未知（恒 ~1165，勿作 V/I）
+    ///   [20..23] u32 电压（µV，通道 2，同 [0..3]）
+    ///   [24..27] u32 电流（µA，通道 2，同 [4..7]）
     ///   [28..29] i16 温度/辅助值（/10）
+    ///   [30..33] u32 状态/计数
+    /// 旧版曾误取 [12..15]/[16..19]（/1000）作 V/I——显示 1.18V/1.16A 恒定值，
+    /// 不随负载变化（2026-11-12 修复）。
     /// </summary>
     public static bool TryParseSample(byte[] buf, out PowerSample sample)
     {
         sample = default;
-        if (buf.Length < 26 || buf[0] != ReportIdIn)
+        if (buf.Length < 14 || buf[0] != ReportIdIn)
             return false;
         if ((byte)(buf[2] & 0x3F) != SvcReadData)
             return false;
@@ -119,12 +123,12 @@ public static class PowerZProtocol
         if (cmd != CmdMeasurement || buf[5] != 1)
             return false;
 
-        int vRaw = BitConverter.ToInt32(buf, 6 + 12);
-        int iRaw = BitConverter.ToInt32(buf, 6 + 16);
-        if (vRaw < 0 || iRaw < 0 || vRaw > 100_000 || iRaw > 100_000)
+        long vRaw = BitConverter.ToInt32(buf, 6 + 0);   // µV
+        long iRaw = BitConverter.ToInt32(buf, 6 + 4);   // µA
+        if (vRaw < 0 || iRaw < 0 || vRaw > 100_000_000 || iRaw > 100_000_000)
             return false;
 
-        sample = new PowerSample(vRaw / 1000.0, iRaw / 1000.0, DateTime.Now);
+        sample = new PowerSample(vRaw / 1_000_000.0, iRaw / 1_000_000.0, DateTime.Now);
         return true;
     }
 

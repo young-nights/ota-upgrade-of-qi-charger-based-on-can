@@ -267,6 +267,7 @@ public sealed class HidPowerZSource : IPowerZSource
         int sendFail = 0;
         int rawLogged = 0;
         int parsedLogged = 0;
+        long lastStartSend = 0;
 
         try
         {
@@ -283,9 +284,12 @@ public sealed class HidPowerZSource : IPowerZSource
 
             while (!ct.IsCancellationRequested)
             {
-                // 定期重发启动帧（设备可能停流）
-                if (sendFail == 0 && Environment.TickCount64 % 5000 < 250)
+                // 设备 sub=1 流式实测只连发约 3 帧即静默（2026-11-12：5s 一补发
+                // 只见 3 帧突发）——每 500ms 重发启动帧维持 ~6Hz 采样，
+                // 供实时电流显示与跌落检测
+                if (sendFail == 0 && Environment.TickCount64 - lastStartSend >= 500)
                 {
+                    lastStartSend = Environment.TickCount64;
                     try { Send(PowerZProtocol.StartStreaming()); } catch { /* 忽略 */ }
                 }
 
