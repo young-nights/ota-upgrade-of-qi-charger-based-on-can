@@ -61,7 +61,11 @@ public partial class FlowStepsPanel : UserControl
             Steps.Add(new StepVm { Index = i + 1, Name = names[i] });
     }
 
-    /// <summary>标记某一步状态。</summary>
+    /// <summary>
+    /// 标记某一步状态。通过/失败只显示「通过」「失败」——失败原因一律进异常项列表，
+    /// 不在流程区展开；Running 的 text 用于步骤提示（如 PowerZ 倒计时）；
+    /// Waiting 带 text 显示「未执行」，否则「等待」。
+    /// </summary>
     public void Mark(int index, StepStatus status, string? text = null)
     {
         if (index < 0 || index >= Steps.Count)
@@ -70,7 +74,7 @@ public partial class FlowStepsPanel : UserControl
         switch (status)
         {
             case StepStatus.Waiting:
-                step.StatusText = text ?? "等待";
+                step.StatusText = text is null ? "等待" : "未执行";
                 step.StatusBrush = WaitingBrush;
                 break;
             case StepStatus.Running:
@@ -78,11 +82,11 @@ public partial class FlowStepsPanel : UserControl
                 step.StatusBrush = RunningBrush;
                 break;
             case StepStatus.Passed:
-                step.StatusText = text ?? "通过";
+                step.StatusText = "通过";
                 step.StatusBrush = PassedBrush;
                 break;
             case StepStatus.Failed:
-                step.StatusText = text ?? "失败";
+                step.StatusText = "失败";
                 step.StatusBrush = FailedBrush;
                 break;
         }

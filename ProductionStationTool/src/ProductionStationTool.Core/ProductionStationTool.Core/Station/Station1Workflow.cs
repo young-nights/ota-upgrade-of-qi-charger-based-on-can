@@ -50,7 +50,8 @@ public sealed class Station1Workflow
         IPowerZSource powerZ,
         CoilTestOptions coils,
         Action<string>? log = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Action<CoilProgress>? onProgress = null)
     {
         // 1. 生成 SN
         var sn = _snGenerate(DateTime.Now, _nextSequence);
@@ -68,7 +69,7 @@ public sealed class Station1Workflow
         // 3. 开充电 + PowerZ 双线圈检测
         //    A 线圈 10s 均值 ≥ 阈值 → 跌落过渡（正常不判失败）→ B 线圈恢复并持续；整体限时
         await chargeStartAsync();
-        var coil = await CoilCheck.RunAsync(powerZ, coils, log, ct);
+        var coil = await CoilCheck.RunAsync(powerZ, coils, log, ct, onProgress);
 
         // 4. 无有效采样 = 流程错误：停止，不判限、不入库
         if (coil.NoValidSample)

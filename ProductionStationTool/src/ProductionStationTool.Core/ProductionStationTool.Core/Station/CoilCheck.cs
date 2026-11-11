@@ -42,6 +42,16 @@ public sealed record CoilJudgement(
 }
 
 /// <summary>
+/// 检测过程实时进度（UI 反馈用）：阶段提示（含倒计时）+ A 判定一出即上报，
+/// 测试员据此知道 A 已通过、可以换接 B 线圈。
+/// </summary>
+public sealed record CoilProgress(
+    string Hint,          // 步骤提示（含倒计时），显示在流程区「进行中」
+    bool CoilADecided,    // A 判定是否已出（false 时下面两项无效）
+    bool CoilAPassed,     // A 判定结果
+    double CoilACurrent); // A 均值电流
+
+/// <summary>
 /// 双线圈采样与判定流程（工位 1 步骤 5）：
 ///   ① A 线圈：开充前已接入，固定窗口采集均值滤波，均值 ≥ 阈值即 A 正常；
 ///   ② 过渡：操作员取下 A 夹子，电流跌落（低于 B 阈值持续 TransitionMs）——
@@ -55,7 +65,8 @@ public static class CoilCheck
         IPowerZSource src,
         CoilTestOptions opt,
         Action<string>? log = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Action<CoilProgress>? onProgress = null)
     {
         var sw = Stopwatch.StartNew();
         var samples = new List<(double V, double I, long T)>();
@@ -68,11 +79,20 @@ public static class CoilCheck
 
         try
         {
-            // ── 阶段 A：固定窗口采集 + 均值滤波 ──
+            // ── 阶段 A：固定窗口采集 + 均值滤波（周期上报倒计时）──
+            long lastReport = -1000;
             while (sw.ElapsedMilliseconds < opt.CoilACollectMs &&
                    sw.ElapsedMilliseconds <= opt.OverallTimeoutMs)
             {
                 ct.ThrowIfCancellationRequested();
+                long elapsed = sw.ElapsedMilliseconds;
+                if (onProgress is not null && elapsed - lastReport >= 500)
+                {
+                    lastReport = elapsed;
+                    onProgress(new CoilProgress(
+                        $"A 采集中… 剩余 {Math.Max(0, opt.CoilACollectMs - elapsed) / 1000.0:F0}s",
+                        false, false, 0));
+                }
                 await Task.Delay(50, ct);
             }
 
@@ -83,6 +103,7 @@ public static class CoilCheck
             if (winA.Count == 0)
             {
                 log?.Invoke("A 线圈：窗口内无采样");
+                onProgress?.Invoke(new CoilProgress("A 窗口无有效采样", false, false, 0));
                 return new CoilJudgement(0, 0, 0, false, false, true, new[] { "PowerZ 无有效采样" });
             }
 
@@ -90,6 +111,12 @@ public static class CoilCheck
             var avgV = winA.Average(s => s.V);
             log?.Invoke($"A 线圈：{winA.Count} 点，均值 {avgI:F3}A / {avgV:F3}V" +
                         $"（阈值 {opt.CoilAThresholdA:F2}A，窗口 {opt.CoilACollectMs} ms）");
+
+            // A 判定一出即上报（UI 实时点亮 A 卡片），失败原因进异常项、不进流程区
+            bool aPass = avgI >= opt.CoilAThresholdA;
+            onProgress?.Invoke(new CoilProgress(
+                aPass ? "A 通过，请取下 A 夹子换接 B 线圈" : "A 未通过",
+                true, aPass, avgI));
 
             if (avgI < opt.CoilAThresholdA)
             {
@@ -103,11 +130,23 @@ public static class CoilCheck
             var lowStart = -1L;
             var recStart = -1L;      // B 恢复到阈值以上的起点
             var dipMin = double.MaxValue;
+            long lastBReport = -1000;
 
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
                 var now = sw.ElapsedMilliseconds;
+                if (onProgress is not null && now - lastBReport >= 500)
+                {
+                    lastBReport = now;
+                    var overallRemain = Math.Max(0, opt.OverallTimeoutMs - now) / 1000.0;
+                    string hint = !transition
+                        ? $"请取下 A 夹子换接 B 线圈… 剩余 {overallRemain:F0}s"
+                        : recStart < 0
+                            ? $"请接上 B 线圈… 剩余 {overallRemain:F0}s"
+                            : $"B 检测中… 持续达标剩余 {Math.Max(0, opt.CoilBSustainMs - (now - recStart)) / 1000.0:F0}s";
+                    onProgress(new CoilProgress(hint, true, true, avgI));
+                }
                 if (now > opt.OverallTimeoutMs)
                 {
                     List<(double V, double I, long T)> tail;

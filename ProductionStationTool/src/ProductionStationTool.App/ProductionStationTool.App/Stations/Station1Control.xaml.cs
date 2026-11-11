@@ -244,7 +244,8 @@ public partial class Station1Control : UserControl, IStationPage
                 powerZ: powerZ,
                 coils: BuildCoilOptions(),
                 log: LogSafe,
-                ct);
+                ct,
+                onProgress: OnCoilProgress);
         }
         catch (Exception ex)
         {
@@ -371,6 +372,17 @@ public partial class Station1Control : UserControl, IStationPage
         _log.Append(result.Passed
             ? "全部检测项正常，PASS"
             : $"存在 {result.AbnormalItems.Count} 项异常，FAIL");
+    }
+
+    /// <summary>
+    /// PowerZ 检测实时进度：流程区显示阶段提示/倒计时；A 判定一出即点亮 A 卡片，
+    /// 测试员见「通过」即可换接 B 线圈。
+    /// </summary>
+    private void OnCoilProgress(CoilProgress p)
+    {
+        FlowPanel.Mark(4, StepStatus.Running, p.Hint);
+        if (p.CoilADecided)
+            CardCoilA.SetState(p.CoilAPassed ? CoilState.Passed : CoilState.Failed, p.CoilACurrent);
     }
 
     /// <summary>

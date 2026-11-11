@@ -127,11 +127,13 @@
                                     <TextBlock Text="B 阈值 (A)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxBThreshold" Style="{StaticResource FieldBox}" Text="1.0"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0">
+                                <StackPanel Margin="0,0,8,0"
+                                            ToolTip="A 窗口：A 线圈固定采集时长（秒）。窗口内电流均值 ≥ A 阈值即判 A 通过（默认 10s）">
                                     <TextBlock Text="A 窗口 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxAWindowSec" Style="{StaticResource FieldBox}" Text="10"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0">
+                                <StackPanel Margin="0,0,8,0"
+                                            ToolTip="B 持续：B 线圈电流恢复到 B 阈值后，须连续保持达标该时长（秒）才判 B 通过（默认 3s）">
                                     <TextBlock Text="B 持续 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxBSustainSec" Style="{StaticResource FieldBox}" Text="3"/>
                                 </StackPanel>

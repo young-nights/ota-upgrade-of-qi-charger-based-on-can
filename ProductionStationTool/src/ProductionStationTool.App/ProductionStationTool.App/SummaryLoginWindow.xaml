@@ -1,7 +1,8 @@
 <Window x:Class="ProductionStationTool.App.SummaryLoginWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="进入汇总机" Height="230" Width="380"
+        Title="进入汇总机"
+        MinWidth="440" SizeToContent="WidthAndHeight"
         Background="{StaticResource BgBrush}"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <Border Style="{StaticResource Card}" Margin="16">

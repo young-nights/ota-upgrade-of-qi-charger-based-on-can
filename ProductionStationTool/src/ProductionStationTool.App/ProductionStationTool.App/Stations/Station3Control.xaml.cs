@@ -193,7 +193,7 @@ public partial class Station3Control : UserControl, IStationPage
             powerZ.Log += LogSafe;
             try { await powerZ.StartAsync(ct); }
             catch (Exception ex) { _log.Append($"[PowerZ] 打开失败：{ex.Message}"); }
-            coil = await CoilCheck.RunAsync(powerZ, MachineConfig.LoadCoilOptions(), LogSafe, ct);
+            coil = await CoilCheck.RunAsync(powerZ, MachineConfig.LoadCoilOptions(), LogSafe, ct, OnCoilProgress);
         }
         finally
         {
@@ -295,6 +295,16 @@ public partial class Station3Control : UserControl, IStationPage
     /// 线圈 A/B 两卡片三态：未测灰 / 通过绿 / 未通过红。
     /// B 未执行到（无有效采样、A 未通过提前结束）保持未测。
     /// </summary>
+    /// <summary>
+    /// PowerZ 检测实时进度：流程区显示阶段提示/倒计时；A 判定一出即点亮 A 卡片。
+    /// </summary>
+    private void OnCoilProgress(CoilProgress p)
+    {
+        FlowPanel.Mark(3, StepStatus.Running, p.Hint);
+        if (p.CoilADecided)
+            CardCoilA.SetState(p.CoilAPassed ? CoilState.Passed : CoilState.Failed, p.CoilACurrent);
+    }
+
     private void ShowCoilJudgement(CoilJudgement? c)
     {
         if (c is null || c.NoValidSample)

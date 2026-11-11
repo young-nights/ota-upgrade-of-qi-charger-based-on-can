@@ -15,12 +15,15 @@ namespace ProductionStationTool.App;
 public partial class MainWindow : Window
 {
     private readonly IStationPage[] _pages;
-    private readonly StationIdentity _identity;
-    private readonly StationPresenceReporter _presence;
+    private readonly StationIdentity? _identity;
+    private readonly StationPresenceReporter? _presence;
+
+    /// <summary>汇总机模式：整页接管为汇总机页，不计入机位/工位。</summary>
+    private readonly bool _summaryMode;
     private IStationPage? _currentPage;
     private bool _isRunning;
 
-    public MainWindow()
+    public MainWindow(MachineMode mode)
     {
         InitializeComponent();
 
@@ -31,22 +34,37 @@ public partial class MainWindow : Window
         Width = Math.Min(Width, wa.Width);
         Height = Math.Min(Height, wa.Height);
 
-        _identity = MachineConfig.Load();
-        Title = $"产线测试上位机 — {_identity.Code}";
-        _pages = new IStationPage[]
-        {
-            new Station1Control(_identity),
-            new Station2Control(),
-            new Station3Control(_identity),
-            new Station4Control(),
-        };
-        ShowPage(0);
+        _summaryMode = mode == MachineMode.Summary;
         SummaryView.ExitRequested += OnSummaryExitRequested;
 
-        // 工位机接入心跳：周期上报身份到汇总机（serverHost），汇总机按远端 IP 自动登记
-        _presence = new StationPresenceReporter(_identity, MachineConfig.LoadServerHost());
-        _presence.Start();
-        Closed += (_, _) => _presence.Dispose();
+        if (_summaryMode)
+        {
+            // 汇总机：直接进管理页；不加载工位身份、不发工位接入心跳（不计入机位和工位）
+            Title = "产线测试上位机 — 汇总机";
+            _pages = Array.Empty<IStationPage>();
+            SummaryView.EnterUnlocked();
+            WorkstationView.Visibility = Visibility.Collapsed;
+            SummaryView.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _identity = MachineConfig.Load();
+            Title = $"产线测试上位机 — {_identity.Code}";
+            _pages = new IStationPage[]
+            {
+                new Station1Control(_identity),
+                new Station2Control(),
+                new Station3Control(_identity),
+                new Station4Control(),
+            };
+            ShowPage(0);
+
+            // 工位机接入心跳：周期上报身份到汇总机（serverHost），汇总机按远端 IP 自动登记
+            _presence = new StationPresenceReporter(_identity, MachineConfig.LoadServerHost());
+            _presence.Start();
+        }
+
+        Closed += (_, _) => _presence?.Dispose();
     }
 
     private void MenuStation_Click(object sender, RoutedEventArgs e)
@@ -70,7 +88,7 @@ public partial class MainWindow : Window
         _currentPage = _pages[index];
         _currentPage.AvailabilityChanged += OnPageAvailabilityChanged;
         PageHost.Content = _currentPage;
-        TxtCurrent.Text = $"当前：{_currentPage.Title}（本机：{_identity.Label}）";
+        TxtCurrent.Text = $"当前：{_currentPage.Title}（本机：{_identity?.Label}）";
         UpdateButtons();
     }
 
@@ -161,6 +179,12 @@ public partial class MainWindow : Window
 
     private void OnSummaryExitRequested()
     {
+        if (_summaryMode)
+        {
+            // 汇总机模式无工位页可回：退出汇总机 = 关闭应用（重开再选身份）
+            Close();
+            return;
+        }
         SummaryView.Visibility = Visibility.Collapsed;
         WorkstationView.Visibility = Visibility.Visible;
     }
