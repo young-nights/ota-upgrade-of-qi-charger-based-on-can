@@ -51,7 +51,7 @@ public partial class Station3Control : UserControl, IStationPage
             "连接设备（串口/CAN 自动检测）",
             "读取 SN 并关联数据库",
             "开启无线充电",
-            "PowerZ：A 线圈 10s 均值 + B 线圈接入检测",
+            "PowerZ：A 线圈 + B 线圈检测",
             "停充并入库");
 
         ConnPanel.ConnectRequested += OnConnectRequested;

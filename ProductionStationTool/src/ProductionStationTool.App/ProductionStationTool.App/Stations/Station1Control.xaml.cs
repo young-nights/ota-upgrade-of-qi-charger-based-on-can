@@ -67,7 +67,7 @@ public partial class Station1Control : UserControl, IStationPage
             "生成 SN 码",
             "写入 SN 并回读验证",
             "开启无线充电",
-            "PowerZ：A 线圈 10s 均值 + B 线圈接入检测",
+            "PowerZ：A 线圈 + B 线圈检测",
             "停充并入库");
 
         ConnPanel.ConnectRequested += OnConnectRequested;
