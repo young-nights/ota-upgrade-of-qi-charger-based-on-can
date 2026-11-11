@@ -266,6 +266,7 @@ public sealed class HidPowerZSource : IPowerZSource
     {
         int sendFail = 0;
         int rawLogged = 0;
+        int parsedLogged = 0;
 
         try
         {
@@ -295,6 +296,15 @@ public sealed class HidPowerZSource : IPowerZSource
                         PowerZProtocol.TryParseBlock(buf, out sample))
                     {
                         sendFail = 0;
+                        // 诊断：前 8 帧 + 之后每 50 帧打原始字节与解析结果，
+                        // 用于核对 V/I 字段偏移与标度（电流值不对时按 hex 重推字段）
+                        if (parsedLogged < 8 || (parsedLogged % 50) == 0)
+                        {
+                            int n = Math.Min(48, buf.Length);
+                            Log?.Invoke($"[PowerZ] raw({buf.Length}B): " +
+                                        $"{Convert.ToHexString(buf.AsSpan(0, n).ToArray())} → {sample}");
+                        }
+                        parsedLogged++;
                         SampleReceived?.Invoke(sample);
                     }
                     else if (PowerZProtocol.IsResponse(buf, out var svc, out var cmd, out var sub))
