@@ -56,7 +56,9 @@ public sealed record CoilProgress(
 
 /// <summary>
 /// 双线圈采样与判定流程（工位 1 步骤 5）：
-///   ① A 线圈：开充前已接入，固定窗口采集均值滤波，均值 ≥ 阈值即 A 正常；
+///   ① A 线圈：开充前已接入，固定窗口采集；判定用「稳定段均值」——剔除开充
+///      爬坡（自首个达窗口最大电流 90% 的采样起统计），均值 ≥ 阈值即 A 正常；
+///      统计起点 = 本流程启动（启动前积压数据丢弃不算）；
 ///   ② 过渡：A 通过后实时监测跌落（低于 B 阈值或 A 均值一半），跌落状态
 ///      持续「跌落确认」时长（默认 2s）且窗口均值仍在跌落线以下 = 有效跌落，
 ///      单点毛刺不打断；只识别切换、不判失败；
@@ -117,10 +119,19 @@ public static class CoilCheck
                 return new CoilJudgement(0, 0, 0, false, false, true, new[] { "PowerZ 无有效采样" });
             }
 
-            var avgI = winA.Average(s => s.I);
-            var avgV = winA.Average(s => s.V);
-            log?.Invoke($"A 线圈：{winA.Count} 点（流程启动后 T={winA.Min(s => s.T) / 1000.0:F1}~{winA.Max(s => s.T) / 1000.0:F1}s），" +
-                        $"均值 {avgI:F3}A / {avgV:F3}V" +
+            // A 统计口径：窗口起点 = PowerZ 流程启动（启动前数据已 DiscardBuffered
+            // 不算数）；但判定值剔除开充爬坡段——充电开启后电流从 0 升到稳态
+            // （约 3s），全程均值会被爬坡拉低（实测 0.45 vs 稳态 0.57）。
+            // 稳定段 = 自首个达到「稳态线」（窗口最大电流 90%）的采样起，
+            // 反映工作电流；全程本就稳态则不剔除任何点。
+            double iMax = winA.Max(s => s.I);
+            var settled = winA.SkipWhile(s => s.I < iMax * 0.9).ToList();
+            if (settled.Count == 0)
+                settled = winA;
+            var avgI = settled.Average(s => s.I);
+            var avgV = settled.Average(s => s.V);
+            log?.Invoke($"A 线圈：{winA.Count} 点（流程启动后 T={winA.Min(s => s.T) / 1000.0:F1}~{winA.Max(s => s.T) / 1000.0:F1}s，" +
+                        $"剔除爬坡 {winA.Count - settled.Count} 点），稳定段均值 {avgI:F3}A / {avgV:F3}V" +
                         $"（阈值 {opt.CoilAThresholdA:F2}A，窗口 {opt.CoilACollectMs} ms）");
 
             // A 判定一出即上报（UI 实时点亮 A 卡片），失败原因进异常项、不进流程区

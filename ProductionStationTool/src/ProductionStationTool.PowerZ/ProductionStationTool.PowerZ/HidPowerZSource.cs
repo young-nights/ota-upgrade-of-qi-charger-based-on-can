@@ -285,9 +285,10 @@ public sealed class HidPowerZSource : IPowerZSource
             while (!ct.IsCancellationRequested)
             {
                 // 设备 sub=1 流式实测只连发约 3 帧即静默（2026-11-12：5s 一补发
-                // 只见 3 帧突发）——每 500ms 重发启动帧维持 ~6Hz 采样，
-                // 供实时电流显示与跌落检测
-                if (sendFail == 0 && Environment.TickCount64 - lastStartSend >= 500)
+                // 只见 3 帧突发）——每 200ms 重发启动帧把采样提到 ~5Hz，
+                // 供实时电流显示与 2s 跌落确认的采样密度（设备本底速率固定，
+                // 重发节奏是主机侧唯一的采样频率杠杆）
+                if (sendFail == 0 && Environment.TickCount64 - lastStartSend >= 200)
                 {
                     lastStartSend = Environment.TickCount64;
                     try { Send(PowerZProtocol.StartStreaming()); } catch { /* 忽略 */ }
@@ -323,7 +324,7 @@ public sealed class HidPowerZSource : IPowerZSource
                     rawLogged++;
                 }
 
-                await Task.Delay(50, ct);
+                await Task.Delay(25, ct);
             }
         }
         catch (OperationCanceledException) { /* 正常退出 */ }
