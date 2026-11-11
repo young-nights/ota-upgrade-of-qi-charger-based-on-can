@@ -21,6 +21,13 @@ public sealed class CoilTestOptions
     /// </summary>
     public int TransitionMs { get; init; } = 2_000;
 
+    /// <summary>
+    /// 采样间隔（ms）：PowerZ 启动帧重发节奏（设备本底速率固定，此为主机侧
+    /// 采样频率杠杆，有效采样率 ≈ 1000/间隔 Hz）。设置页「采样间隔 (ms)」
+    /// 可调，默认 200ms（≈5Hz）。
+    /// </summary>
+    public int SampleIntervalMs { get; init; } = 200;
+
     /// <summary>B 线圈恢复后持续达标时长（ms）。</summary>
     public int CoilBSustainMs { get; init; } = 3_000;
 

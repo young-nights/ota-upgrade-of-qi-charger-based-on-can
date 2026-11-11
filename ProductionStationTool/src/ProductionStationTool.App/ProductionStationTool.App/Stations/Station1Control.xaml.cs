@@ -191,7 +191,8 @@ public partial class Station1Control : UserControl, IStationPage
 
         try
         {
-            powerZ = new HidPowerZSource();
+            var coilOpts = BuildCoilOptions();
+            powerZ = new HidPowerZSource { SampleIntervalMs = coilOpts.SampleIntervalMs };
             powerZ.Log += LogSafe;
 
             // 严格顺序执行：每步完成即定格（Passed/Failed），下一步才亮「进行中」。
@@ -242,7 +243,7 @@ public partial class Station1Control : UserControl, IStationPage
                     }
                 },
                 powerZ: powerZ,
-                coils: BuildCoilOptions(),
+                coils: coilOpts,
                 log: LogSafe,
                 ct,
                 onProgress: OnCoilProgress);

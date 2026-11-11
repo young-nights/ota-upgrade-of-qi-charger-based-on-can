@@ -43,6 +43,7 @@ public static class MachineConfig
             CoilACollectMs = cfg.CoilACollectMs > 0 ? cfg.CoilACollectMs : 10_000,
             CoilBSustainMs = cfg.CoilBSustainMs > 0 ? cfg.CoilBSustainMs : 3_000,
             TransitionMs = cfg.TransitionMs > 0 ? cfg.TransitionMs : 2_000,
+            SampleIntervalMs = cfg.SampleIntervalMs > 0 ? cfg.SampleIntervalMs : 200,
             OverallTimeoutMs = cfg.OverallTimeoutMs > 0 ? cfg.OverallTimeoutMs : 60_000,
         };
     }
@@ -65,7 +66,8 @@ public static class MachineConfig
 
     /// <summary>校验检测参数（秒）；返回 null 表示通过。</summary>
     public static string? ValidateCoil(double aThreshold, double bThreshold,
-        double aWindowSec, double bSustainSec, double timeoutSec, double transitionSec)
+        double aWindowSec, double bSustainSec, double timeoutSec, double transitionSec,
+        double sampleIntervalMs)
     {
         if (aThreshold <= 0 || bThreshold <= 0)
             return "电流阈值需大于 0";
@@ -73,6 +75,8 @@ public static class MachineConfig
             return "A 窗口 / B 持续需大于 0";
         if (transitionSec <= 0)
             return "跌落确认需大于 0";
+        if (sampleIntervalMs < 50 || sampleIntervalMs > 5000)
+            return "采样间隔需在 50~5000 ms 之间";
         if (timeoutSec <= 0)
             return "整体超时需大于 0";
         if (timeoutSec <= aWindowSec)
@@ -118,6 +122,7 @@ public static class MachineConfig
         cfg.CoilACollectMs = o.CoilACollectMs;
         cfg.CoilBSustainMs = o.CoilBSustainMs;
         cfg.TransitionMs = o.TransitionMs;
+        cfg.SampleIntervalMs = o.SampleIntervalMs;
         cfg.OverallTimeoutMs = o.OverallTimeoutMs;
         WriteCfg(cfg);
 
@@ -126,6 +131,7 @@ public static class MachineConfig
             before.CoilACollectMs == o.CoilACollectMs &&
             before.CoilBSustainMs == o.CoilBSustainMs &&
             before.TransitionMs == o.TransitionMs &&
+            before.SampleIntervalMs == o.SampleIntervalMs &&
             before.OverallTimeoutMs == o.OverallTimeoutMs)
             return;
 
@@ -135,6 +141,7 @@ public static class MachineConfig
             $" / A窗口 {before.CoilACollectMs / 1000.0:F1}→{o.CoilACollectMs / 1000.0:F1}s" +
             $" / B持续 {before.CoilBSustainMs / 1000.0:F1}→{o.CoilBSustainMs / 1000.0:F1}s" +
             $" / 跌落确认 {before.TransitionMs / 1000.0:F1}→{o.TransitionMs / 1000.0:F1}s" +
+            $" / 采样间隔 {before.SampleIntervalMs}→{o.SampleIntervalMs}ms" +
             $" / 超时 {before.OverallTimeoutMs / 1000.0:F0}→{o.OverallTimeoutMs / 1000.0:F0}s" +
             $"  ({Environment.MachineName})\n");
     }
@@ -240,6 +247,7 @@ public static class MachineConfig
         public int CoilACollectMs { get; set; } = 10_000;
         public int CoilBSustainMs { get; set; } = 3_000;
         public int TransitionMs { get; set; } = 2_000;
+        public int SampleIntervalMs { get; set; } = 200;
         public int OverallTimeoutMs { get; set; } = 60_000;
 
         // 汇总机管理密码（SHA-256 十六进制；空 = 默认密码 admin123）

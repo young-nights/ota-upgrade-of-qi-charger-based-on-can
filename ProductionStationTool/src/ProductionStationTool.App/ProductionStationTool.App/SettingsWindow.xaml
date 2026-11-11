@@ -142,6 +142,11 @@
                                     <TextBlock Text="跌落确认 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxTransitionSec" Style="{StaticResource FieldBox}" Text="2"/>
                                 </StackPanel>
+                                <StackPanel Margin="0,0,8,0"
+                                            ToolTip="采样间隔：PowerZ 启动帧重发节奏（毫秒），决定采样频率 ≈ 1000/间隔 Hz。默认 200ms ≈ 5Hz；范围 50~5000">
+                                    <TextBlock Text="采样间隔 (ms)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxSampleIntervalMs" Style="{StaticResource FieldBox}" Text="200"/>
+                                </StackPanel>
                                 <StackPanel>
                                     <TextBlock Text="整体超时 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxTimeoutSec" Style="{StaticResource FieldBox}" Text="60"/>

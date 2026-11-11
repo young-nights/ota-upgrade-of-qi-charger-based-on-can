@@ -159,6 +159,7 @@ public partial class SettingsWindow : Window
         BoxAWindowSec.Text = (o.CoilACollectMs / 1000.0).ToString("0.##");
         BoxBSustainSec.Text = (o.CoilBSustainMs / 1000.0).ToString("0.##");
         BoxTransitionSec.Text = (o.TransitionMs / 1000.0).ToString("0.##");
+        BoxSampleIntervalMs.Text = o.SampleIntervalMs.ToString("0");
         BoxTimeoutSec.Text = (o.OverallTimeoutMs / 1000.0).ToString("0.##");
     }
 
@@ -180,9 +181,10 @@ public partial class SettingsWindow : Window
         var aWin = ParseD(BoxAWindowSec, d.CoilACollectMs / 1000.0);
         var bSus = ParseD(BoxBSustainSec, d.CoilBSustainMs / 1000.0);
         var trans = ParseD(BoxTransitionSec, d.TransitionMs / 1000.0);
+        var samp = ParseD(BoxSampleIntervalMs, d.SampleIntervalMs);
         var tOut = ParseD(BoxTimeoutSec, d.OverallTimeoutMs / 1000.0);
 
-        var err = MachineConfig.ValidateCoil(aThr, bThr, aWin, bSus, tOut, trans);
+        var err = MachineConfig.ValidateCoil(aThr, bThr, aWin, bSus, tOut, trans, samp);
         if (err is not null)
         {
             TxtCoilSaveResult.Text = err;
@@ -197,6 +199,7 @@ public partial class SettingsWindow : Window
             CoilACollectMs = (int)(aWin * 1000),
             CoilBSustainMs = (int)(bSus * 1000),
             TransitionMs = (int)(trans * 1000),
+            SampleIntervalMs = (int)samp,
             OverallTimeoutMs = (int)(tOut * 1000),
         };
 

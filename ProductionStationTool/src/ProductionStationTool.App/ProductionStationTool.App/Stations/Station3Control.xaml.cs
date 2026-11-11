@@ -189,11 +189,12 @@ public partial class Station3Control : UserControl, IStationPage
         HidPowerZSource? powerZ = null;
         try
         {
-            powerZ = new HidPowerZSource();
+            var coilOpts = MachineConfig.LoadCoilOptions();
+            powerZ = new HidPowerZSource { SampleIntervalMs = coilOpts.SampleIntervalMs };
             powerZ.Log += LogSafe;
             try { await powerZ.StartAsync(ct); }
             catch (Exception ex) { _log.Append($"[PowerZ] 打开失败：{ex.Message}"); }
-            coil = await CoilCheck.RunAsync(powerZ, MachineConfig.LoadCoilOptions(), LogSafe, ct, OnCoilProgress);
+            coil = await CoilCheck.RunAsync(powerZ, coilOpts, LogSafe, ct, OnCoilProgress);
         }
         finally
         {

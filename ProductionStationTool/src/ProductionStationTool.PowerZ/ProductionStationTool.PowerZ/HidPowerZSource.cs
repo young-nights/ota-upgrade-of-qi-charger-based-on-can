@@ -47,6 +47,13 @@ public sealed class HidPowerZSource : IPowerZSource
     private int _writeLen;
 
     /// <summary>
+    /// 启动帧重发间隔（ms）——设备 sub=1 流式只连发约 3 帧即静默，靠重发维持
+    /// 采样流；此值即采样节奏（有效采样率 ≈ 1000/间隔 Hz）。设置页
+    /// 「采样间隔 (ms)」可调，默认 200。
+    /// </summary>
+    public int SampleIntervalMs { get; set; } = 200;
+
+    /// <summary>
     /// 枚举本机 PowerZ HID 接口。
     ///
     /// 策略：**全量扫描所有 HID 设备，再按身份过滤**（VID:PID 命中已知表
@@ -285,10 +292,10 @@ public sealed class HidPowerZSource : IPowerZSource
             while (!ct.IsCancellationRequested)
             {
                 // 设备 sub=1 流式实测只连发约 3 帧即静默（2026-11-12：5s 一补发
-                // 只见 3 帧突发）——每 200ms 重发启动帧把采样提到 ~5Hz，
-                // 供实时电流显示与 2s 跌落确认的采样密度（设备本底速率固定，
-                // 重发节奏是主机侧唯一的采样频率杠杆）
-                if (sendFail == 0 && Environment.TickCount64 - lastStartSend >= 200)
+                // 只见 3 帧突发）——按 SampleIntervalMs 重发启动帧维持采样流
+                //（设置页「采样间隔 (ms)」可调，默认 200ms ≈ 5Hz）
+                int interval = Math.Clamp(SampleIntervalMs, 50, 5000);
+                if (sendFail == 0 && Environment.TickCount64 - lastStartSend >= interval)
                 {
                     lastStartSend = Environment.TickCount64;
                     try { Send(PowerZProtocol.StartStreaming()); } catch { /* 忽略 */ }
