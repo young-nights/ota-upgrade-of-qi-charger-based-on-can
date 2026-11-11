@@ -13,8 +13,9 @@ public enum MachineMode
 
 /// <summary>
 /// 启动登录窗口：选择工位机/汇总机后点「登录」进入对应页面。
-/// 工位机免密码；汇总机需管理密码（SHA-256 比对 machine.json，同 SummaryLoginWindow）。
+/// 工位机免密码；汇总机需管理密码（SHA-256 比对 machine.json）。
 /// 汇总机不计入机位和工位——不发工位接入心跳、不加载工位身份。
+/// 身份仅在此选定，工位机页面无汇总机入口、不可中途切换。
 /// </summary>
 public partial class ModeLoginWindow : Window
 {

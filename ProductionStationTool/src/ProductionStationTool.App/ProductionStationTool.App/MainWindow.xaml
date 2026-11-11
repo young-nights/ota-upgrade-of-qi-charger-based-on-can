@@ -7,7 +7,7 @@
         Background="{StaticResource BgBrush}">
     <Grid>
     <DockPanel x:Name="WorkstationView">
-        <!-- 顶部横幅：下拉菜单（设置 / 工位选择 / 关于）+ 汇总机入口 -->
+        <!-- 顶部横幅：下拉菜单（设置 / 工位选择 / 关于）。身份只在启动登录窗选择，工位机页无汇总机入口 -->
         <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}"
                 BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1"
                 Padding="12,2">
@@ -33,10 +33,6 @@
                         <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
                     </MenuItem>
                 </Menu>
-                <Button x:Name="BtnSummary" Content="汇总机" HorizontalAlignment="Right"
-                        VerticalAlignment="Center" Height="32" Padding="18,0"
-                        Style="{StaticResource PrimaryButton}" Click="BtnSummary_Click"
-                        ToolTip="进入汇总机管理页（服务器电脑：工位机接入与数据库管理，需密码）"/>
             </Grid>
         </Border>
         <Grid Margin="16">

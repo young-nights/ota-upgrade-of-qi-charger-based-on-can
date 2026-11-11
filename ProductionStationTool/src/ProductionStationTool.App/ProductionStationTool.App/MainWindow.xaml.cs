@@ -164,28 +164,11 @@ public partial class MainWindow : Window
         win.ShowDialog();
     }
 
-    // ---- 汇总机页面（整页接管工作区，非弹窗；进入前密码验证）----
-
-    private void BtnSummary_Click(object sender, RoutedEventArgs e)
-    {
-        // 密码输入窗口居中弹出，验证通过才进入汇总机页
-        var win = new SummaryLoginWindow { Owner = this };
-        if (win.ShowDialog() != true)
-            return;
-        SummaryView.EnterUnlocked();
-        WorkstationView.Visibility = Visibility.Collapsed;
-        SummaryView.Visibility = Visibility.Visible;
-    }
+    // ---- 汇总机页面（整页接管工作区，非弹窗；仅启动登录选汇总机身份才进入）----
 
     private void OnSummaryExitRequested()
     {
-        if (_summaryMode)
-        {
-            // 汇总机模式无工位页可回：退出汇总机 = 关闭应用（重开再选身份）
-            Close();
-            return;
-        }
-        SummaryView.Visibility = Visibility.Collapsed;
-        WorkstationView.Visibility = Visibility.Visible;
+        // 工位机页没有汇总机入口，退出只可能发生在汇总机模式：关窗结束（重开再选身份）
+        Close();
     }
 }
