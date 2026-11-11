@@ -164,6 +164,7 @@ public static class CoilCheck
             var recStart = -1L;      // B 恢复到阈值以上的起点
             var dipMin = double.MaxValue;
             long lastBReport = -1000;
+            bool justTransitioned = false;
 
             while (true)
             {
@@ -176,10 +177,10 @@ public static class CoilCheck
                     lock (gate) lastI = samples.Count > 0 ? samples[^1].I : 0;
                     var overallRemain = Math.Max(0, opt.OverallTimeoutMs - now) / 1000.0;
                     string hint = !transition
-                        ? $"待跌落 {overallRemain:F0}s · {lastI:F2}A"
+                        ? $"待跌落·摘 A 夹 {overallRemain:F0}s · {lastI:F2}A"
                         : recStart < 0
-                            ? $"待接 B {overallRemain:F0}s · {lastI:F2}A"
-                            : $"B 检测 {Math.Max(0, opt.CoilBSustainMs - (now - recStart)) / 1000.0:F0}s · {lastI:F2}A";
+                            ? $"✓ 已确认跌落·接 B 线圈 {overallRemain:F0}s · {lastI:F2}A"
+                            : $"B 检测中·保持 {Math.Max(0, opt.CoilBSustainMs - (now - recStart)) / 1000.0:F0}s · {lastI:F2}A";
                     onProgress(new CoilProgress(hint, true, true, avgI));
                 }
                 if (now > opt.OverallTimeoutMs)
@@ -216,6 +217,7 @@ public static class CoilCheck
                                 if (s.T - lowStart >= opt.TransitionMs && lowSum / lowCnt < dipLine)
                                 {
                                     transition = true;
+                                    justTransitioned = true;
                                     log?.Invoke($"检测到换线圈跌落（最低 {dipMin:F3}A，确认 {opt.TransitionMs}ms），等待 B 线圈接入…");
                                 }
                             }
@@ -257,6 +259,14 @@ public static class CoilCheck
                         }
                         recStart = -1;   // 均值不足（噪声），重新累积
                     }
+                }
+
+                // 跌落确认瞬间立即提示（不等下一个 500ms 刷新点）
+                if (justTransitioned)
+                {
+                    justTransitioned = false;
+                    lastBReport = now;
+                    onProgress?.Invoke(new CoilProgress("✓ 已确认跌落，请接 B 线圈", true, true, avgI));
                 }
 
                 await Task.Delay(50, ct);

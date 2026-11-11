@@ -36,9 +36,9 @@ public partial class CoilJudgeCard : UserControl
         InitializeComponent();
     }
 
-    /// <summary>显示判定结果 + 均值电流；未测时电流列显示「—」。</summary>
+    /// <summary>显示判定结果 + 均值电流（判定口径：窗口稳定段/恢复段均值，非瞬时值）。</summary>
     public void SetState(CoilState state, double currentA)
-        => SetState(state, currentA.ToString("F2") + " A");
+        => SetState(state, $"均值 {currentA:F2} A");
 
     /// <summary>显示判定结果 + 自定义明细行（工位4 门禁/版本卡复用：记录摘要等）。</summary>
     public void SetState(CoilState state, string detail)
