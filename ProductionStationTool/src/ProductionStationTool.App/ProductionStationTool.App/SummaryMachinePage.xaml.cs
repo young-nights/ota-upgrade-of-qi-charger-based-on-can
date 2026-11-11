@@ -10,9 +10,10 @@ using ProductionStationTool.Core.Station;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// 汇总机页面（服务器电脑专用，整页接管主窗口，密码验证后进入）：
-/// 外壳与主页面同款——顶部横幅「设置」（汇总机独立）+「退出汇总机」，左侧「功能选择」
-/// 两按钮，右侧操作栏 + 功能页，底部状态栏。
+/// 汇总机页面（服务器电脑专用，整页接管主窗口，启动登录选汇总机身份后进入）：
+/// 外壳与主页面同款——顶部横幅「设置」（汇总机独立），左侧「功能选择」
+/// 两按钮，右侧操作栏 + 功能页，底部状态栏。身份仅启动登录时选定，无退出按钮，
+/// 关闭窗口即退出应用。
 /// 「工位机接入管理」全自动：工位机心跳上报（<see cref="StationPresenceReporter"/>），
 /// 本页监听端口按连接远端 IP 自动登记（station_access.json），检测到接入自动生成
 /// 状态卡片（在线/离线、最近接入、测试概况、允许/禁止接入），无需手动录入。
@@ -34,9 +35,6 @@ public partial class SummaryMachinePage : UserControl
     private StationPresenceListener? _listener;
     private DispatcherTimer? _refreshTimer;
 
-    /// <summary>点「退出汇总机」。</summary>
-    public event Action? ExitRequested;
-
     public SummaryMachinePage()
     {
         InitializeComponent();
@@ -53,8 +51,6 @@ public partial class SummaryMachinePage : UserControl
         RefreshRecords();
         TxtStatusSummary.Text = "汇总机：工位机自动接入监控与数据库管理";
     }
-
-    private void BtnExit_Click(object sender, RoutedEventArgs e) => ExitRequested?.Invoke();
 
     // ================= 顶部横幅菜单（汇总机独立设置） =================
 

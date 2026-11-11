@@ -35,7 +35,6 @@ public partial class MainWindow : Window
         Height = Math.Min(Height, wa.Height);
 
         _summaryMode = mode == MachineMode.Summary;
-        SummaryView.ExitRequested += OnSummaryExitRequested;
 
         if (_summaryMode)
         {
@@ -164,11 +163,5 @@ public partial class MainWindow : Window
         win.ShowDialog();
     }
 
-    // ---- 汇总机页面（整页接管工作区，非弹窗；仅启动登录选汇总机身份才进入）----
-
-    private void OnSummaryExitRequested()
-    {
-        // 工位机页没有汇总机入口，退出只可能发生在汇总机模式：关窗结束（重开再选身份）
-        Close();
-    }
+    // ---- 汇总机页面（整页接管工作区；仅启动登录选汇总机身份才进入，关闭窗口即退出）----
 }
