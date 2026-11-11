@@ -114,11 +114,11 @@
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
                             <TextBlock Text="步骤 5 双线圈检测参数" Style="{StaticResource SectionTitle}"/>
-                            <TextBlock Text="A 线圈：采集窗口内均值电流 ≥ A 阈值即正常；摘 A 夹子后电流跌落属正常过渡（不判失败）；B 线圈：电流恢复到 B 阈值以上并持续规定时长即正常；整体超时（A 采集 + 换线圈 + B 判定）判 FAIL。保存后下次测试生效。"
+                            <TextBlock Text="A 线圈：采集窗口内均值电流 ≥ A 阈值即正常；A 通过后实时监测跌落（低于 B 阈值或 A 均值一半），跌落状态持续「跌落确认」时长才算有效换线圈（不判失败）；B 线圈：电流恢复到 B 阈值以上并持续规定时长即正常；整体超时（A 采集 + 换线圈 + B 判定）判 FAIL。保存后下次测试生效。"
                                        FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,10,0,12"/>
 
-                            <UniformGrid Columns="5">
+                            <UniformGrid Columns="3">
                                 <StackPanel Margin="0,0,8,0">
                                     <TextBlock Text="A 阈值 (A)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxAThreshold" Style="{StaticResource FieldBox}" Text="1.0"/>
@@ -136,6 +136,11 @@
                                             ToolTip="B 持续：B 线圈电流恢复到 B 阈值后，须连续保持达标该时长（秒）才判 B 通过（默认 3s）">
                                     <TextBlock Text="B 持续 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxBSustainSec" Style="{StaticResource FieldBox}" Text="3"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,8,0"
+                                            ToolTip="跌落确认：A 通过后电流处于跌落状态（低于 B 阈值或 A 均值一半）须持续该时长（秒）才算有效换线圈，抗毛刺干扰（默认 2s）">
+                                    <TextBlock Text="跌落确认 (s)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxTransitionSec" Style="{StaticResource FieldBox}" Text="2"/>
                                 </StackPanel>
                                 <StackPanel>
                                     <TextBlock Text="整体超时 (s)" Style="{StaticResource FieldLabel}"/>

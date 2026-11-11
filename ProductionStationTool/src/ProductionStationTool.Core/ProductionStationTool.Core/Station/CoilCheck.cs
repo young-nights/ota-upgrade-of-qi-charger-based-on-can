@@ -15,8 +15,11 @@ public sealed class CoilTestOptions
     /// <summary>A 线圈均值电流阈值（A）。</summary>
     public double CoilAThresholdA { get; init; } = 1.0;
 
-    /// <summary>换线圈过渡确认时长（ms）：电流低于 B 阈值持续该时长视为「已取下 A 夹子」。</summary>
-    public int TransitionMs { get; init; } = 300;
+    /// <summary>
+    /// 跌落确认时长（ms）：A 通过后实时电流处于跌落状态持续该时长才算有效跌落
+    /// （换线圈完成）。设置页「跌落确认 (s)」可调，默认 2000ms。
+    /// </summary>
+    public int TransitionMs { get; init; } = 2_000;
 
     /// <summary>B 线圈恢复后持续达标时长（ms）。</summary>
     public int CoilBSustainMs { get; init; } = 3_000;
@@ -54,8 +57,9 @@ public sealed record CoilProgress(
 /// <summary>
 /// 双线圈采样与判定流程（工位 1 步骤 5）：
 ///   ① A 线圈：开充前已接入，固定窗口采集均值滤波，均值 ≥ 阈值即 A 正常；
-///   ② 过渡：操作员取下 A 夹子，电流跌落（低于 B 阈值持续 TransitionMs）——
-///      属正常行为，只识别切换、不判失败；
+///   ② 过渡：A 通过后实时监测跌落（低于 B 阈值或 A 均值一半），跌落状态
+///      持续「跌落确认」时长（默认 2s）且窗口均值仍在跌落线以下 = 有效跌落，
+///      单点毛刺不打断；只识别切换、不判失败；
 ///   ③ B 线圈：电流恢复到 B 阈值以上并持续 CoilBSustainMs（均值）即 B 正常；
 ///   ④ 整体限时：从进入本流程起算，超时（如 B 一直低电流）判 FAIL。
 /// </summary>
@@ -89,8 +93,10 @@ public static class CoilCheck
                 if (onProgress is not null && elapsed - lastReport >= 500)
                 {
                     lastReport = elapsed;
+                    double lastI;
+                    lock (gate) lastI = samples.Count > 0 ? samples[^1].I : 0;
                     onProgress(new CoilProgress(
-                        $"A 采集中… 剩余 {Math.Max(0, opt.CoilACollectMs - elapsed) / 1000.0:F0}s",
+                        $"A 采集中 {Math.Max(0, opt.CoilACollectMs - elapsed) / 1000.0:F0}s · {lastI:F2}A",
                         false, false, 0));
                 }
                 await Task.Delay(50, ct);
@@ -125,9 +131,13 @@ public static class CoilCheck
             }
 
             // ── 阶段 B：识别换线圈跌落（不判失败）→ 恢复到阈值并持续 ──
+            // 跌落线 = max(B 阈值, A 均值一半)：低于任一条件即视为「电流跌落」
+            var dipLine = Math.Max(opt.CoilBThresholdA, avgI * 0.5);
             var cursor = 0;
             var transition = false;
             var lowStart = -1L;
+            double lowSum = 0;
+            long lowCnt = 0;
             var recStart = -1L;      // B 恢复到阈值以上的起点
             var dipMin = double.MaxValue;
             long lastBReport = -1000;
@@ -139,12 +149,14 @@ public static class CoilCheck
                 if (onProgress is not null && now - lastBReport >= 500)
                 {
                     lastBReport = now;
+                    double lastI;
+                    lock (gate) lastI = samples.Count > 0 ? samples[^1].I : 0;
                     var overallRemain = Math.Max(0, opt.OverallTimeoutMs - now) / 1000.0;
                     string hint = !transition
-                        ? $"请取下 A 夹子换接 B 线圈… 剩余 {overallRemain:F0}s"
+                        ? $"待跌落 {overallRemain:F0}s · {lastI:F2}A"
                         : recStart < 0
-                            ? $"请接上 B 线圈… 剩余 {overallRemain:F0}s"
-                            : $"B 检测中… 持续达标剩余 {Math.Max(0, opt.CoilBSustainMs - (now - recStart)) / 1000.0:F0}s";
+                            ? $"待接 B {overallRemain:F0}s · {lastI:F2}A"
+                            : $"B 检测 {Math.Max(0, opt.CoilBSustainMs - (now - recStart)) / 1000.0:F0}s · {lastI:F2}A";
                     onProgress(new CoilProgress(hint, true, true, avgI));
                 }
                 if (now > opt.OverallTimeoutMs)
@@ -169,20 +181,31 @@ public static class CoilCheck
 
                         if (!transition)
                         {
-                            // 跌落确认：低于 B 阈值持续 TransitionMs → 判为已取下 A 夹子
-                            if (s.I < opt.CoilBThresholdA)
+                            // 跌落检测（A 通过后实时）：低于跌落线进入候选；
+                            // 持续 TransitionMs 且窗口均值仍在跌落线以下 = 有效跌落。
+                            // 抗毛刺：单点回升不打断，窗口均值回到跌落线以上才重计。
+                            if (s.I < dipLine)
                             {
-                                if (lowStart < 0) lowStart = s.T;
+                                if (lowStart < 0) { lowStart = s.T; lowSum = 0; lowCnt = 0; }
+                                lowSum += s.I;
+                                lowCnt++;
                                 if (s.I < dipMin) dipMin = s.I;
-                                if (s.T - lowStart >= opt.TransitionMs)
+                                if (s.T - lowStart >= opt.TransitionMs && lowSum / lowCnt < dipLine)
                                 {
                                     transition = true;
-                                    log?.Invoke($"检测到换线圈跌落（最低 {dipMin:F3}A），等待 B 线圈接入…");
+                                    log?.Invoke($"检测到换线圈跌落（最低 {dipMin:F3}A，确认 {opt.TransitionMs}ms），等待 B 线圈接入…");
                                 }
                             }
-                            else
+                            else if (lowStart >= 0)
                             {
-                                lowStart = -1;
+                                lowSum += s.I;
+                                lowCnt++;
+                                if (lowSum / lowCnt >= dipLine)
+                                {
+                                    lowStart = -1;
+                                    lowSum = 0;
+                                    lowCnt = 0;
+                                }
                             }
                         }
                         else
