@@ -340,4 +340,13 @@ public sealed class HidPowerZSource : IPowerZSource
             return null;
         return rep.Length == 0 ? null : rep;
     }
+
+    /// <summary>
+    /// 丢弃收帧队列里已读未派发的积压帧（检测流程启动时调用）——
+    /// 流式首帧突发可能早于检测开始，滞留帧不得混入统计。
+    /// </summary>
+    public void DiscardBuffered()
+    {
+        while (_rx.TryTake(out _)) { }
+    }
 }

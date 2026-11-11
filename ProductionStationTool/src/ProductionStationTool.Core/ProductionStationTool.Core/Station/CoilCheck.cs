@@ -79,6 +79,9 @@ public static class CoilCheck
         {
             lock (gate) samples.Add((s.Voltage, s.Current, sw.ElapsedMilliseconds));
         }
+        // 统计起点 = PowerZ 检测流程启动：先丢弃数据源积压帧（流式首帧突发可能
+        // 早于本流程开始），再订阅——启动之前的电流数据一律不算数
+        src.DiscardBuffered();
         src.SampleReceived += OnSample;
 
         try
@@ -104,6 +107,7 @@ public static class CoilCheck
 
             List<(double V, double I, long T)> winA;
             lock (gate)
+                // T = 流程启动后的相对毫秒：A 均值只统计 [0, 窗口] 内采样
                 winA = samples.Where(s => s.T <= opt.CoilACollectMs).ToList();
 
             if (winA.Count == 0)
@@ -115,7 +119,8 @@ public static class CoilCheck
 
             var avgI = winA.Average(s => s.I);
             var avgV = winA.Average(s => s.V);
-            log?.Invoke($"A 线圈：{winA.Count} 点，均值 {avgI:F3}A / {avgV:F3}V" +
+            log?.Invoke($"A 线圈：{winA.Count} 点（流程启动后 T={winA.Min(s => s.T) / 1000.0:F1}~{winA.Max(s => s.T) / 1000.0:F1}s），" +
+                        $"均值 {avgI:F3}A / {avgV:F3}V" +
                         $"（阈值 {opt.CoilAThresholdA:F2}A，窗口 {opt.CoilACollectMs} ms）");
 
             // A 判定一出即上报（UI 实时点亮 A 卡片），失败原因进异常项、不进流程区

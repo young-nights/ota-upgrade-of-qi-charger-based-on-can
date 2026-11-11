@@ -55,6 +55,7 @@ public class Station1WorkflowTests
         public event Action<PowerSample>? SampleReceived;
         public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public void DiscardBuffered() { }
         public void Emit(double voltage, double current)
             => SampleReceived?.Invoke(new PowerSample(voltage, current, DateTime.Now));
         public void Dispose() { }

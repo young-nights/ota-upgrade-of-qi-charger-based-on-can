@@ -11,4 +11,10 @@ public interface IPowerZSource : IDisposable
 
     /// <summary>关闭数据源。</summary>
     Task StopAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// 丢弃已缓冲、尚未派发的采样（检测流程启动时调用）——
+    /// 保证统计只计流程启动之后的数据，启动前积压帧不算数。
+    /// </summary>
+    void DiscardBuffered();
 }

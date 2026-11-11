@@ -52,6 +52,13 @@ public sealed class SerialPowerZSource : IPowerZSource
         return Task.CompletedTask;
     }
 
+    /// <summary>丢弃行缓冲里的半行/积压数据（检测流程启动时调用）。</summary>
+    public void DiscardBuffered()
+    {
+        lock (_lineBuffer)
+            _lineBuffer.Clear();
+    }
+
     private void OnDataReceived(object sender, SerialDataReceivedEventArgs e)
     {
         var port = (SerialPort)sender;
