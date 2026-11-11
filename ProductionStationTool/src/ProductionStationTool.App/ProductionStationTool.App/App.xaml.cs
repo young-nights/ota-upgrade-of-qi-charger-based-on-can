@@ -12,6 +12,11 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // 登录窗是当前唯一窗口：默认 ShutdownMode=OnLastWindowClose 会在它关闭瞬间
+        // （点「登录」置 DialogResult）就判定应用退出，主窗来不及挂上——必须先改
+        // 显式关停，等主窗建立后再恢复 OnMainWindowClose。
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
         var login = new ModeLoginWindow();
         bool? ok;
         try
@@ -28,8 +33,20 @@ public partial class App : Application
             return;
         }
 
-        var win = new MainWindow(login.SelectedMode);
+        MainWindow win;
+        try
+        {
+            win = new MainWindow(login.SelectedMode);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"主窗口创建失败：{ex.Message}", "产线测试上位机",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown();
+            return;
+        }
         MainWindow = win;
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
         win.Show();
     }
 }
