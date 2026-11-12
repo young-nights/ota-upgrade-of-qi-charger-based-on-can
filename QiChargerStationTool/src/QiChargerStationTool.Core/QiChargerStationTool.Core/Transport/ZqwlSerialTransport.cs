@@ -19,6 +19,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
     private int _bufLen;
     private bool _disposed;
     private volatile bool _writeDead;
+    private bool _healing;   // 自愈重连中：防 ApplyBoxConfig 失败递归再入
 
     /// <summary>
     /// 调试日志：只报 CAN 数据帧。盒子心跳(5A FF/FE)、配置应答(49 3B) 一律不上报。
@@ -62,11 +63,15 @@ public sealed class ZqwlSerialTransport : ICanTransport
     /// 超时后必须杀口（2026-11-10 station_log_184741 教训）：被遗弃的
     /// 僵尸写任务仍阻塞在 SerialPort.Write 里并占着内部写锁，此后每次
     /// 写都会挂满看门狗再超时（日志实证首写卡死后全部写超时、永不自愈）——
-    /// 置 _writeDead + 后台 Close 杀掉僵尸写，后续快速失败；写路径
+    /// 置 _writeDead + Close 杀掉僵尸写，后续快速失败；写路径
     /// 串行化（_writeLock）杜绝并发 Write（SerialPort 并发写即卡死）。
     /// 写异常在 lambda 内就地消化（2026-11-10 第二次升级现场教训）：
     /// 让它以任务异常形态抛出会弹「The port is closed」调试中断/未观察
     /// 任务异常——错误统一在同步路径转成 InvalidOperationException。
+    /// 2026-11-12 自愈：杀口后尝试重开同一 COM 并重配盒子（设备仍枚举时
+    /// 无需拔插）——设备仍在总线（生命周期照播）而写通道挂起的场景
+    /// （IAP 升级后门禁写超时实证）不再把连接变「断开」；本帧不重写
+    /// （防半包+重发拼接污染盒子解析流），调用方按写失败重试即可。
     /// </summary>
     private void WriteBytes(byte[] buf)
     {
@@ -85,19 +90,61 @@ public sealed class ZqwlSerialTransport : ICanTransport
                 try { port.Write(buf, 0, buf.Length); }
                 catch (Exception ex) { writeEx = ex; }   // 就地消化，任务永不 fault
             });
-            if (!writeTask.Wait(5000))
-            {
-                _writeDead = true;
-                _ = Task.Run(() => { try { port.Close(); } catch { /* ignore */ } });
+            bool timedOut = !writeTask.Wait(5000);
+            if (!timedOut && writeEx is null)
+                return;
+
+            // 杀口打断僵尸写 → 自愈重连；重连失败才置死提示拔插
+            _writeDead = true;
+            try { port.Close(); } catch { /* ignore */ }
+            try { writeTask.Wait(1000); } catch { /* ignore */ }   // 等僵尸写退干净
+            string reason = timedOut
+                ? "串口写入超时（5s）：USB 盒子写通道挂起"
+                : "串口写入失败：" + writeEx!.Message;
+            if (TryReopenAndReconfigure())
                 throw new InvalidOperationException(
-                    "串口写入超时（5s）：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
-            }
-            if (writeEx is not null)
+                    $"{reason}。已自动重连盒子，请重试本次操作");
+            throw new InvalidOperationException(
+                $"{reason} 且自动重连失败：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
+        }
+    }
+
+    /// <summary>
+    /// 写挂起/失败后的自愈：关口（打断僵尸写）→ 重开同一 COM（设备仍枚举时
+    /// 无需拔插）→ 重下盒子配置（与 Open 同序列，幂等）→ 清收包残帧。
+    /// 成功返回 true（连接保持可用）；失败置 _writeDead 并关端口。
+    /// </summary>
+    private bool TryReopenAndReconfigure()
+    {
+        if (_healing || _disposed)
+            return false;
+        _healing = true;
+        try
+        {
+            var port = _port;
+            if (port is null)
+                return false;
+            if (!port.IsOpen)
+                port.Open();
+            _writeDead = false;
+            ApplyBoxConfig();
+            lock (_rxLock)
             {
-                // 端口被拔/被关/驱动报错：标死，别再排队写
-                _writeDead = true;
-                throw new InvalidOperationException("串口写入失败：" + writeEx.Message, writeEx);
+                _rxQueue.Clear();
+                _bufLen = 0;
             }
+            OnRawLog?.Invoke("[自愈] 写通道挂起已杀口并自动重连、重配盒子");
+            return true;
+        }
+        catch
+        {
+            _writeDead = true;
+            try { _port?.Close(); } catch { /* ignore */ }
+            return false;
+        }
+        finally
+        {
+            _healing = false;
         }
     }
 
@@ -146,35 +193,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
             OnRawLog?.Invoke($"[OPEN] {_portName} @ {_port.BaudRate}");
 
             // 与 zqwl_can_listen.py open_can0_250k() 同构，缺一步 CAN 就不会开
-            // 1) 读设备信息
-            WriteRaw(Cfg(0x40, 0x52), "read device info");
-            Thread.Sleep(200);
-            Drain(80);
-
-            // 2) 仲裁 250k / 数据 500k → 0x45，ch=0
-            WriteRaw(Cfg(0x42, 0x57, new byte[] { 0x00, 0x00, 0x45 }), "baud 250k/500k");
-            Thread.Sleep(50);
-
-            // 3) 滤波组0 扩展帧全收；组1 标准帧全收
-            WriteRaw(Cfg(0x43, 0x57, new byte[]
-            {
-                0x00, 0x00, 0x01, 0x01,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00,
-            }), "filter ext all");
-            Thread.Sleep(50);
-            WriteRaw(Cfg(0x43, 0x57, new byte[]
-            {
-                0x00, 0x01, 0x01, 0x00,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00,
-            }), "filter std all");
-            Thread.Sleep(50);
-
-            // 4) 打开 CAN0：不写 flash、不复位（0x44 的复位位会把 USB 打掉）
-            WriteRaw(Cfg(0x44, 0x57, new byte[] { 0x00, 0x00, 0x01, 0x00 }), "open CAN0");
-            Thread.Sleep(150);
-            Drain(80);
+            ApplyBoxConfig();
             OnRawLog?.Invoke("[OPEN] CAN0 250k ext ready");
             ok = true;
         }
@@ -183,6 +202,43 @@ public sealed class ZqwlSerialTransport : ICanTransport
             /* 打开失败也要归还定时器精度引用（成功路径由 Close 归还） */
             if (!ok) TimerResolution.Leave();
         }
+    }
+
+    /// <summary>
+    /// 下发盒子配置（与 zqwl_can_listen.py open_can0_250k() 同构，缺一步
+    /// CAN 就不会开；重下发幂等，Open 与写挂起自愈共用）。
+    /// </summary>
+    private void ApplyBoxConfig()
+    {
+        // 1) 读设备信息
+        WriteRaw(Cfg(0x40, 0x52), "read device info");
+        Thread.Sleep(200);
+        Drain(80);
+
+        // 2) 仲裁 250k / 数据 500k → 0x45，ch=0
+        WriteRaw(Cfg(0x42, 0x57, new byte[] { 0x00, 0x00, 0x45 }), "baud 250k/500k");
+        Thread.Sleep(50);
+
+        // 3) 滤波组0 扩展帧全收；组1 标准帧全收
+        WriteRaw(Cfg(0x43, 0x57, new byte[]
+        {
+            0x00, 0x00, 0x01, 0x01,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        }), "filter ext all");
+        Thread.Sleep(50);
+        WriteRaw(Cfg(0x43, 0x57, new byte[]
+        {
+            0x00, 0x01, 0x01, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        }), "filter std all");
+        Thread.Sleep(50);
+
+        // 4) 打开 CAN0：不写 flash、不复位（0x44 的复位位会把 USB 打掉）
+        WriteRaw(Cfg(0x44, 0x57, new byte[] { 0x00, 0x00, 0x01, 0x00 }), "open CAN0");
+        Thread.Sleep(150);
+        Drain(80);
     }
 
     public void Close()
