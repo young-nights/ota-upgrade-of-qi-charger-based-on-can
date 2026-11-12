@@ -62,7 +62,7 @@ int main(void)
   /* ---- Qi 芯片版本上电探测：PB2 上电 → 被动监听 → 缓存+持久化 → PB2 关 ---- */
   can_proto_qi_version_probe();
 
-  /* SIT1145 powers up in Normal; enters Standby after 30 s UDS idle.
+  /* SIT1145 powers up in Normal; enters Standby after CAN_LP_IDLE_TIMEOUT_MS UDS idle.
    * BOOTUP/OPERATIONAL after CAN online (first poll enter_normal). */
   lifecycle_init();
 
