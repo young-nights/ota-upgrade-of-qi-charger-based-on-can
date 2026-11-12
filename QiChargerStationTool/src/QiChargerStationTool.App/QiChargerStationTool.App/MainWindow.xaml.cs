@@ -1115,12 +1115,28 @@ public partial class MainWindow : Window
         _ = QiPollLoopAsync(_pollCts.Token);
     }
 
-    /// <summary>后台轮询：每 ~1s 读一次 Qi 全量状态并刷仪表盘（不打日志/操作记录）。</summary>
+    /// <summary>
+    /// 后台轮询：每 ~1s 读一次 Qi 全量状态并刷仪表盘（不打日志/操作记录）。
+    /// 三道防「断开」护栏（2026-11-12：盲写休眠/复位中的设备 → 无 ACK 堵死
+    /// 盒子发送队列 → 写看门狗 5s 杀口 =「时不时断开连接」的来源）：
+    /// ① 复位搬运宽限内不写总线；② 入睡临界窗（SLEEP 标记 +2.5s）内不写；
+    /// ③ 上轮无应答（设备可能已入睡）先发标准唤醒 burst（8 帧 02 3E 00
+    ///    @250ms，命中 WUF；探测请求 02 22…不匹配 WUF 唤不醒沉睡设备）再探测。
+    /// </summary>
     private async Task QiPollLoopAsync(CancellationToken ct)
     {
         int failStreak = 0;
         while (!ct.IsCancellationRequested)
         {
+            // ① 0x37 自复位搬运宽限：设备 CAN 离线期间写入无 ACK 堵盒子队列
+            long graceLeftMs = s_resetGraceUntilMs - Environment.TickCount64;
+            if (graceLeftMs > 0)
+            {
+                try { await Task.Delay((int)Math.Min(graceLeftMs, 1000), ct); }
+                catch (OperationCanceledException) { break; }
+                continue;
+            }
+
             // 与其它 UDS 操作互斥：占用中（如 OTA/写 SN）本轮直接跳过
             if (await _udsGate.WaitAsync(0, ct))
             {
@@ -1130,23 +1146,44 @@ public partial class MainWindow : Window
                     lock (_transportLock) { transport = _transport; }
                     if (transport is { IsOpen: true })
                     {
-                        var st = await Task.Run(() =>
+                        // ② 入睡临界窗避让（同 RunOpAsync）：标记后 2.5s 内不写
+                        long marker = transport.LastSleepMarkerTickMs;
+                        bool inSleepWindow = marker != 0 && Environment.TickCount64 - marker < 2500;
+
+                        // ③ 上轮无应答 → 先标准唤醒 burst 再探测（burst 250ms 间隔，
+                        //    无 ACK 也不至于堵死盒子队列；命中 WUF 即唤醒）
+                        if (!inSleepWindow && failStreak >= 1)
                         {
-                            var iso = new IsoTpClient(transport);
-                            var uds = new UdsClient(iso);
-                            return uds.ReadQiChipStatus(ct);
-                        }, ct);
-                        if (st is null)
-                        {
-                            // 无应答（设备不应答/调试中）：静默跳过，不打红字不中断轮询
-                            failStreak++;
-                            if (failStreak == 1 || failStreak % 10 == 0)
-                                await UiAsync(() => AppendLog($"[状态检测] 无应答（连续 {failStreak} 次），继续轮询"));
+                            var isoW = new IsoTpClient(transport);
+                            var udsW = new UdsClient(isoW);
+                            for (int w = 0; w < 8 && !ct.IsCancellationRequested; w++)
+                            {
+                                udsW.SendWake();
+                                await Task.Delay(250, ct);
+                            }
+                            await UiAsync(() => AppendLog("[状态检测] 上轮无应答，已发 8 帧唤醒 burst，本轮重新探测"));
                         }
-                        else
+
+                        if (!inSleepWindow)
                         {
-                            failStreak = 0;
-                            await UiAsync(() => UpdateQiPanel(st));
+                            var st = await Task.Run(() =>
+                            {
+                                var iso = new IsoTpClient(transport);
+                                var uds = new UdsClient(iso);
+                                return uds.ReadQiChipStatus(ct);
+                            }, ct);
+                            if (st is null)
+                            {
+                                // 无应答（设备不应答/调试中）：静默跳过，不打红字不中断轮询
+                                failStreak++;
+                                if (failStreak == 1 || failStreak % 10 == 0)
+                                    await UiAsync(() => AppendLog($"[状态检测] 无应答（连续 {failStreak} 次），继续轮询"));
+                            }
+                            else
+                            {
+                                failStreak = 0;
+                                await UiAsync(() => UpdateQiPanel(st));
+                            }
                         }
                     }
                 }
@@ -1163,7 +1200,8 @@ public partial class MainWindow : Window
                     _udsGate.Release();
                 }
             }
-            try { await Task.Delay(1000, ct); }
+            // 失败退避：无应答时放慢到 3s，减少打在死总线上的写压力
+            try { await Task.Delay(failStreak > 0 ? 3000 : 1000, ct); }
             catch (OperationCanceledException) { break; }
         }
     }
