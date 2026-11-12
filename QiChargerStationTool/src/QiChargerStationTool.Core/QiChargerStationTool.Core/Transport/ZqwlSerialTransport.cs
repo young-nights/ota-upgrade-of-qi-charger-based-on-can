@@ -21,6 +21,18 @@ public sealed class ZqwlSerialTransport : ICanTransport
     private volatile bool _writeDead;
     private bool _healing;   // 自愈重连中：防 ApplyBoxConfig 失败递归再入
 
+    // ── 队列积压根治（2026-11-12）：无 ACK 帧灌满盒子 TX 队列 →
+    //    SerialPort.Write 挂起 = 历次「杀口/断开」的根因 ──
+    private long _lastCanRxTickMs;   // 最近收到 CAN 数据帧时刻（总线活性：设备在发帧=在 ACK）
+    private long _lastSendTickMs;    // 最近发送时刻（静默限速用）
+    private int _abortStreak;        // 连续 purge 中止计数（达到上限才升级杀口）
+
+    private const int BusSilentAfterMs = 2000;    // 总线静默判定：无 CAN 回流超 2s
+    private const int SilentFrameGapMs = 250;     // 静默时最小帧间隔（同唤醒 burst 节奏）
+    private const int WriteStallAbortMs = 2000;   // 写阻塞达此值先 purge 中止（不杀口）
+    private const int WriteAbortStreakLimit = 3;  // 连续中止次数达此值才升级杀口+自愈
+    private const int WriteBackpressureMs = 300;  // 写耗时超此值视背压，冷却防队列打满
+
     /// <summary>
     /// 调试日志：只报 CAN 数据帧。盒子心跳(5A FF/FE)、配置应答(49 3B) 一律不上报。
     /// </summary>
@@ -73,6 +85,26 @@ public sealed class ZqwlSerialTransport : ICanTransport
     /// （IAP 升级后门禁写超时实证）不再把连接变「断开」；本帧不重写
     /// （防半包+重发拼接污染盒子解析流），调用方按写失败重试即可。
     /// </summary>
+    /// <summary>
+    /// 静默总线限速（队列积压根治）：总线静默（无 CAN 回流 = 设备离线/休眠，
+    /// 无 ACK）时强制 ≥250ms 帧间隔——快速连发的无 ACK 帧会灌满盒子 TX 队列，
+    /// 队列堵满后 SerialPort.Write 挂起（历次「杀口/断开」的根因）。唤醒 burst
+    /// 本就 250ms 节奏不受影响，盲发请求被自动降速；总线有回流（设备在发帧
+    /// = 在 ACK）时不限速，升级/传输全速。
+    /// </summary>
+    private void PaceIfBusSilent()
+    {
+        if (Environment.TickCount64 - Volatile.Read(ref _lastCanRxTickMs) <= BusSilentAfterMs)
+            return;
+        lock (_writeLock)
+        {
+            long wait = Volatile.Read(ref _lastSendTickMs) + SilentFrameGapMs - Environment.TickCount64;
+            if (wait > 0)
+                Thread.Sleep((int)(wait > SilentFrameGapMs ? SilentFrameGapMs : wait));
+            Volatile.Write(ref _lastSendTickMs, Environment.TickCount64);
+        }
+    }
+
     private void WriteBytes(byte[] buf)
     {
         if (_writeDead || _port is not { IsOpen: true })
@@ -85,27 +117,62 @@ public sealed class ZqwlSerialTransport : ICanTransport
                     $"ZQWL 盒子已失联（{_portName}）：请拔插 CAN 盒子后重新连接");
             var port = _port;
             Exception? writeEx = null;
+            long tWriteStart = Environment.TickCount64;
             var writeTask = Task.Run(() =>
             {
                 try { port.Write(buf, 0, buf.Length); }
                 catch (Exception ex) { writeEx = ex; }   // 就地消化，任务永不 fault
             });
-            bool timedOut = !writeTask.Wait(5000);
-            if (!timedOut && writeEx is null)
-                return;
 
-            // 杀口打断僵尸写 → 自愈重连；重连失败才置死提示拔插
+            // 写挂起根治（避免杀口）：阻塞 2s 先 purge 中止——PURGE_TXCLEAR
+            // 打断挂起的 WriteFile（僵尸写即刻退），端口/写锁保活
+            bool stalled = !writeTask.Wait(WriteStallAbortMs);
+            bool purged = false;
+            if (stalled)
+            {
+                purged = true;
+                try { port.DiscardOutBuffer(); } catch { /* ignore */ }
+                stalled = !writeTask.Wait(500);
+            }
+            if (!stalled && writeEx is null)
+            {
+                // 写完整成功：清中止计数；背压冷却（写耗时高=盒子消费不过来，
+                // 主动放慢后续写，防队列被打满）
+                _abortStreak = 0;
+                long took = Environment.TickCount64 - tWriteStart;
+                if (took > WriteBackpressureMs)
+                    Thread.Sleep((int)(took > 2000 ? 2000 : took));
+                Volatile.Write(ref _lastSendTickMs, Environment.TickCount64);
+                return;
+            }
+
+            _abortStreak++;
+            string busHint = Environment.TickCount64 - Volatile.Read(ref _lastCanRxTickMs) > BusSilentAfterMs
+                ? "总线静默（设备离线/休眠中）"
+                : "盒子队列积压/写通道卡顿";
+            string reason = stalled
+                ? $"串口写挂起（{Environment.TickCount64 - tWriteStart}ms，purge 无效）"
+                : purged
+                    ? $"串口写挂起已中止（{Environment.TickCount64 - tWriteStart}ms，purge 拦截）"
+                    : "串口写入失败：" + writeEx!.Message;
+
+            // 端口健在且未达升级阈值：不杀口——写通道保活，调用方重试即可
+            if (!stalled && _port is { IsOpen: true } && _abortStreak < WriteAbortStreakLimit)
+                throw new InvalidOperationException(
+                    $"{reason}（{busHint}）：请稍后重试本次操作");
+
+            // 升级：purge 拦不住的僵尸写 / 连续中止 3 次 / 端口已死 → 杀口+自愈
             _writeDead = true;
             try { port.Close(); } catch { /* ignore */ }
             try { writeTask.Wait(1000); } catch { /* ignore */ }   // 等僵尸写退干净
-            string reason = timedOut
-                ? "串口写入超时（5s）：USB 盒子写通道挂起"
-                : "串口写入失败：" + writeEx!.Message;
             if (TryReopenAndReconfigure())
+            {
+                _abortStreak = 0;
                 throw new InvalidOperationException(
-                    $"{reason}。已自动重连盒子，请重试本次操作");
+                    $"{reason}（{busHint}）：已自动重连盒子，请重试本次操作");
+            }
             throw new InvalidOperationException(
-                $"{reason} 且自动重连失败：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
+                $"{reason}（{busHint}）且自动重连失败：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
         }
     }
 
@@ -127,6 +194,8 @@ public sealed class ZqwlSerialTransport : ICanTransport
             if (!port.IsOpen)
                 port.Open();
             _writeDead = false;
+            _abortStreak = 0;
+            Volatile.Write(ref _lastCanRxTickMs, Environment.TickCount64);
             ApplyBoxConfig();
             lock (_rxLock)
             {
@@ -167,6 +236,9 @@ public sealed class ZqwlSerialTransport : ICanTransport
     {
         if (_port is null) throw new ObjectDisposedException(nameof(ZqwlSerialTransport));
         _writeDead = false;   // 重开（含拔插后新实例）恢复写通道
+        _abortStreak = 0;
+        // 新连接按总线活跃起算（未见 CAN 帧前不限速，避免开流配置被节流）
+        Volatile.Write(ref _lastCanRxTickMs, Environment.TickCount64);
         TimerResolution.Enter();   // 1ms 节拍：Thread.Sleep(1) 才是真 1ms，否则 15ms
         bool ok = false;
         try
@@ -251,6 +323,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
     {
         if (_port is not { IsOpen: true })
             throw new InvalidOperationException($"ZQWL port {_portName} not open");
+        PaceIfBusSilent();
 
         byte[] data = frame.Data.Length >= 8 ? frame.Data.AsSpan(0, 8).ToArray() : frame.Data;
         byte dlc = (byte)data.Length;
@@ -279,6 +352,14 @@ public sealed class ZqwlSerialTransport : ICanTransport
             throw new InvalidOperationException($"ZQWL port {_portName} not open");
         if (frames.Count == 0) return;
         if (frames.Count == 1) { Send(frames[0]); return; }
+        // 总线静默时拆单帧发送（每帧限速）：整批一次写入等于把一批无 ACK 帧
+        // 灌进盒子 TX 队列——队列积压挂起的直接来源
+        if (Environment.TickCount64 - Volatile.Read(ref _lastCanRxTickMs) > BusSilentAfterMs)
+        {
+            foreach (var f in frames)
+                Send(f);
+            return;
+        }
 
         var pkts = new byte[frames.Count][];
         int total = 0;
@@ -447,6 +528,9 @@ public sealed class ZqwlSerialTransport : ICanTransport
             var data = new byte[dlc];
             Buffer.BlockCopy(_buf, i + 7, data, 0, dlc);
             _rxQueue.Enqueue(new CanFrame(id, data));
+            // 总线活性：收到 CAN 帧 = 设备在发帧 = 其控制器在 ACK——
+            // 静默限速与写挂起诊断的依据
+            Volatile.Write(ref _lastCanRxTickMs, Environment.TickCount64);
             // 睡眠入口标记（SLEEP 生命周期 0x18FF260D[0]=04 / E0~E3 快照
             // 0x18FF270D[0]=E0..E3）：记录时刻供上层入睡临界窗避让
             if (data.Length > 0 &&
