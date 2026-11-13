@@ -1292,6 +1292,21 @@ public partial class MainWindow : Window
         // 充电次数（DID 0x210E，NVM 累计）
         TxtChargeCount.Text = st.ChargeCount is { } cc ? $"{cc} 次" : "— 次";
 
+        // 设备放置指示（状态字节 b0，独立显示，不抢占磁铁/充电状态）
+        switch (QiChipStatusCodec.DevicePlaced(st.StatusRaw))
+        {
+            case true:
+                BdPlacement.Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xF5, 0xE9));
+                TxtPlacement.Text = "设备放置: 已放置";
+                TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
+                break;
+            default:
+                BdPlacement.Background = new SolidColorBrush(Color.FromRgb(0xEC, 0xEF, 0xF1));
+                TxtPlacement.Text = st.StatusRaw is null ? "设备放置: —" : "设备放置: 未放置";
+                TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x78, 0x90, 0x9C));
+                break;
+        }
+
         // 摘要行
         var temp = st.PcbTempC is { } t ? $"{t}℃" : "—";
         var limit = st.PowerLimitName;
@@ -1302,10 +1317,10 @@ public partial class MainWindow : Window
         // 真充判定：原值证据（功率/电流 raw/触发位）经 ~2s 滑动去抖，
         // 空载功率小幅跳动不翻状态（用户要求不换算单位、直接用传回值采样）
         // 摘要行状态段 = 充电显示六态名（2026-11-12）：
-        // 失能→充满→磁铁不存在·ping/充电中/未充电→磁铁存在·未充电，
+        // 失能→充满→磁铁不存在·充电中/未充电→磁铁存在·未充电，
         // 后接 PCB/档位/充电次数，第二行仅保护位（判定不再重复出现）。
         bool chargingActive = _chargingFilter.Update(st.ChargingEvidence, Environment.TickCount64);
-        // 六态：优先取固件派生 DID 0x2117（单一真相源），老固件缺读时本地同规则派生
+        // 显示态：优先取固件派生 DID 0x2117（单一真相源），缺读时本地同规则派生
         byte displayState = st.DisplayState is { } b && b != 0x00
             ? b
             : QiChipStatusCodec.DeriveDisplayState(_chargeEnabled, st.ClampState, st.StatusRaw, chargingActive);
@@ -1315,18 +1330,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 刷新「磁铁 / 实际充电」大字显示（充电显示六态，2026-11-12 用户定义）：
-    /// ①磁铁不存在·ping ②磁铁不存在·充电中 ③磁铁不存在·未充电
-    /// ④磁铁存在·未充电 ⑤充电失能 ⑥电已充满。
+    /// 刷新「磁铁 / 实际充电」大字显示（充电显示态，2026-11-12 二订）：
+    /// 磁铁不存在·充电中 / 磁铁不存在·未充电 / 磁铁存在·未充电 /
+    /// 充电失能 / 电已充满。ping（设备放置）独立指示，不在此轮转。
     /// </summary>
     private void UpdateMagnetDisplay(byte displayState)
     {
         switch (displayState)
         {
-            case QiChipStatusCodec.DisplayPing:
-                TxtMagnetState.Text = "磁铁不存在·ping";
-                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x6A, 0x1B, 0x9A));
-                break;
             case QiChipStatusCodec.DisplayCharging:
                 TxtMagnetState.Text = "磁铁不存在·充电中";
                 TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
@@ -1363,6 +1374,9 @@ public partial class MainWindow : Window
         _chargingFilter.Reset();
         TxtMagnetState.Text = "充电失能";
         TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
+        BdPlacement.Background = new SolidColorBrush(Color.FromRgb(0xEC, 0xEF, 0xF1));
+        TxtPlacement.Text = "设备放置: —";
+        TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x78, 0x90, 0x9C));
         TxtQiSummary.Text = "充电失能 — Qi 状态面板已失效";
     }
 

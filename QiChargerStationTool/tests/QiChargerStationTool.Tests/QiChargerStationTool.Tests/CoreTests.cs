@@ -142,12 +142,12 @@ public class QiChipStatusTests
         Assert.Equal("需开qi检测",
             QiChipStatusCodec.ChargingVerdict(true, null, true));
 
-        // 状态字节位：b0=ping / b2=充满（上报数据第 5 字节）
-        Assert.Equal("磁铁不存在·ping",
+        // 状态字节位：b2=充满参与轮转；b0=ping（设备放置）独立、不抢占状态
+        Assert.Equal("磁铁不存在·未充电",
             QiChipStatusCodec.ChargingVerdict(true, 0x01, false, QiChipStatusCodec.QiStatusPing));
         Assert.Equal("电已充满",
             QiChipStatusCodec.ChargingVerdict(true, 0x01, false, QiChipStatusCodec.QiStatusFull));
-        // 优先级：充满>充电中；充满>磁铁存在；充电中>ping
+        // 优先级：充满>充电中；充满>磁铁存在
         Assert.Equal("电已充满",
             QiChipStatusCodec.ChargingVerdict(true, 0x01, true,
                 (byte)(QiChipStatusCodec.QiStatusFull | QiChipStatusCodec.QiStatusCharging)));
@@ -157,9 +157,14 @@ public class QiChipStatusTests
             QiChipStatusCodec.ChargingVerdict(true, 0x01, false,
                 (byte)(QiChipStatusCodec.QiStatusPing | QiChipStatusCodec.QiStatusCharging)));
 
+        // 设备放置独立指示（b0）：1=已放置 / 0=未放置 / null=未读到
+        Assert.True(QiChipStatusCodec.DevicePlaced(QiChipStatusCodec.QiStatusPing));
+        Assert.False(QiChipStatusCodec.DevicePlaced((byte)0x00));
+        Assert.Null(QiChipStatusCodec.DevicePlaced(null));
+
         // 派生常量闭环（与固件 DID 0x2117 编码一致）
-        Assert.Equal("磁铁不存在·ping", QiChipStatusCodec.DisplayStateName(QiChipStatusCodec.DisplayPing));
         Assert.Equal("电已充满", QiChipStatusCodec.DisplayStateName(QiChipStatusCodec.DisplayFull));
+        Assert.Equal("磁铁不存在·未充电", QiChipStatusCodec.DisplayStateName(QiChipStatusCodec.DisplayAbsentIdle));
         Assert.Equal(QiChipStatusCodec.DisplayDisabled,
             QiChipStatusCodec.DeriveDisplayState(false, 0x01, QiChipStatusCodec.QiStatusFull, true));
     }

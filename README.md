@@ -199,7 +199,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.83**（充电显示六态 DID 0x2117） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.84**（充电显示态 + ping 独立指示） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -209,6 +209,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-12 | **fix(can/tool): ping 独立显示——设备放置指示不抢占磁铁/充电状态（fw 1.1.84）**。用户二订：ping（状态字节 b0）= 设备放置标识（1=已放置/0=未放置），单独显示，不参与磁铁/充电状态轮转。固件：DID 0x2117 派生去掉 ping 分支（0x01 不再产出；放置指示由 0x2111 b0 直读），五态=失能→充满→磁铁存在→充电中→未充电。上位机：磁铁大字五态轮转（紫色 ping 态移除）；仪表卡新增「设备放置」指示灯（绿=已放置/灰=未放置，独立于状态大字）；`DevicePlaced()` 编解码 + `DeriveDisplayState` 同步去 ping 分支；色例/ToolTip 更新。单测 22/22。SW_VERSION_STR=1.1.84 |
 | 2026-11-12 | **feat(can/tool): 充电状态六态——固件派生 DID 0x2117 + QiChargerStationTool 六态显示（fw 1.1.83）**。用户定义（上报数据第 5 字节=状态字节，b0=ping/b1=充电中/b2=充满）：①磁铁不存在·ping ②磁铁不存在·充电中 ③磁铁不存在·未充电 ④磁铁存在·未充电（hall=0）⑤充电失能 ⑥电已充满。优先级：失能→充满→磁铁存在→充电中→ping→未充电（满电不被充电中遮蔽）。固件：`can_protocol.c/h` 新增 `DID_QI_DISPLAY_STATE 0x2119`（fill_did_payload 按 hall PA0 + `g_qi_charger_enable` + `g_qi_status_raw` 现场派生，单一真相源）。上位机（QiChargerStationTool）：读 0x2119 显示六态（紫/绿/橙/红/蓝/青），老固件缺读时 `QiChipStatusCodec.DeriveDisplayState` 本地同规则兜底；磁铁大字、摘要行状态段、色例统一为六态名；`ChargingVerdict` 改走六态派生（statusRaw 可选参数带入 b0/b2）。单测 22/22（新增 ping/full/优先级断言）。SW_VERSION_STR=1.1.83 |
 | 2026-11-12 | **fix(can): Qi 升级前清空 Qi 版本缓存——版本号冲突治理（fw 1.1.82）**。现象：Qi IAP 中途失败变砖后，MCU1 缓存仍报旧版本（如 1.2.3）——未断电读 RAM 缓存兜旧、断电后上电探测 Flash 兜底又回读旧版本，与变砖实态冲突。修复：每次 MCU2 升级开始（31 擦除入口 `g_mcu2_mode=1` 分支）先清空版本缓存——新增 `can_proto_qi_version_cache_clear()`（RAM：`g_qi_ver_major/minor/patch=0`、`g_qi_fw_version_valid=0`、刷新标志清零）+ `device_info_clear_qi_version()`（NVM 整块读-改-写：`qi_fw_version_valid` 置 0xFF「未获取」、版本 3B 清零，保留 SN/pubkey；已是未获取态不擦写）。此后版本查询回 NRC 0x22（上层显示未知/0.0.0）；升级成功后由既有 37 后刷新路径（`can_proto_qi_version_refresh_blocking`）重新采集并落盘。SW_VERSION_STR=1.1.82 |
 | 2026-11-12 | **docs(can): 清理休眠超时过时注释（fw 1.1.81）**。纯注释变更，无代码逻辑改动。5 处与现行 `CAN_LP_IDLE_TIMEOUT_MS`（=10s，仅 IAP 期间放宽 30s）矛盾的旧值注释统一改为引用宏：①`can_protocol.c` 4 处——g_can_awake 声明注释「idle 30 s → Sleep」、低功耗段头注释「30 s with no UDS RX/TX → SIT1145 Sleep」、UDS 收包路径「refreshes S3 … and the 6 min bus idle」（6 min 为旧总线空闲值）、充电门控注释「the normal 30s timeout applies unchanged」；②`mdk_user/Src/main.c` 1 处——「enters Standby after 30 s UDS idle」。SW_VERSION_STR=1.1.81 |

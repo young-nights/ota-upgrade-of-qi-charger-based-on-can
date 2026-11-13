@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.83";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.84";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -1687,14 +1687,15 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 1U;
       return 0;
     case DID_QI_DISPLAY_STATE:
-      /* 充电显示六态（派生，单一真相源）——用户定义（2026-11-12）：
-       *   0x01 磁铁不存在·ping（状态字节 b0，帧偏移 4 第 5 字节）
-       *   0x02 磁铁不存在·充电中（b1）
+      /* 充电显示态（派生，单一真相源）——用户定义（2026-11-12 二订）：
+       *   0x02 磁铁不存在·充电中（状态字节 b1）
        *   0x03 磁铁不存在·未充电
        *   0x04 磁铁存在·未充电（hall=0）
        *   0x05 充电失能
        *   0x06 电已充满（b2）
-       * 优先级：失能→充满→磁铁存在→充电中→ping→未充电（满电不被充电中遮蔽）。 */
+       * 优先级：失能→充满→磁铁存在→充电中→未充电（满电不被充电中遮蔽）。
+       * ping（状态字节 b0）= 设备放置标识（1=已放置/0=未放置），**独立显示**，
+       * 不参与本状态轮转（0x01 不再产出；放置指示由 0x2111 b0 直读）。 */
       {
         uint8_t hall = (gpio_input_data_bit_read(GPIOA, GPIO_PINS_0) != RESET) ? 0x01U : 0x00U;
         uint8_t s    = g_qi_status_raw;
@@ -1713,10 +1714,6 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
         else if ((s & QI_STATUS_CHARGING) != 0U)
         {
           out[0] = 0x02U;                      /* 磁铁不存在·充电中 */
-        }
-        else if ((s & QI_STATUS_PING) != 0U)
-        {
-          out[0] = 0x01U;                      /* 磁铁不存在·ping */
         }
         else
         {

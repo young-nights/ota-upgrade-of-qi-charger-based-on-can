@@ -18,7 +18,7 @@ public sealed class QiChipStatus
     // 充电 / 传感器
     public byte? ChargeState { get; init; }
 
-    /// <summary>充电显示六态（DID 0x2117，0x01~0x06）；null=未读到（上位机按 ClampState/StatusRaw 派生）。</summary>
+    /// <summary>充电显示态（DID 0x2117，0x02~0x06）；null=未读到（上位机按 ClampState/StatusRaw 派生）。</summary>
     public byte? DisplayState { get; init; }
     public ushort? OutputPowerMw { get; init; }
     public byte? InputVoltageRaw { get; init; }
@@ -84,11 +84,10 @@ public sealed class QiChipStatus
 /// <summary>Qi 状态 DID 编解码（纯函数，便于单测）。</summary>
 public static class QiChipStatusCodec
 {
-    // ---- 充电显示六态（DID 0x2117 派生，用户定义 2026-11-12）----
-    // ① 磁铁不存在·ping（状态字节 b0）② 磁铁不存在·充电中（b1）
-    // ③ 磁铁不存在·未充电 ④ 磁铁存在·未充电（hall=0）⑤ 充电失能
-    // ⑥ 电已充满（b2）。优先级：失能→充满→磁铁存在→充电中→ping→未充电。
-    public const byte DisplayPing = 0x01;
+    // ---- 充电显示态（DID 0x2117 派生，用户定义 2026-11-12 二订）----
+    // ② 磁铁不存在·充电中（b1）③ 磁铁不存在·未充电 ④ 磁铁存在·未充电（hall=0）
+    // ⑤ 充电失能 ⑥ 电已充满（b2）。优先级：失能→充满→磁铁存在→充电中→未充电。
+    // ping（b0=设备放置，1=已放置/0=未放置）**独立指示**，不参与本状态轮转。
     public const byte DisplayCharging = 0x02;
     public const byte DisplayAbsentIdle = 0x03;
     public const byte DisplayPresentIdle = 0x04;
@@ -97,7 +96,6 @@ public static class QiChipStatusCodec
 
     public static readonly IReadOnlyDictionary<byte, string> DisplayStates = new Dictionary<byte, string>
     {
-        [DisplayPing] = "磁铁不存在·ping",
         [DisplayCharging] = "磁铁不存在·充电中",
         [DisplayAbsentIdle] = "磁铁不存在·未充电",
         [DisplayPresentIdle] = "磁铁存在·未充电",
@@ -109,10 +107,15 @@ public static class QiChipStatusCodec
         => v == 0x00 ? "需开qi检测"
            : DisplayStates.TryGetValue(v, out var n) ? n : $"未知(0x{v:X2})";
 
+    /// <summary>设备放置指示（状态字节 b0，独立显示）：true=已放置 / false=未放置 / null=未读到。</summary>
+    public static bool? DevicePlaced(byte? statusRaw)
+        => statusRaw is { } s ? (s & QiStatusPing) != 0 : null;
+
     /// <summary>
-    /// 六态派生（上位机本地兜底，规则与固件 DID 0x2117 一致）：
-    /// 失能→充满→磁铁存在→充电中→ping→未充电。chargingActive 为真充
+    /// 显示态派生（上位机本地兜底，规则与固件 DID 0x2117 一致）：
+    /// 失能→充满→磁铁存在→充电中→未充电。chargingActive 为真充
     /// 证据（功率/电流/触发位 ~2s 去抖）或 b1 置位；clamp null=未读到。
+    /// ping 不参与（独立指示）。
     /// </summary>
     public static byte DeriveDisplayState(bool chargeEnabled, byte? clampState,
                                           byte? statusRaw, bool? chargingActive)
@@ -129,8 +132,6 @@ public static class QiChipStatusCodec
         /* clampState == 0x01：磁铁不存在 */
         if (chargingActive == true || (s & QiStatusCharging) != 0)
             return DisplayCharging;
-        if ((s & QiStatusPing) != 0)
-            return DisplayPing;
         return DisplayAbsentIdle;
     }
 
@@ -207,9 +208,9 @@ public static class QiChipStatusCodec
     }
 
     /// <summary>
-    /// 充电状态判定（摘要行状态段，2026-11-12 起 = 充电显示六态名）：
-    /// 失能→充满→磁铁存在→充电中→ping→未充电；clamp 未读到显示「需开qi检测」。
-    /// statusRaw 供 ping/full 位判定（旧调用省略则两态不可见）。
+    /// 充电状态判定（摘要行状态段，2026-11-12 起 = 充电显示态名）：
+    /// 失能→充满→磁铁存在→充电中→未充电；clamp 未读到显示「需开qi检测」。
+    /// statusRaw 供 full 位判定；ping（设备放置）独立指示不参与。
     /// </summary>
     public static string ChargingVerdict(bool chargeEnabled, byte? clampState,
                                          bool? chargingActive, byte? statusRaw = null)
