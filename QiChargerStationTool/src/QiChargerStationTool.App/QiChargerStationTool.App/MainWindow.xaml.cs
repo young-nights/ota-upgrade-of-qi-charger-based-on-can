@@ -1295,18 +1295,16 @@ public partial class MainWindow : Window
         // 充电次数（DID 0x210E，NVM 累计）
         TxtChargeCount.Text = st.ChargeCount is { } cc ? $"{cc} 次" : "— 次";
 
-        // 设备放置指示（状态字节 b0，独立显示，不抢占磁铁/充电状态）
+        // 设备放置指示（状态字节 b0，独立显示，与磁铁/实际充电同构大字）
         switch (QiChipStatusCodec.DevicePlaced(st.StatusRaw))
         {
             case true:
-                BdPlacement.Background = new SolidColorBrush(Color.FromRgb(0xE8, 0xF5, 0xE9));
-                TxtPlacement.Text = "设备放置: 已放置";
+                TxtPlacement.Text = "已放置";
                 TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
                 break;
             default:
-                BdPlacement.Background = new SolidColorBrush(Color.FromRgb(0xEC, 0xEF, 0xF1));
-                TxtPlacement.Text = st.StatusRaw is null ? "设备放置: —" : "设备放置: 未放置";
-                TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x78, 0x90, 0x9C));
+                TxtPlacement.Text = st.StatusRaw is null ? "—" : "未放置";
+                TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
                 break;
         }
 
@@ -1393,9 +1391,8 @@ public partial class MainWindow : Window
         _chargingFilter.Reset();
         TxtMagnetState.Text = "充电失能";
         TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
-        BdPlacement.Background = new SolidColorBrush(Color.FromRgb(0xEC, 0xEF, 0xF1));
-        TxtPlacement.Text = "设备放置: —";
-        TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x78, 0x90, 0x9C));
+        TxtPlacement.Text = "—";
+        TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
         TxtQiSummary.Text = "充电失能 — Qi 状态面板已失效";
     }
 

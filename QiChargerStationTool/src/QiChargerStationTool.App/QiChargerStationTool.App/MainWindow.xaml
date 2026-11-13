@@ -175,11 +175,11 @@
                            Foreground="#0D47A1" Margin="0,2,0,0"/>
               </StackPanel>
               <StackPanel Grid.Column="1">
-                <!-- 设备放置指示（状态字节 b0，独立显示，不抢占磁铁/充电状态） -->
-                <Border x:Name="BdPlacement" CornerRadius="10" Padding="10,3" Margin="0,0,0,6"
-                        HorizontalAlignment="Left" Background="#ECEFF1">
-                    <TextBlock x:Name="TxtPlacement" Text="设备放置: —" FontSize="11" Foreground="#78909C"/>
-                </Border>
+                <!-- 设备放置（状态字节 b0，独立显示，与磁铁/实际充电同构） -->
+                <TextBlock Text="设备放置" FontSize="11" Foreground="#5B7FA6"/>
+                <TextBlock x:Name="TxtPlacement" Text="—" FontSize="18" FontWeight="Bold"
+                           Foreground="#0D47A1" Margin="0,2,0,6"
+                           ToolTip="状态字节 b0（DID 0x2111）：1=设备已放置 / 0=未放置。独立指示，不参与磁铁/充电状态轮转"/>
                 <TextBlock Text="磁铁 / 实际充电" FontSize="11" Foreground="#5B7FA6"/>
                 <TextBlock x:Name="TxtMagnetState" Text="—" FontSize="18" FontWeight="Bold"
                            Foreground="#0D47A1" Margin="0,2,0,0"
