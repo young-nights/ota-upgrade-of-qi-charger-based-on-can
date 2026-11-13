@@ -1324,8 +1324,13 @@ public partial class MainWindow : Window
         // 显示态：优先取固件派生 DID 0x2117（单一真相源），缺读时本地同规则派生。
         // 抗闪（2026-11-12）：0x2117/0x2118 瞬态读失败不得清显示——沿用上次
         // 霍尔值/显示态，只有从未读到过有效数据才显示「需开qi检测」。
+        // 二修：固件值只认 0x02~0x06（现行五态）——旧固件 0x01（已废弃的 ping
+        // 旧态）会在**拿开负载后**出现（无线充进入 ping 检测模式置 b0，旧派生
+        // 吐 0x01），落进 default 会误显「需开qi检测」；0x00/0x01/null 一律
+        // 本地五态派生（ping 不参与轮转，按新语义归入「未充电」）。
         byte displayState;
-        if (st.DisplayState is { } b && b != 0x00)
+        if (st.DisplayState is { } b && b is >= QiChipStatusCodec.DisplayCharging
+                                       and <= QiChipStatusCodec.DisplayFull)
         {
             displayState = b;
         }
