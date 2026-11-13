@@ -45,10 +45,11 @@
                         <RowDefinition Height="Auto"/>
                         <!-- 结果/SN 与 A/B 线圈吃掉剩余空间（等比放大）；
                              异常项列表固定高，不随窗口变大 -->
-                        <RowDefinition Height="*" MinHeight="95"/>
-                        <RowDefinition Height="*" MinHeight="115"/>
+                        <RowDefinition Height="*" MinHeight="90"/>
+                        <RowDefinition Height="*" MinHeight="105"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="100"/>
+                        <!-- 异常项列表：压缩高度（64），空间让给上方四卡片 -->
+                        <RowDefinition Height="64"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
