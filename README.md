@@ -199,7 +199,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.81**（清理休眠超时过时注释） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.82**（Qi 升级前清版本缓存） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -209,6 +209,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-12 | **fix(can): Qi 升级前清空 Qi 版本缓存——版本号冲突治理（fw 1.1.82）**。现象：Qi IAP 中途失败变砖后，MCU1 缓存仍报旧版本（如 1.2.3）——未断电读 RAM 缓存兜旧、断电后上电探测 Flash 兜底又回读旧版本，与变砖实态冲突。修复：每次 MCU2 升级开始（31 擦除入口 `g_mcu2_mode=1` 分支）先清空版本缓存——新增 `can_proto_qi_version_cache_clear()`（RAM：`g_qi_ver_major/minor/patch=0`、`g_qi_fw_version_valid=0`、刷新标志清零）+ `device_info_clear_qi_version()`（NVM 整块读-改-写：`qi_fw_version_valid` 置 0xFF「未获取」、版本 3B 清零，保留 SN/pubkey；已是未获取态不擦写）。此后版本查询回 NRC 0x22（上层显示未知/0.0.0）；升级成功后由既有 37 后刷新路径（`can_proto_qi_version_refresh_blocking`）重新采集并落盘。SW_VERSION_STR=1.1.82 |
 | 2026-11-12 | **docs(can): 清理休眠超时过时注释（fw 1.1.81）**。纯注释变更，无代码逻辑改动。5 处与现行 `CAN_LP_IDLE_TIMEOUT_MS`（=10s，仅 IAP 期间放宽 30s）矛盾的旧值注释统一改为引用宏：①`can_protocol.c` 4 处——g_can_awake 声明注释「idle 30 s → Sleep」、低功耗段头注释「30 s with no UDS RX/TX → SIT1145 Sleep」、UDS 收包路径「refreshes S3 … and the 6 min bus idle」（6 min 为旧总线空闲值）、充电门控注释「the normal 30s timeout applies unchanged」；②`mdk_user/Src/main.c` 1 处——「enters Standby after 30 s UDS idle」。SW_VERSION_STR=1.1.81 |
 | 2026-11-10 | **fix(can): 入睡临界窗取消守卫 + 长操作/挂起应答禁睡（fw 1.1.80）**。现象：上位机在设备入睡瞬间（SLEEP 标记后 0~4s）发命令全无应答。根因三段：①go_sleep 的 MF 等待环收到并派发了请求也不取消入睡；②enter_sleep 的 E0~E3 online 窗帧入 FIFO 后无人 poll，commit 后随断电消失；③offline 配置段帧根本不入 FIFO。另：入睡路径 session_reset 清 g_tx_pend——滞留的 67 02 应答被销毁（27 02 实证）。修复：①g_lp_rx_seen 标志（rx_handler 置位）+ 三级取消守卫（go_sleep MF 环后浅取消 / enter_sleep 入口浅取消 / commit 前 RX 收割深取消），取消走 can_lp_abort_sleep 全链补洗（pins→Normal→清事件→CAN_CONTROL 回 init 0x41→online→mark_uds→OPERATIONAL 补播）；②睡眠判定加忙守卫（uds_mf_busy/g_tx_pend/g_uds_mf_pending/ota_dl_active 一律不睡）；③proto_send_pending（0x78）刷 g_uds_last_ms（长操作静默期续命）。SW_VERSION_STR=1.1.80 |
 | 2026-11-07 | **feat(prodtool): 工位机接入全自动——心跳上报 + 汇总机按 IP 自动登记 + 状态卡片**。去掉手动登记：①**接入通道**（新增 Core `Station/StationPresence.cs`）：`StationPresenceReporter` 工位机侧 15s 心跳 POST `/hello`（JSON 身份 code/stationNo/machineId → `http://{serverHost}:5000`，失败静默重试）；`StationPresenceListener` 汇总机侧 TcpListener 监听 5000（自实现极简 HTTP，免 HttpListener URL ACL），按**连接远端 IP** 抛 `MachineSeen(StationPresence)`；单测 3 例（上报身份+IP、心跳端到端、坏报文仍按 IP 记录）②**自动登记**：收到上报按编码覆盖更新 `station_access.json`（IP/最近接入时间自动记，`StationAccessEntry` 增 `LastSeen`），无需手动录入③**状态卡片**：检测到接入自动生成卡片（工位1·机位1 / 编码 / IP / **●在线绿·离线灰**（45s 无上报转离线）/ 最近接入 / 测试概况 PASS·FAIL·良率），卡片上可切换允许/禁止接入、移除记录（再接入自动重建），5s 定时刷新在线状态；工位机侧 MainWindow 启动心跳。注意：汇总机防火墙需放行 5000 端口，各工位机「设置→机位与网络」的服务器地址指向汇总机 IP。编译 0 错误、单测 25/25 |

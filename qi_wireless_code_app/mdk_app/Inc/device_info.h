@@ -43,6 +43,7 @@ int8_t device_info_write_sn(const uint8_t *sn32);
 int8_t device_info_write_pubkey(const uint8_t *pubkey65);
 int8_t device_info_read_qi_version(uint8_t *major, uint8_t *minor, uint8_t *patch);
 int8_t device_info_write_qi_version(uint8_t major, uint8_t minor, uint8_t patch);
+int8_t device_info_clear_qi_version(void);
 void   device_info_pad32(uint8_t *dst, const char *src);
 
 #ifdef __cplusplus

@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.81";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.82";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -1196,6 +1196,25 @@ void can_proto_qi_version_refresh(void)
   g_qi_fw_version_valid = 0U;
   g_qi_ver_q_state = 0U;
   g_qi_ver_refresh_pending = 1U;
+}
+
+/**
+ * @brief  Qi 升级前清空 Qi 版本缓存（RAM + NVM 兜底）
+ * @note   版本号冲突治理（2026-11-12）：升级失败 Qi 变砖时，若缓存不清，
+ *         未断电读回旧版本（如 1.2.3）、断电后 Flash 兜底又回读旧版本——
+ *         与变砖实态冲突。每次 MCU2 升级开始前调用：RAM 缓存清零/失效，
+ *         NVM（device_info）置「未获取」（0xFF），此后版本查询回 NRC 0x22
+ *         （上层显示 0.0.0/未知），升级成功后由 refresh 路径重新采集落盘。
+ */
+void can_proto_qi_version_cache_clear(void)
+{
+  g_qi_fw_version_valid     = 0U;
+  g_qi_ver_major            = 0U;
+  g_qi_ver_minor            = 0U;
+  g_qi_ver_patch            = 0U;
+  g_qi_ver_q_state          = 0U;
+  g_qi_ver_refresh_pending  = 0U;
+  (void)device_info_clear_qi_version();
 }
 
 /**

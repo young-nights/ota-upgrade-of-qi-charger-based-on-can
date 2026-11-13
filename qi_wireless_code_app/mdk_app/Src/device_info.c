@@ -256,3 +256,57 @@ int8_t device_info_write_qi_version(uint8_t major, uint8_t minor, uint8_t patch)
   flash_lock();
   return 0;
 }
+
+/**
+ * @brief  清除 NVM 里的 Qi 芯片固件版本缓存（置「未获取」态）
+ * @note   Qi 升级前调用（版本号冲突治理）：升级失败 Qi 变砖时，上电探测的
+ *         Flash 兜底不得回读出陈旧版本——valid 清 0xFF 后
+ *         device_info_read_qi_version 返回 -1，版本查询走 NRC 0x22 而非旧版本。
+ *         已是未获取态则不动 Flash（省擦写）；读-改-写整块保留 SN/pubkey 等。
+ */
+int8_t device_info_clear_qi_version(void)
+{
+  device_info_t info;
+  const uint32_t *src;
+  uint32_t words;
+  uint32_t i;
+  flash_status_type st;
+
+  if (device_info_read(&info) != 0)
+  {
+    /* 无有效 device_info：不创建全新块（会丢失 SN/pubkey 等） */
+    return -1;
+  }
+  if (info.qi_fw_version_valid != 0x01U)
+  {
+    return 0;   /* 已是未获取态，无需写 Flash */
+  }
+
+  info.qi_fw_ver_major     = 0U;
+  info.qi_fw_ver_minor     = 0U;
+  info.qi_fw_ver_patch     = 0U;
+  info.qi_fw_version_valid = 0xFFU;
+  info.crc32 = di_crc_struct(&info);
+
+  flash_unlock();
+  st = flash_sector_erase(DEVICE_INFO_ADDR);
+  if (st != FLASH_OPERATE_DONE)
+  {
+    flash_lock();
+    return -1;
+  }
+
+  src   = (const uint32_t *)&info;
+  words = sizeof(device_info_t) / 4U;
+  for (i = 0U; i < words; i++)
+  {
+    st = flash_word_program(DEVICE_INFO_ADDR + (i * 4U), src[i]);
+    if (st != FLASH_OPERATE_DONE)
+    {
+      flash_lock();
+      return -1;
+    }
+  }
+  flash_lock();
+  return 0;
+}

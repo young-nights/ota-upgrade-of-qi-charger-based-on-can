@@ -357,6 +357,10 @@ void ota_dl_handle_erase(uint8_t *data, uint16_t len)
     g_bytes_written = 0U;
     g_pad_len = 0U;
     g_block_seq = 0U;
+    /* Qi 升级前清空 Qi 版本缓存（RAM+NVM）：升级失败变砖时不得回读
+     * 陈旧版本（未断电 RAM 兜旧、断电 Flash 兜旧的版本号冲突治理）；
+     * 升级成功后由 37 后的版本刷新重新采集落盘。 */
+    can_proto_qi_version_cache_clear();
     /* MCU2 路径无 Flash 擦除，但上一轮 IAP 的 PB2 断电/版本刷新阻塞
      * 可能留下 CAN bus-off/错误态。offline→online 完整重初始化，
      * 确保后续 0x34 FirstFrame 的 FC 正常发出。 */
