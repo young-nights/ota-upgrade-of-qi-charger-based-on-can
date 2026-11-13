@@ -18,7 +18,7 @@ public sealed class QiChipStatus
     // 充电 / 传感器
     public byte? ChargeState { get; init; }
 
-    /// <summary>充电显示六态（DID 0x2119，0x01~0x06）；null=未读到（上位机按 ClampState/StatusRaw 派生）。</summary>
+    /// <summary>充电显示六态（DID 0x2117，0x01~0x06）；null=未读到（上位机按 ClampState/StatusRaw 派生）。</summary>
     public byte? DisplayState { get; init; }
     public ushort? OutputPowerMw { get; init; }
     public byte? InputVoltageRaw { get; init; }
@@ -84,7 +84,7 @@ public sealed class QiChipStatus
 /// <summary>Qi 状态 DID 编解码（纯函数，便于单测）。</summary>
 public static class QiChipStatusCodec
 {
-    // ---- 充电显示六态（DID 0x2119 派生，用户定义 2026-11-12）----
+    // ---- 充电显示六态（DID 0x2117 派生，用户定义 2026-11-12）----
     // ① 磁铁不存在·ping（状态字节 b0）② 磁铁不存在·充电中（b1）
     // ③ 磁铁不存在·未充电 ④ 磁铁存在·未充电（hall=0）⑤ 充电失能
     // ⑥ 电已充满（b2）。优先级：失能→充满→磁铁存在→充电中→ping→未充电。
@@ -110,7 +110,7 @@ public static class QiChipStatusCodec
            : DisplayStates.TryGetValue(v, out var n) ? n : $"未知(0x{v:X2})";
 
     /// <summary>
-    /// 六态派生（上位机本地兜底，规则与固件 DID 0x2119 一致）：
+    /// 六态派生（上位机本地兜底，规则与固件 DID 0x2117 一致）：
     /// 失能→充满→磁铁存在→充电中→ping→未充电。chargingActive 为真充
     /// 证据（功率/电流/触发位 ~2s 去抖）或 b1 置位；clamp null=未读到。
     /// </summary>

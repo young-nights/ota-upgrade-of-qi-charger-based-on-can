@@ -157,7 +157,7 @@ public class QiChipStatusTests
             QiChipStatusCodec.ChargingVerdict(true, 0x01, false,
                 (byte)(QiChipStatusCodec.QiStatusPing | QiChipStatusCodec.QiStatusCharging)));
 
-        // 派生常量闭环（与固件 DID 0x2119 编码一致）
+        // 派生常量闭环（与固件 DID 0x2117 编码一致）
         Assert.Equal("磁铁不存在·ping", QiChipStatusCodec.DisplayStateName(QiChipStatusCodec.DisplayPing));
         Assert.Equal("电已充满", QiChipStatusCodec.DisplayStateName(QiChipStatusCodec.DisplayFull));
         Assert.Equal(QiChipStatusCodec.DisplayDisabled,

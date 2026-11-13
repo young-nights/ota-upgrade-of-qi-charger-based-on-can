@@ -1305,7 +1305,7 @@ public partial class MainWindow : Window
         // 失能→充满→磁铁不存在·ping/充电中/未充电→磁铁存在·未充电，
         // 后接 PCB/档位/充电次数，第二行仅保护位（判定不再重复出现）。
         bool chargingActive = _chargingFilter.Update(st.ChargingEvidence, Environment.TickCount64);
-        // 六态：优先取固件派生 DID 0x2119（单一真相源），老固件缺读时本地同规则派生
+        // 六态：优先取固件派生 DID 0x2117（单一真相源），老固件缺读时本地同规则派生
         byte displayState = st.DisplayState is { } b && b != 0x00
             ? b
             : QiChipStatusCodec.DeriveDisplayState(_chargeEnabled, st.ClampState, st.StatusRaw, chargingActive);

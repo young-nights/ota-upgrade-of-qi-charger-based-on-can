@@ -31,7 +31,7 @@ public static class ProtoIds
     public const ushort DidFwType = 0x2010;
     public const ushort DidChargerEnable = 0x2101;   // u8 0/1, write-only（掉电续充 NVM）
     public const ushort DidClampState = 0x2118;      // u8 PA0 霍尔：0x00=磁铁/手机在位, 0x01=不在位
-    public const ushort DidQiDisplayState = 0x2119;  // u8 充电显示六态：1=磁铁不存在·ping 2=…充电中 3=…未充电 4=磁铁存在·未充电 5=充电失能 6=电已充满
+    public const ushort DidQiDisplayState = 0x2117;  // u8 充电显示六态：1=磁铁不存在·ping 2=…充电中 3=…未充电 4=磁铁存在·未充电 5=充电失能 6=电已充满
     public const ushort DidLpStatus = 0x2119;
 
     // ---- Qi chip (see qi_wireless_code_app can_protocol.h / zcanpro_qi_*.py) ----
