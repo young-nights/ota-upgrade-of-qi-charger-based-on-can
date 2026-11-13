@@ -50,12 +50,12 @@
                         <RowDefinition Height="*" MinHeight="105"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <!-- 异常项列表：压缩高度（64），空间让给上方四卡片 -->
-                        <RowDefinition Height="64"/>
+                        <!-- 异常项列表：压缩高度（36），空间让给上方四卡片 -->
+                        <RowDefinition Height="36"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
-                               Margin="0,0,0,8"/>
+                               Margin="0,0,0,4"/>
 
                     <!-- 结果大字 + SN 码 并排 -->
                     <Grid Grid.Row="1" Margin="0,0,0,12">
@@ -97,11 +97,11 @@
                     <TextBlock Grid.Row="3"
                                Text="检测参数（A/B 阈值、窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
                                FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                               Margin="0,0,0,8"/>
+                               Margin="0,0,0,4"/>
 
                     <!-- 异常项 -->
                     <TextBlock Grid.Row="4" Text="异常项" Style="{StaticResource SectionTitle}"
-                               Margin="0,0,0,8"/>
+                               Margin="0,0,0,4"/>
                     <ListBox x:Name="ListAbnormal" Grid.Row="5" FontSize="14"
                              Background="{StaticResource FieldBgBrush}"
                              BorderBrush="{StaticResource CardBorderBrush}"/>

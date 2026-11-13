@@ -48,12 +48,12 @@
                         <RowDefinition Height="*" MinHeight="90"/>
                         <RowDefinition Height="*" MinHeight="105"/>
                         <RowDefinition Height="Auto"/>
-                        <!-- 异常项列表：压缩高度（64），空间让给上方四卡片 -->
-                        <RowDefinition Height="64"/>
+                        <!-- 异常项列表：压缩高度（36），空间让给上方四卡片 -->
+                        <RowDefinition Height="36"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
-                               Margin="0,0,0,8"/>
+                               Margin="0,0,0,4"/>
 
                     <!-- 结果大字 + SN 码 + 数据库关联 并排 -->
                     <Grid Grid.Row="1" Margin="0,0,0,10">
@@ -104,7 +104,7 @@
 
                     <!-- 异常项 -->
                     <TextBlock Grid.Row="3" Text="异常项" Style="{StaticResource SectionTitle}"
-                               Margin="0,0,0,8"/>
+                               Margin="0,0,0,4"/>
                     <ListBox x:Name="ListAbnormal" Grid.Row="4" FontSize="14"
                              Background="{StaticResource FieldBgBrush}"
                              BorderBrush="{StaticResource CardBorderBrush}"/>
