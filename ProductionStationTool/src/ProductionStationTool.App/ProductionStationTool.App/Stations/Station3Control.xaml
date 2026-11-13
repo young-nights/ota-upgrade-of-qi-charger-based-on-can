@@ -55,11 +55,9 @@
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,4"/>
 
-                    <!-- 结果大字 + SN 码 + 数据库关联 并排 -->
-                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                    <!-- 结果大字 + SN 码 并排（SN 占半幅，长码显示完整） -->
+                    <Grid Grid.Row="1" Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
@@ -80,6 +78,19 @@
                                            Foreground="{StaticResource TextPrimaryBrush}"/>
                             </StackPanel>
                         </Border>
+                    </Grid>
+
+                    <!-- 线圈 A/B + 数据库关联 一行（数据库关联移出 SN 行，SN 不再被挤） -->
+                    <Grid Grid.Row="2" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <controls:CoilJudgeCard x:Name="CardCoilA" Grid.Column="0" Title="线圈 A"/>
+                        <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Column="2" Title="线圈 B"/>
                         <Border Grid.Column="4" Background="{StaticResource FieldBgBrush}"
                                 CornerRadius="8" Padding="14">
                             <StackPanel VerticalAlignment="Center">
@@ -89,17 +100,6 @@
                                            Foreground="{StaticResource TextPrimaryBrush}"/>
                             </StackPanel>
                         </Border>
-                    </Grid>
-
-                    <!-- 线圈 A/B 判定：两个组件并排，绿=通过 / 红=未通过 / 灰=未测 -->
-                    <Grid Grid.Row="2" Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <controls:CoilJudgeCard x:Name="CardCoilA" Grid.Column="0" Title="线圈 A"/>
-                        <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Column="2" Title="线圈 B"/>
                     </Grid>
 
                     <!-- 异常项 -->
