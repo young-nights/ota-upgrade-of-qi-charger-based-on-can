@@ -102,7 +102,6 @@ public partial class MainWindow : Window
         if (_currentPage is null)
             return;
         BtnStart.IsEnabled = !_isRunning && _currentPage.CanStartTest;
-        BtnNext.IsEnabled = !_isRunning && _currentPage.CanGoNext;
     }
 
     private async void BtnStart_Click(object sender, RoutedEventArgs e)
@@ -131,16 +130,6 @@ public partial class MainWindow : Window
             _isRunning = false;
             UpdateButtons();
         }
-    }
-
-    private void BtnNext_Click(object sender, RoutedEventArgs e)
-    {
-        var page = _currentPage;
-        if (page is null || _isRunning || !page.CanGoNext)
-            return;
-        page.ResetForNext();
-        UpdateButtons();
-        TxtStatus.Text = $"{page.Title}：已切换下一台，串口保持连接，等待开始测试";
     }
 
     // ---- 顶部横幅菜单 ----

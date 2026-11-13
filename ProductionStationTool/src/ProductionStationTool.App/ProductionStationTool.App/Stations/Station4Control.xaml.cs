@@ -34,13 +34,11 @@ public partial class Station4Control : UserControl, IStationPage
     private CanUdsDevice? _can;
     private bool _connected;
     private bool _running;
-    private bool _flowCompleted;
 
     public int StationNo => 4;
     public string Title => "工位4 — 出货门禁 + 版本比对";
 
     public bool CanStartTest => _connected && !_running;
-    public bool CanGoNext => _flowCompleted && !_running;
 
     public event Action? AvailabilityChanged;
 
@@ -108,12 +106,8 @@ public partial class Station4Control : UserControl, IStationPage
 
         _running = true;
         RaiseAvailability();
-        FlowPanel.Reset();
-        ListAbnormal.Items.Clear();
-        TxtSn.Text = "—";
-        TxtPrint.Text = "—";
-        ResetVersionCards();
-        ResetGateCards();
+        // 「下一个」并入「开始测试」：开测即复位上一台显示
+        ResetForNext();
         _log.Append("开始工位 4 出货流程");
 
         // ① 连接设备：唤醒 + 等 UDS 就绪
@@ -151,7 +145,6 @@ public partial class Station4Control : UserControl, IStationPage
             SetResultBadge(false);
             _log.Append("步骤 3：门禁未通过——存在 Fail 或未测工位，停止后续流程（不打印、不比对）");
             _running = false;
-            _flowCompleted = true;
             RaiseAvailability();
             return;
         }
@@ -170,7 +163,6 @@ public partial class Station4Control : UserControl, IStationPage
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             SetResultBadge(false);
             _running = false;
-            _flowCompleted = true;
             RaiseAvailability();
             return;
         }
@@ -200,7 +192,6 @@ public partial class Station4Control : UserControl, IStationPage
         _log.Append(versionOk ? "门禁+打印+版本比对全部通过，PASS"
                              : $"存在 {ListAbnormal.Items.Count} 项异常，FAIL");
         _running = false;
-        _flowCompleted = true;
         RaiseAvailability();
     }
 
@@ -214,7 +205,6 @@ public partial class Station4Control : UserControl, IStationPage
         SetResultBadge(false);
         _log.Append(reason);
         _running = false;
-        _flowCompleted = true;
         RaiseAvailability();
     }
 
@@ -308,7 +298,6 @@ public partial class Station4Control : UserControl, IStationPage
     /// <summary>切换下一台：数据展示/流程/日志复位，串口连接保持。</summary>
     public void ResetForNext()
     {
-        _flowCompleted = false;
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
         TxtSn.Text = "—";
@@ -319,7 +308,6 @@ public partial class Station4Control : UserControl, IStationPage
         TxtResult.Foreground = MutedBrush;
         BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
         _log.Clear();
-        _log.Append("已切换下一台，串口保持连接，等待开始测试");
         RaiseAvailability();
     }
 

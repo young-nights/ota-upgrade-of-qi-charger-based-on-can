@@ -44,11 +44,13 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <!-- 结果/SN 与 A/B 线圈吃掉剩余空间（等比放大）；
+                             异常项列表固定高，不随窗口变大 -->
+                        <RowDefinition Height="*" MinHeight="95"/>
+                        <RowDefinition Height="*" MinHeight="115"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="100"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"

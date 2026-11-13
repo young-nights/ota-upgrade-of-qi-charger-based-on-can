@@ -51,8 +51,8 @@ public partial class Station2Control : UserControl, IStationPage
 
     public async Task StartAsync(CancellationToken ct = default)
     {
-        FlowPanel.Reset();
-        ListDetails.Items.Clear();
+        // 「下一个」并入「开始测试」：开测即复位上一台显示
+        ResetForNext();
         _log.Append($"开始带载老化（{AgingMinutes} 分钟）");
 
         SetBadge("老化中", WarningBrush, Color.FromRgb(0xFE, 0xF3, 0xC7));
@@ -97,7 +97,6 @@ public partial class Station2Control : UserControl, IStationPage
         TxtRemaining.Text = $"{AgingMinutes:00}:00";
         SetBadge("待老化", MutedBrush, Color.FromRgb(0xF1, 0xF5, 0xF9));
         _log.Clear();
-        _log.Append("已切换下一台，串口保持连接，等待开始测试");
     }
 
     private void SetBadge(string text, Brush fg, Color bg)

@@ -38,17 +38,12 @@ public partial class Station1Control : UserControl, IStationPage
     /// <summary>测试流程正在执行。</summary>
     private bool _running;
 
-    /// <summary>本台产品已完整跑通一次流程（PASS/FAIL 均算跑通）。</summary>
-    private bool _flowCompleted;
 
     public int StationNo => 1;
     public string Title => "工位1 — SN + 电流电压";
 
     /// <summary>串口未接入时禁止开始测试。</summary>
     public bool CanStartTest => _connected && !_running;
-
-    /// <summary>未跑完或正在跑时禁止「下一个」；完整跑通后允许。</summary>
-    public bool CanGoNext => _flowCompleted && !_running;
 
     public event Action? AvailabilityChanged;
 
@@ -151,9 +146,8 @@ public partial class Station1Control : UserControl, IStationPage
         _running = true;
         RaiseAvailability();
 
-        FlowPanel.Reset();
-        ListAbnormal.Items.Clear();
-        ShowCoilJudgement(null);
+        // 「下一个」并入「开始测试」：开测即复位上一台显示，连续测试免手点
+        ResetForNext();
         _log.Append("开始工位 1 测试流程");
 
         // ① 连接设备：先唤醒 + 等 UDS 就绪（设备空闲 10s 会真休眠/整板断电，
@@ -169,7 +163,6 @@ public partial class Station1Control : UserControl, IStationPage
             SetResultBadge(false);
             _log.Append("设备 8s 内无应答——请检查供电后重试");
             _running = false;
-            _flowCompleted = true;
             RaiseAvailability();
             return;
         }
@@ -337,14 +330,12 @@ public partial class Station1Control : UserControl, IStationPage
             : $"存在 {ListAbnormal.Items.Count} 项异常，FAIL");
 
         _running = false;
-        _flowCompleted = true;  // 完整跑通一次（PASS/FAIL 均算），允许点「下一个」
         RaiseAvailability();
     }
 
     /// <summary>切换下一台：数据展示区/流程/日志复位，串口连接保持。</summary>
     public void ResetForNext()
     {
-        _flowCompleted = false;
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
         TxtSn.Text = "—";
@@ -353,7 +344,6 @@ public partial class Station1Control : UserControl, IStationPage
         TxtResult.Foreground = MutedBrush;
         BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));
         _log.Clear();
-        _log.Append("已切换下一台，串口保持连接，等待开始测试");
         RaiseAvailability();
     }
 
