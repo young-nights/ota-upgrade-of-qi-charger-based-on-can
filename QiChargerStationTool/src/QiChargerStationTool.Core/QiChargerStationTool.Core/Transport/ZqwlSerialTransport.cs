@@ -85,8 +85,10 @@ public sealed class ZqwlSerialTransport : ICanTransport
     /// 任务异常——错误统一在同步路径转成 InvalidOperationException。
     /// 2026-11-12 自愈：杀口后尝试重开同一 COM 并重配盒子（设备仍枚举时
     /// 无需拔插）——设备仍在总线（生命周期照播）而写通道挂起的场景
-    /// （IAP 升级后门禁写超时实证）不再把连接变「断开」；本帧不重写
-    /// （防半包+重发拼接污染盒子解析流），调用方按写失败重试即可。
+    /// （IAP 升级后门禁写超时实证）不再把连接变「断开」。
+    /// 三修：实测 purge（PURGE_TXCLEAR）拦不断挂起写（驱动层写方向单向
+    /// 卡死），自愈成功后直接重发本帧、操作继续——UDS 重发幂等
+    /// （2E/10/27 无害，36 有 BSC 去重），盒子按 5A…A5 重新同步。
     /// </summary>
     /// <summary>
     /// 静默/拥塞限速（队列积压根治）：① 总线静默（无 CAN 回流 = 设备离线/休眠，
@@ -177,15 +179,30 @@ public sealed class ZqwlSerialTransport : ICanTransport
                 throw new InvalidOperationException(
                     $"{reason}（{busHint}）：请稍后重试本次操作");
 
-            // 升级：purge 拦不住的僵尸写 / 连续中止 3 次 / 端口已死 → 杀口+自愈
+            // 升级：purge 拦不住的僵尸写 / 连续中止 3 次 / 端口已死 → 杀口+自愈。
+            // 2026-11-12 三修：实测 purge 无效（驱动层写方向单向卡死：RX 照常、
+            // TX 挂起、关-开句柄即愈，非盒子队列积压）——自愈成功后**直接重发
+            // 本帧、操作继续**，把中断变透明毛刺：挂起写从未到达盒子则重发
+            // 无感；若首帧已过半，盒子按 5A…A5 重新同步，设备侧 UDS 重发幂等
+            // （2E/10/27 无害，36 有 BSC 去重）。
             _writeDead = true;
             try { port.Close(); } catch { /* ignore */ }
             try { writeTask.Wait(1000); } catch { /* ignore */ }   // 等僵尸写退干净
             if (TryReopenAndReconfigure())
             {
                 _abortStreak = 0;
-                throw new InvalidOperationException(
-                    $"{reason}（{busHint}）：已自动重连盒子，请重试本次操作");
+                try
+                {
+                    port.Write(buf, 0, buf.Length);   // 重发本帧（新通道，ApplyBoxConfig 已证明可写）
+                    Volatile.Write(ref _lastSendTickMs, Environment.TickCount64);
+                    OnRawLog?.Invoke("[自愈] 写挂起已杀口重连并重发本帧，操作继续");
+                    return;
+                }
+                catch (Exception rex)
+                {
+                    throw new InvalidOperationException(
+                        $"{reason}（{busHint}）：已自动重连但重发失败（{rex.Message}），请重试本次操作");
+                }
             }
             throw new InvalidOperationException(
                 $"{reason}（{busHint}）且自动重连失败：USB 盒子无响应。请拔插 CAN 盒子后重新连接");
