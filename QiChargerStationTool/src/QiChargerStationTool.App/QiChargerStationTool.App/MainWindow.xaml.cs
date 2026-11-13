@@ -21,6 +21,9 @@ public partial class MainWindow : Window
     private bool _chargeEnabled = false;
     /// <summary>真充判定滑动去抖（~2s）：空载功率小幅跳动不判充电中。</summary>
     private readonly DebounceFilter _chargingFilter = new(2000);
+    /// <summary>上次有效霍尔值/显示态（抗瞬态读失败闪跳：读空沿用旧值）。</summary>
+    private byte? _lastClampState;
+    private byte _lastDisplayState;
     /// <summary>0x37 后设备自复位搬运窗（Tick64 截止点）：期间设备 CAN 离线，
     /// 写入无 ACK 会堵死盒子发送队列→写看门狗超时杀口（第二次升级必败）。
     /// WaitUdsReadyAsync 入口等完剩余宽限再探测。static：所有操作共用一个设备。</summary>
@@ -1320,10 +1323,26 @@ public partial class MainWindow : Window
         // 失能→充满→磁铁不存在·充电中/未充电→磁铁存在·未充电，
         // 后接 PCB/档位/充电次数，第二行仅保护位（判定不再重复出现）。
         bool chargingActive = _chargingFilter.Update(st.ChargingEvidence, Environment.TickCount64);
-        // 显示态：优先取固件派生 DID 0x2117（单一真相源），缺读时本地同规则派生
-        byte displayState = st.DisplayState is { } b && b != 0x00
-            ? b
-            : QiChipStatusCodec.DeriveDisplayState(_chargeEnabled, st.ClampState, st.StatusRaw, chargingActive);
+        // 显示态：优先取固件派生 DID 0x2117（单一真相源），缺读时本地同规则派生。
+        // 抗闪（2026-11-12）：0x2117/0x2118 瞬态读失败不得清显示——沿用上次
+        // 霍尔值/显示态，只有从未读到过有效数据才显示「需开qi检测」。
+        byte displayState;
+        if (st.DisplayState is { } b && b != 0x00)
+        {
+            displayState = b;
+        }
+        else
+        {
+            if (st.ClampState is { } cs)
+                _lastClampState = cs;
+            byte derived = QiChipStatusCodec.DeriveDisplayState(
+                _chargeEnabled, st.ClampState ?? _lastClampState, st.StatusRaw, chargingActive);
+            if (derived == 0x00 && _lastDisplayState != 0x00)
+                derived = _lastDisplayState;   // 双读瞬态失败：沿用上次显示
+            displayState = derived;
+        }
+        if (displayState != 0x00)
+            _lastDisplayState = displayState;
         TxtQiSummary.Text = $"{QiChipStatusCodec.DisplayStateName(displayState)}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
                             protText;
         UpdateMagnetDisplay(displayState);
