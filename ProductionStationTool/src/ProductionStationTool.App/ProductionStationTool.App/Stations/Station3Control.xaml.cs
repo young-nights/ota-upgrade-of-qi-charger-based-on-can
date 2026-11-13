@@ -157,11 +157,14 @@ public partial class Station3Control : UserControl, IStationPage
             return;
         }
         TxtSn.Text = sn;
-        var history = _store.FindAllBySn(sn);
+        // 数据库关联只判工位 1/2（本工位 3 自身记录不判，2026-11-12 用户规定）
+        var history = _store.FindAllBySn(sn)
+            .Where(r => r.StationNo is 1 or 2)
+            .ToList();
         TxtDbLink.Text = history.Count == 0
-            ? "无历史记录（首次入库）"
+            ? "工位1/2 无历史记录（首次入库）"
             : string.Join(" · ", history.Select(r => $"工位{r.StationNo} {r.Result}"));
-        _log.Append($"步骤 2：SN={sn}，数据库关联 {history.Count} 条记录" +
+        _log.Append($"步骤 2：SN={sn}，数据库关联（工位1/2）{history.Count} 条记录" +
                     (history.Count > 0 ? $"（{TxtDbLink.Text}）" : ""));
         FlowPanel.Mark(1, StepStatus.Passed);
 
