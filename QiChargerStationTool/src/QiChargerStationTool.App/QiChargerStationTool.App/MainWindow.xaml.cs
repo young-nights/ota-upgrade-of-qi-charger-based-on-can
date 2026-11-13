@@ -1301,39 +1301,51 @@ public partial class MainWindow : Window
         var countText = st.ChargeCount is { } c2 ? $"{c2} 次" : "—";
         // 真充判定：原值证据（功率/电流 raw/触发位）经 ~2s 滑动去抖，
         // 空载功率小幅跳动不翻状态（用户要求不换算单位、直接用传回值采样）
-        // 摘要行（2026-11-10 用户定格式）：状态段=「充电使能·磁铁不存在·未充电」
-        // 三段式判定（原「充电状态: 充电中(CHARGING)」Qi 芯片状态名弃用），
+        // 摘要行状态段 = 充电显示六态名（2026-11-12）：
+        // 失能→充满→磁铁不存在·ping/充电中/未充电→磁铁存在·未充电，
         // 后接 PCB/档位/充电次数，第二行仅保护位（判定不再重复出现）。
         bool chargingActive = _chargingFilter.Update(st.ChargingEvidence, Environment.TickCount64);
-        TxtQiSummary.Text = $"{st.ChargingVerdict(_chargeEnabled, chargingActive)}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
+        // 六态：优先取固件派生 DID 0x2119（单一真相源），老固件缺读时本地同规则派生
+        byte displayState = st.DisplayState is { } b && b != 0x00
+            ? b
+            : QiChipStatusCodec.DeriveDisplayState(_chargeEnabled, st.ClampState, st.StatusRaw, chargingActive);
+        TxtQiSummary.Text = $"{QiChipStatusCodec.DisplayStateName(displayState)}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
                             protText;
-        UpdateMagnetDisplay(st.ClampState, chargingActive);
+        UpdateMagnetDisplay(displayState);
     }
 
     /// <summary>
-    /// 刷新「磁铁 / 实际充电」大字显示（实测极性 + 真充证据）：
-    /// 0x00=磁铁存在·未充电（红）；0x01=磁铁不存在时按功率/触发位证据
-    /// 分「充电中」（绿）与「未充电」（橙）。
+    /// 刷新「磁铁 / 实际充电」大字显示（充电显示六态，2026-11-12 用户定义）：
+    /// ①磁铁不存在·ping ②磁铁不存在·充电中 ③磁铁不存在·未充电
+    /// ④磁铁存在·未充电 ⑤充电失能 ⑥电已充满。
     /// </summary>
-    private void UpdateMagnetDisplay(byte? clampState, bool? chargingActive)
+    private void UpdateMagnetDisplay(byte displayState)
     {
-        switch (clampState)
+        switch (displayState)
         {
-            case 0x00:
+            case QiChipStatusCodec.DisplayPing:
+                TxtMagnetState.Text = "磁铁不存在·ping";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x6A, 0x1B, 0x9A));
+                break;
+            case QiChipStatusCodec.DisplayCharging:
+                TxtMagnetState.Text = "磁铁不存在·充电中";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
+                break;
+            case QiChipStatusCodec.DisplayAbsentIdle:
+                TxtMagnetState.Text = "磁铁不存在·未充电";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xEF, 0x6C, 0x00));
+                break;
+            case QiChipStatusCodec.DisplayPresentIdle:
                 TxtMagnetState.Text = "磁铁存在·未充电";
                 TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28));
                 break;
-            case 0x01:
-                if (chargingActive == true)
-                {
-                    TxtMagnetState.Text = "磁铁不存在·充电中";
-                    TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
-                }
-                else
-                {
-                    TxtMagnetState.Text = "磁铁不存在·未充电";
-                    TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0xEF, 0x6C, 0x00));
-                }
+            case QiChipStatusCodec.DisplayDisabled:
+                TxtMagnetState.Text = "充电失能";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
+                break;
+            case QiChipStatusCodec.DisplayFull:
+                TxtMagnetState.Text = "电已充满";
+                TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x00, 0x83, 0x8F));
                 break;
             default:
                 TxtMagnetState.Text = "充电使能·需开qi检测";

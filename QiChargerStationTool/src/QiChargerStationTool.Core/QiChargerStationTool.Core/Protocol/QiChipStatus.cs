@@ -17,6 +17,9 @@ public sealed class QiChipStatus
 
     // 充电 / 传感器
     public byte? ChargeState { get; init; }
+
+    /// <summary>充电显示六态（DID 0x2119，0x01~0x06）；null=未读到（上位机按 ClampState/StatusRaw 派生）。</summary>
+    public byte? DisplayState { get; init; }
     public ushort? OutputPowerMw { get; init; }
     public byte? InputVoltageRaw { get; init; }
     public byte? InputCurrentRaw { get; init; }
@@ -47,7 +50,7 @@ public sealed class QiChipStatus
     public bool ChargingEvidence => QiChipStatusCodec.ChargingEvidenceFrom(OutputPowerMw, InputCurrentRaw, Status2Raw);
     /// <summary>充电状态判定（chargingActive 由调用方经 2s 滑动去抖后传入）。</summary>
     public string ChargingVerdict(bool chargeEnabled, bool? chargingActive)
-        => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState, chargingActive);
+        => QiChipStatusCodec.ChargingVerdict(chargeEnabled, ClampState, chargingActive, StatusRaw);
     /// <summary>激活的保护位名列表（如 [OVP, FOD]）；StatusRaw 读取失败返回 null。</summary>
     public IReadOnlyList<string>? ActiveProtections
         => StatusRaw is { } raw ? QiChipStatusCodec.ActiveProtectionNames(raw) : null;
@@ -81,6 +84,56 @@ public sealed class QiChipStatus
 /// <summary>Qi 状态 DID 编解码（纯函数，便于单测）。</summary>
 public static class QiChipStatusCodec
 {
+    // ---- 充电显示六态（DID 0x2119 派生，用户定义 2026-11-12）----
+    // ① 磁铁不存在·ping（状态字节 b0）② 磁铁不存在·充电中（b1）
+    // ③ 磁铁不存在·未充电 ④ 磁铁存在·未充电（hall=0）⑤ 充电失能
+    // ⑥ 电已充满（b2）。优先级：失能→充满→磁铁存在→充电中→ping→未充电。
+    public const byte DisplayPing = 0x01;
+    public const byte DisplayCharging = 0x02;
+    public const byte DisplayAbsentIdle = 0x03;
+    public const byte DisplayPresentIdle = 0x04;
+    public const byte DisplayDisabled = 0x05;
+    public const byte DisplayFull = 0x06;
+
+    public static readonly IReadOnlyDictionary<byte, string> DisplayStates = new Dictionary<byte, string>
+    {
+        [DisplayPing] = "磁铁不存在·ping",
+        [DisplayCharging] = "磁铁不存在·充电中",
+        [DisplayAbsentIdle] = "磁铁不存在·未充电",
+        [DisplayPresentIdle] = "磁铁存在·未充电",
+        [DisplayDisabled] = "充电失能",
+        [DisplayFull] = "电已充满",
+    };
+
+    public static string DisplayStateName(byte v)
+        => v == 0x00 ? "需开qi检测"
+           : DisplayStates.TryGetValue(v, out var n) ? n : $"未知(0x{v:X2})";
+
+    /// <summary>
+    /// 六态派生（上位机本地兜底，规则与固件 DID 0x2119 一致）：
+    /// 失能→充满→磁铁存在→充电中→ping→未充电。chargingActive 为真充
+    /// 证据（功率/电流/触发位 ~2s 去抖）或 b1 置位；clamp null=未读到。
+    /// </summary>
+    public static byte DeriveDisplayState(bool chargeEnabled, byte? clampState,
+                                          byte? statusRaw, bool? chargingActive)
+    {
+        if (!chargeEnabled)
+            return DisplayDisabled;
+        byte s = statusRaw ?? 0;
+        if ((s & QiStatusFull) != 0)
+            return DisplayFull;
+        if (clampState is null)
+            return 0x00;
+        if (clampState == 0x00)
+            return DisplayPresentIdle;
+        /* clampState == 0x01：磁铁不存在 */
+        if (chargingActive == true || (s & QiStatusCharging) != 0)
+            return DisplayCharging;
+        if ((s & QiStatusPing) != 0)
+            return DisplayPing;
+        return DisplayAbsentIdle;
+    }
+
     // ---- DID 0x2111 Qi 状态字节保护位（qi_protocol.h QI_STATUS_*）----
     /// <summary>b3: 1=过压保护。</summary>
     public const byte QiStatusOvp = 1 << 3;
@@ -154,21 +207,15 @@ public static class QiChipStatusCodec
     }
 
     /// <summary>
-    /// 充电状态判定（摘要行格式，2026-11-10 用户定）：「充电使能·磁铁存在·未充电」
-    /// 这类「使能·磁铁·充电」三段式；未使能=充电失能。磁铁大字（UpdateMagnetDisplay）
-    /// 仍用无前缀短句，此处仅服务灰色摘要行。
+    /// 充电状态判定（摘要行状态段，2026-11-12 起 = 充电显示六态名）：
+    /// 失能→充满→磁铁存在→充电中→ping→未充电；clamp 未读到显示「需开qi检测」。
+    /// statusRaw 供 ping/full 位判定（旧调用省略则两态不可见）。
     /// </summary>
-    public static string ChargingVerdict(bool chargeEnabled, byte? clampState, bool? chargingActive)
+    public static string ChargingVerdict(bool chargeEnabled, byte? clampState,
+                                         bool? chargingActive, byte? statusRaw = null)
     {
-        if (!chargeEnabled)
-            return "充电失能";
-        return clampState switch
-        {
-            0x00 => "充电使能·磁铁存在·未充电",
-            0x01 => chargingActive == true ? "充电使能·磁铁不存在·充电中" : "充电使能·磁铁不存在·未充电",
-            null => "充电使能·需开qi检测",
-            _ => $"充电使能·需开qi检测(0x{clampState:X2})",
-        };
+        return DisplayStateName(
+            DeriveDisplayState(chargeEnabled, clampState, statusRaw, chargingActive));
     }
     public static readonly IReadOnlyDictionary<byte, string> IapStates = new Dictionary<byte, string>
     {

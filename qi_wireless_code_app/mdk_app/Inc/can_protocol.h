@@ -148,6 +148,7 @@ extern "C" {
 #define DID_LAST_FAULT_DETAIL       0x2110U   /*!< last fault detail, 4B */
 #define DID_QI_STATUS_RAW           0x2111U   /*!< Qi status byte 保护位: b0=PING b1=CHARGING b2=FULL b3=OVP b4=UVP b5=OCP b6=OTP b7=FOD */
 #define DID_CLAMP_STATE             0x2118U   /*!< PA0 hall: 0=closed, 1=open */
+#define DID_QI_DISPLAY_STATE        0x2119U   /*!< 充电显示六态（读，1B）：0x01=磁铁不存在·ping（状态字节 b0）/ 0x02=磁铁不存在·充电中（b1）/ 0x03=磁铁不存在·未充电 / 0x04=磁铁存在·未充电（hall=0）/ 0x05=充电失能 / 0x06=电已充满（b2）。优先级：失能→充满→磁铁存在→充电中→ping→未充电 */
 #define DID_SIT1145_LP_STATUS       0x2119U   /*!< SIT1145 LP: flags, wup_cnt, last_sleep_sec */
 #define DID_SIT1145_LP_WIPE_DIAG    0x211AU   /*!< SIT1145 LP round-2 wipe diagnostics: ev24/ev63/stat/attempts (4B, SF) */
 #define DID_ECDSA_PUBKEY            0x2120U   /*!< ECDSA P-256 public key, 65-byte SEC1 */

@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.82";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.83";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -1686,6 +1686,45 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       out[0] = (gpio_input_data_bit_read(GPIOA, GPIO_PINS_0) != RESET) ? 0x01U : 0x00U;
       *olen = 1U;
       return 0;
+    case DID_QI_DISPLAY_STATE:
+      /* 充电显示六态（派生，单一真相源）——用户定义（2026-11-12）：
+       *   0x01 磁铁不存在·ping（状态字节 b0，帧偏移 4 第 5 字节）
+       *   0x02 磁铁不存在·充电中（b1）
+       *   0x03 磁铁不存在·未充电
+       *   0x04 磁铁存在·未充电（hall=0）
+       *   0x05 充电失能
+       *   0x06 电已充满（b2）
+       * 优先级：失能→充满→磁铁存在→充电中→ping→未充电（满电不被充电中遮蔽）。 */
+      {
+        uint8_t hall = (gpio_input_data_bit_read(GPIOA, GPIO_PINS_0) != RESET) ? 0x01U : 0x00U;
+        uint8_t s    = g_qi_status_raw;
+        if (g_qi_charger_enable == 0U)
+        {
+          out[0] = 0x05U;                      /* 充电失能 */
+        }
+        else if ((s & QI_STATUS_FULL) != 0U)
+        {
+          out[0] = 0x06U;                      /* 电已充满 */
+        }
+        else if (hall == 0x00U)
+        {
+          out[0] = 0x04U;                      /* 磁铁存在·未充电 */
+        }
+        else if ((s & QI_STATUS_CHARGING) != 0U)
+        {
+          out[0] = 0x02U;                      /* 磁铁不存在·充电中 */
+        }
+        else if ((s & QI_STATUS_PING) != 0U)
+        {
+          out[0] = 0x01U;                      /* 磁铁不存在·ping */
+        }
+        else
+        {
+          out[0] = 0x03U;                      /* 磁铁不存在·未充电 */
+        }
+        *olen = 1U;
+        return 0;
+      }
     case DID_SIT1145_LP_STATUS:
       /* [0] bit0=ever_sleep bit1=last_wake_was_wup bit2=sleep_fail(sticky)
        *     bit3=rx_drop(sticky，CAN RX 丢帧，can_driver_rx_dropped)

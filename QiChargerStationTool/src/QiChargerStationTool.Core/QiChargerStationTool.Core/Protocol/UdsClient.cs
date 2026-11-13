@@ -396,6 +396,7 @@ public sealed class UdsClient
             IapSent = sent,
             IapTotal = total,
             ChargeState = TryU8(ProtoIds.DidChargeState),
+            DisplayState = TryU8(ProtoIds.DidQiDisplayState),
             OutputPowerMw = TryU16(ProtoIds.DidOutputPower),
             InputVoltageRaw = vRaw,
             InputCurrentRaw = iRaw,

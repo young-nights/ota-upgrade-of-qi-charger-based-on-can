@@ -178,11 +178,11 @@
                 <TextBlock Text="磁铁 / 实际充电" FontSize="11" Foreground="#5B7FA6"/>
                 <TextBlock x:Name="TxtMagnetState" Text="—" FontSize="18" FontWeight="Bold"
                            Foreground="#0D47A1" Margin="0,2,0,0"
-                           ToolTip="PA0 霍尔（DID 0x2118，实测极性）：0x00=磁铁存在·未充电，0x01=磁铁不存在·充电中&#x0a;绿=磁铁不存在·充电中（功率>0 或触发位=1）&#x0a;橙=磁铁不存在·未充电（无充电证据）&#x0a;红=磁铁存在·未充电&#x0a;蓝=充电失能"/>
+                           ToolTip="充电显示六态（DID 0x2119，状态字节 b0=ping/b1=充电中/b2=充满；PA0 霍尔 0x00=磁铁存在）&#x0a;①紫=磁铁不存在·ping　②绿=磁铁不存在·充电中&#x0a;③橙=磁铁不存在·未充电　④红=磁铁存在·未充电&#x0a;⑤蓝=充电失能　⑥青=电已充满"/>
               </StackPanel>
             </Grid>
             <TextBlock FontSize="10" Foreground="#78909C" Margin="0,6,0,0" TextWrapping="Wrap"
-                       Text="绿=磁铁不存在·充电中；橙=磁铁不存在·未充电；红=磁铁存在·未充电；蓝=充电失能"/>
+                       Text="①紫=磁铁不存在·ping；②绿=磁铁不存在·充电中；③橙=磁铁不存在·未充电；④红=磁铁存在·未充电；⑤蓝=充电失能；⑥青=电已充满"/>
           </StackPanel>
         </Border>
         <TextBlock Text="保护位" FontWeight="Bold" Foreground="#333" Margin="0,0,0,4"/>
