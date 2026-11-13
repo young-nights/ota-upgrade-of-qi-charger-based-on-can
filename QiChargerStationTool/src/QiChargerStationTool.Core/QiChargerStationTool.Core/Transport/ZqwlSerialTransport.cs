@@ -25,13 +25,16 @@ public sealed class ZqwlSerialTransport : ICanTransport
     //    SerialPort.Write 挂起 = 历次「杀口/断开」的根因 ──
     private long _lastCanRxTickMs;   // 最近收到 CAN 数据帧时刻（总线活性：设备在发帧=在 ACK）
     private long _lastSendTickMs;    // 最近发送时刻（静默限速用）
+    private long _congestedUntilMs;  // 拥塞退避截止：写挂起/慢写后一段时间内限速发送
     private int _abortStreak;        // 连续 purge 中止计数（达到上限才升级杀口）
 
-    private const int BusSilentAfterMs = 2000;    // 总线静默判定：无 CAN 回流超 2s
-    private const int SilentFrameGapMs = 250;     // 静默时最小帧间隔（同唤醒 burst 节奏）
-    private const int WriteStallAbortMs = 2000;   // 写阻塞达此值先 purge 中止（不杀口）
-    private const int WriteAbortStreakLimit = 3;  // 连续中止次数达此值才升级杀口+自愈
+    private const int BusSilentAfterMs = 800;     // 总线静默判定：无 CAN 回流超 0.8s
+    private const int SilentFrameGapMs = 250;     // 静默/拥塞时最小帧间隔（同唤醒 burst 节奏）
+    private const int WriteStallAbortMs = 2000;   // 写阻塞达此值进入静默排水阶段
+    private const int WriteDrainMs = 8000;        // 静默排水：停止灌入、等盒子队列自然排空
+    private const int WriteAbortStreakLimit = 3;  // 连续 purge 中止次数达此值才升级杀口+自愈
     private const int WriteBackpressureMs = 300;  // 写耗时超此值视背压，冷却防队列打满
+    private const int CongestedPaceMs = 3000;     // 写挂起/慢写后的拥塞退避时长
 
     /// <summary>
     /// 调试日志：只报 CAN 数据帧。盒子心跳(5A FF/FE)、配置应答(49 3B) 一律不上报。
@@ -86,15 +89,17 @@ public sealed class ZqwlSerialTransport : ICanTransport
     /// （防半包+重发拼接污染盒子解析流），调用方按写失败重试即可。
     /// </summary>
     /// <summary>
-    /// 静默总线限速（队列积压根治）：总线静默（无 CAN 回流 = 设备离线/休眠，
-    /// 无 ACK）时强制 ≥250ms 帧间隔——快速连发的无 ACK 帧会灌满盒子 TX 队列，
-    /// 队列堵满后 SerialPort.Write 挂起（历次「杀口/断开」的根因）。唤醒 burst
-    /// 本就 250ms 节奏不受影响，盲发请求被自动降速；总线有回流（设备在发帧
-    /// = 在 ACK）时不限速，升级/传输全速。
+    /// 静默/拥塞限速（队列积压根治）：① 总线静默（无 CAN 回流 = 设备离线/休眠，
+    /// 无 ACK）时强制 ≥250ms 帧间隔——快速连发的无 ACK 帧会灌满盒子 TX 队列；
+    /// ② 拥塞退避（最近写挂起/慢写后 3s 内）同样限速——停止灌入让积压排空，
+    /// 无论总线活性。唤醒 burst 本就 250ms 节奏不受影响；正常传输不限速。
     /// </summary>
-    private void PaceIfBusSilent()
+    private void PaceIfNeeded()
     {
-        if (Environment.TickCount64 - Volatile.Read(ref _lastCanRxTickMs) <= BusSilentAfterMs)
+        long now = Environment.TickCount64;
+        bool silent = now - Volatile.Read(ref _lastCanRxTickMs) > BusSilentAfterMs;
+        bool congested = now < Volatile.Read(ref _congestedUntilMs);
+        if (!silent && !congested)
             return;
         lock (_writeLock)
         {
@@ -124,10 +129,17 @@ public sealed class ZqwlSerialTransport : ICanTransport
                 catch (Exception ex) { writeEx = ex; }   // 就地消化，任务永不 fault
             });
 
-            // 写挂起根治（避免杀口）：阻塞 2s 先 purge 中止——PURGE_TXCLEAR
-            // 打断挂起的 WriteFile（僵尸写即刻退），端口/写锁保活
+            // 写挂起三级处置（2026-11-12 二修）：purge 在本 USB 驱动上拦不断
+            // 挂起写（用户实测杀口复发）——首选「静默排水」：停止灌入、等盒子
+            // 队列自然排空（无 ACK 帧经 CAN 错误重试终结后出队），僵尸写自然
+            // 返回、端口无恙；排不动才 purge 中止；仍不行才杀口+自愈（最后手段）。
             bool stalled = !writeTask.Wait(WriteStallAbortMs);
             bool purged = false;
+            if (stalled)
+            {
+                Volatile.Write(ref _congestedUntilMs, Environment.TickCount64 + CongestedPaceMs);
+                stalled = !writeTask.Wait(WriteDrainMs);   // 静默排水：不 purge、不杀口
+            }
             if (stalled)
             {
                 purged = true;
@@ -136,17 +148,21 @@ public sealed class ZqwlSerialTransport : ICanTransport
             }
             if (!stalled && writeEx is null)
             {
-                // 写完整成功：清中止计数；背压冷却（写耗时高=盒子消费不过来，
-                // 主动放慢后续写，防队列被打满）
+                // 写最终完整成功（含排水后自然完成）：清中止计数；慢写视背压
+                // 冷却 + 拥塞退避，后续发送自动放慢防再积压
                 _abortStreak = 0;
                 long took = Environment.TickCount64 - tWriteStart;
                 if (took > WriteBackpressureMs)
+                {
+                    Volatile.Write(ref _congestedUntilMs, Environment.TickCount64 + CongestedPaceMs);
                     Thread.Sleep((int)(took > 2000 ? 2000 : took));
+                }
                 Volatile.Write(ref _lastSendTickMs, Environment.TickCount64);
                 return;
             }
 
             _abortStreak++;
+            Volatile.Write(ref _congestedUntilMs, Environment.TickCount64 + CongestedPaceMs);
             string busHint = Environment.TickCount64 - Volatile.Read(ref _lastCanRxTickMs) > BusSilentAfterMs
                 ? "总线静默（设备离线/休眠中）"
                 : "盒子队列积压/写通道卡顿";
@@ -196,6 +212,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
             _writeDead = false;
             _abortStreak = 0;
             Volatile.Write(ref _lastCanRxTickMs, Environment.TickCount64);
+            Volatile.Write(ref _congestedUntilMs, 0);
             ApplyBoxConfig();
             lock (_rxLock)
             {
@@ -239,6 +256,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
         _abortStreak = 0;
         // 新连接按总线活跃起算（未见 CAN 帧前不限速，避免开流配置被节流）
         Volatile.Write(ref _lastCanRxTickMs, Environment.TickCount64);
+        Volatile.Write(ref _congestedUntilMs, 0);
         TimerResolution.Enter();   // 1ms 节拍：Thread.Sleep(1) 才是真 1ms，否则 15ms
         bool ok = false;
         try
@@ -323,7 +341,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
     {
         if (_port is not { IsOpen: true })
             throw new InvalidOperationException($"ZQWL port {_portName} not open");
-        PaceIfBusSilent();
+        PaceIfNeeded();
 
         byte[] data = frame.Data.Length >= 8 ? frame.Data.AsSpan(0, 8).ToArray() : frame.Data;
         byte dlc = (byte)data.Length;
@@ -352,9 +370,10 @@ public sealed class ZqwlSerialTransport : ICanTransport
             throw new InvalidOperationException($"ZQWL port {_portName} not open");
         if (frames.Count == 0) return;
         if (frames.Count == 1) { Send(frames[0]); return; }
-        // 总线静默时拆单帧发送（每帧限速）：整批一次写入等于把一批无 ACK 帧
-        // 灌进盒子 TX 队列——队列积压挂起的直接来源
-        if (Environment.TickCount64 - Volatile.Read(ref _lastCanRxTickMs) > BusSilentAfterMs)
+        // 总线静默/拥塞退避时拆单帧发送（每帧限速）：整批一次写入等于把一批
+        // 无 ACK 帧灌进盒子 TX 队列——队列积压挂起的直接来源
+        if (Environment.TickCount64 - Volatile.Read(ref _lastCanRxTickMs) > BusSilentAfterMs ||
+            Environment.TickCount64 < Volatile.Read(ref _congestedUntilMs))
         {
             foreach (var f in frames)
                 Send(f);
