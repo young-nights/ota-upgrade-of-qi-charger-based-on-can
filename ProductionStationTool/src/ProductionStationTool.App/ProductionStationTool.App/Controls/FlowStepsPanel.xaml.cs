@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
@@ -19,8 +20,11 @@ public sealed class StepVm : INotifyPropertyChanged
     private string _statusText = "等待";
     private Brush _statusBrush = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8));
 
-    public int Index { get; init; }
+    public string Index { get; init; } = "";
     public string Name { get; init; } = "";
+
+    /// <summary>步骤名缩进（子步如 5.1/5.2 缩进显示）。</summary>
+    public Thickness NameMargin { get; init; } = new(8, 0, 8, 0);
 
     public string StatusText
     {
@@ -53,12 +57,30 @@ public partial class FlowStepsPanel : UserControl
         StepsList.ItemsSource = Steps;
     }
 
-    /// <summary>按名称重建步骤列表（全部回到「等待」）。</summary>
+    /// <summary>按名称重建步骤列表（自动序号 1..N，全部回到「等待」）。</summary>
     public void SetSteps(params string[] names)
     {
         Steps.Clear();
         for (var i = 0; i < names.Length; i++)
-            Steps.Add(new StepVm { Index = i + 1, Name = names[i] });
+            Steps.Add(new StepVm { Index = (i + 1).ToString(), Name = names[i] });
+    }
+
+    /// <summary>
+    /// 带自定义序号的步骤列表（支持 5.1/5.2 子步：序号含 '.' 自动缩进）。
+    /// </summary>
+    public void SetSteps(params (string Index, string Name)[] steps)
+    {
+        Steps.Clear();
+        foreach (var (idx, name) in steps)
+        {
+            bool sub = idx.Contains('.');
+            Steps.Add(new StepVm
+            {
+                Index = idx,
+                Name = name,
+                NameMargin = sub ? new Thickness(20, 0, 8, 0) : new Thickness(8, 0, 8, 0),
+            });
+        }
     }
 
     /// <summary>

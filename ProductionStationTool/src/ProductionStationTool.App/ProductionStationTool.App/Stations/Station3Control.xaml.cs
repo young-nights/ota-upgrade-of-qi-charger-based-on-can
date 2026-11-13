@@ -48,11 +48,13 @@ public partial class Station3Control : UserControl, IStationPage
         _identity = identity;
         _log.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
         FlowPanel.SetSteps(
-            "连接设备（串口/CAN 自动检测）",
-            "读取 SN 并关联数据库",
-            "开启无线充电",
-            "PowerZ：A 线圈 + B 线圈检测",
-            "停充并入库");
+            ("1", "连接设备（串口/CAN 自动检测）"),
+            ("2", "读取 SN 并关联数据库"),
+            ("3", "开启无线充电"),
+            ("4", "PowerZ：A 线圈 + B 线圈检测"),
+            ("4.1", "A 线圈状态检测"),
+            ("4.2", "B 线圈状态检测"),
+            ("5", "停充并入库"));
 
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
@@ -132,8 +134,6 @@ public partial class Station3Control : UserControl, IStationPage
         ShowCoilJudgement(null);
         TxtSn.Text = "—";
         TxtDbLink.Text = "—";
-        TxtVoltage.Text = "—";
-        TxtCurrent.Text = "—";
         _log.Append("开始工位 3 测试流程");
 
         // ① 连接设备：唤醒 + 等 UDS 就绪
@@ -174,6 +174,8 @@ public partial class Station3Control : UserControl, IStationPage
             FlowPanel.Mark(2, StepStatus.Failed);
             FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
+            FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
+            FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
             SetResultBadge(false);
             _running = false;
             _flowCompleted = true;
@@ -209,7 +211,9 @@ public partial class Station3Control : UserControl, IStationPage
         {
             ShowCoilJudgement(null);
             FlowPanel.Mark(3, StepStatus.Failed, "无有效采样");
-            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（无有效采样），不入库");
+            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（无有效采样）");
+            FlowPanel.Mark(5, StepStatus.Waiting, "未执行（无有效采样）");
+            FlowPanel.Mark(6, StepStatus.Waiting, "未执行（无有效采样），不入库");
             ListAbnormal.Items.Add("PowerZ 无有效采样");
             await SafeStopChargingAsync(ct);
             SetResultBadge(false);
@@ -221,15 +225,19 @@ public partial class Station3Control : UserControl, IStationPage
         }
 
         ShowCoilJudgement(coil);
-        TxtVoltage.Text = $"{coil.CoilAVoltage:F3}";
-        TxtCurrent.Text = $"{coil.CoilACurrent:F3}";
         FlowPanel.Mark(3, coil.IsNormal ? StepStatus.Passed : StepStatus.Failed,
             coil.IsNormal ? null : string.Join("；", coil.AbnormalItems));
+        // 4.1 / 4.2 子步分别定格 A、B 判定（B 未测到 = 未执行）
+        FlowPanel.Mark(4, coil.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
+        if (!coil.CoilAPassed)
+            FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
+        else
+            FlowPanel.Mark(5, coil.CoilBPassed ? StepStatus.Passed : StepStatus.Failed);
         _log.Append($"步骤 4：A 均值 {coil.CoilACurrent:F3}A / B 均值 {coil.CoilBCurrent:F3}A" +
                     $" → {(coil.IsNormal ? "正常" : "异常：" + string.Join("；", coil.AbnormalItems))}");
 
         // ⑤ 停充并入库（线圈判 FAIL 也入库为 FAIL 记录）
-        FlowPanel.Mark(4, StepStatus.Running);
+        FlowPanel.Mark(6, StepStatus.Running);
         var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
         _log.Append(offOk ? $"步骤 5：停止充电（{offDetail}）" : $"步骤 5：停止充电失败 {offDetail}");
         if (!offOk)
@@ -249,7 +257,7 @@ public partial class Station3Control : UserControl, IStationPage
         });
         foreach (var item in coil.AbnormalItems)
             ListAbnormal.Items.Add(item);
-        FlowPanel.Mark(4, offOk ? StepStatus.Passed : StepStatus.Failed);
+        FlowPanel.Mark(6, offOk ? StepStatus.Passed : StepStatus.Failed);
         _log.Append(coil.IsNormal
             ? "步骤 5：已入库（PASS）"
             : $"步骤 5：已入库（FAIL 记录：{string.Join("；", coil.AbnormalItems)}）");
@@ -265,7 +273,7 @@ public partial class Station3Control : UserControl, IStationPage
     private async Task FailEarly(int step, string reason)
     {
         FlowPanel.Mark(step, StepStatus.Failed, reason);
-        for (var i = step + 1; i < 5; i++)
+        for (var i = step + 1; i < 7; i++)
             FlowPanel.Mark(i, StepStatus.Waiting, "未执行（前序失败）");
         ListAbnormal.Items.Add($"步骤 {step + 1} 失败：{reason}");
         SetResultBadge(false);
@@ -301,9 +309,17 @@ public partial class Station3Control : UserControl, IStationPage
     /// </summary>
     private void OnCoilProgress(CoilProgress p)
     {
-        FlowPanel.Mark(3, StepStatus.Running, p.Hint);
+        FlowPanel.Mark(3, StepStatus.Running, p.Hint);   // 4 总步骤：阶段提示/倒计时
         if (p.CoilADecided)
+        {
             CardCoilA.SetState(p.CoilAPassed ? CoilState.Passed : CoilState.Failed, p.CoilACurrent);
+            // 4.1 A 定格；4.2 B 随即开始（A 未过则 B 不测）
+            FlowPanel.Mark(4, p.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
+            if (!p.CoilAPassed)
+                FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
+            else
+                FlowPanel.Mark(5, StepStatus.Running);
+        }
     }
 
     private void ShowCoilJudgement(CoilJudgement? c)
@@ -329,8 +345,6 @@ public partial class Station3Control : UserControl, IStationPage
         ListAbnormal.Items.Clear();
         TxtSn.Text = "—";
         TxtDbLink.Text = "—";
-        TxtVoltage.Text = "—";
-        TxtCurrent.Text = "—";
         ShowCoilJudgement(null);
         TxtResult.Text = "待测试";
         TxtResult.Foreground = MutedBrush;

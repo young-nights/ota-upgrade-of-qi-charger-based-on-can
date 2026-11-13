@@ -46,7 +46,6 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
@@ -63,8 +62,8 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Border x:Name="BadgeResult" Grid.Column="0" Background="#F1F5F9" CornerRadius="8"
-                                Padding="20,10" VerticalAlignment="Stretch">
-                            <TextBlock x:Name="TxtResult" Text="待测试" FontSize="32"
+                                Padding="24,14" VerticalAlignment="Stretch">
+                            <TextBlock x:Name="TxtResult" Text="待测试" FontSize="40"
                                        FontWeight="Bold" HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
                                        Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -74,7 +73,7 @@
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="SN 码（设备读取）" Style="{StaticResource FieldLabel}"/>
                                 <TextBlock x:Name="TxtSn" Text="—"
-                                           FontSize="18" FontWeight="SemiBold" FontFamily="Consolas"
+                                           FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
                                            Foreground="{StaticResource TextPrimaryBrush}"/>
                             </StackPanel>
                         </Border>
@@ -100,37 +99,10 @@
                         <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Column="2" Title="线圈 B"/>
                     </Grid>
 
-                    <!-- 电压 / 电流 大数 -->
-                    <Grid Grid.Row="3" Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="电压 (V)" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtVoltage" Text="—"
-                                           FontSize="28" FontWeight="Bold"
-                                           Foreground="{StaticResource AccentBrush}"/>
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
-                            <StackPanel>
-                                <TextBlock Text="电流 (A)" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtCurrent" Text="—"
-                                           FontSize="28" FontWeight="Bold"
-                                           Foreground="{StaticResource AccentBrush}"/>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-
                     <!-- 异常项 -->
-                    <TextBlock Grid.Row="4" Text="异常项" Style="{StaticResource SectionTitle}"
+                    <TextBlock Grid.Row="3" Text="异常项" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,8"/>
-                    <ListBox x:Name="ListAbnormal" Grid.Row="5" FontSize="14"
+                    <ListBox x:Name="ListAbnormal" Grid.Row="4" FontSize="14"
                              Background="{StaticResource FieldBgBrush}"
                              BorderBrush="{StaticResource CardBorderBrush}"/>
                 </Grid>

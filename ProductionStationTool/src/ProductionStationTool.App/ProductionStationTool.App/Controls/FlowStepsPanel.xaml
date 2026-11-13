@@ -6,23 +6,24 @@
             <DataTemplate>
                 <Grid Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="28"/>
+                        <ColumnDefinition Width="40"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- 序号圆点 -->
-                    <Border Grid.Column="0" Width="22" Height="22" CornerRadius="11"
-                            Background="#E2E8F0" VerticalAlignment="Top">
+                    <!-- 序号徽标（支持 5.1 类子序号：宽自适应） -->
+                    <Border Grid.Column="0" MinWidth="22" Height="22" CornerRadius="11"
+                            Padding="6,0" Background="#E2E8F0"
+                            VerticalAlignment="Top" HorizontalAlignment="Left">
                         <TextBlock Text="{Binding Index}" FontSize="11"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                    Foreground="#475569"/>
                     </Border>
 
-                    <!-- 步骤名 -->
+                    <!-- 步骤名（子步缩进由 NameMargin 控制） -->
                     <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="13"
                                TextWrapping="Wrap" VerticalAlignment="Center"
-                               Margin="8,0,8,0"
+                               Margin="{Binding NameMargin}"
                                Foreground="{StaticResource TextPrimaryBrush}"/>
 
                     <!-- 状态 -->
