@@ -24,6 +24,12 @@ public partial class MainWindow : Window
     /// <summary>上次有效霍尔值/显示态（抗瞬态读失败闪跳：读空沿用旧值）。</summary>
     private byte? _lastClampState;
     private byte _lastDisplayState;
+    /// <summary>显示态切换确认防抖（取下负载等过渡期霍尔/充电位抖动收敛）：
+    /// 候选态持续 ≥DisplayStableMs 才切换显示，单拍毛刺不翻转；首次有效值立即显示。</summary>
+    private const long DisplayStableMs = 700;
+    private byte _shownDisplayState;
+    private byte _pendingDisplayState;
+    private long _pendingDisplaySinceMs;
     /// <summary>0x37 后设备自复位搬运窗（Tick64 截止点）：期间设备 CAN 离线，
     /// 写入无 ACK 会堵死盒子发送队列→写看门狗超时杀口（第二次升级必败）。
     /// WaitUdsReadyAsync 入口等完剩余宽限再探测。static：所有操作共用一个设备。</summary>
@@ -1346,6 +1352,9 @@ public partial class MainWindow : Window
         }
         if (displayState != 0x00)
             _lastDisplayState = displayState;
+        // 显示防抖：过渡期（取下负载/放上瞬间）霍尔与充电位抖动会连拍翻状态，
+        // 候选态稳定后才切换——大字与摘要行同用收敛后的值
+        displayState = StabilizeDisplayState(displayState);
         TxtQiSummary.Text = $"{QiChipStatusCodec.DisplayStateName(displayState)}   PCB: {temp}   档位: {limit}   充电次数: {countText}\n" +
                             protText;
         UpdateMagnetDisplay(displayState);
@@ -1391,9 +1400,39 @@ public partial class MainWindow : Window
     /// 关闭充电后清除磁铁/真充状态并显示「充电失能」：
     /// Qi 芯片断电后面板数据失效，不残留旧状态。
     /// </summary>
+    /// <summary>
+    /// 显示态切换确认防抖：与当前显示不同 = 候选；候选持续 ≥DisplayStableMs
+    /// （约一个轮询周期）才真正切换，期间维持旧显示——单拍毛刺（取下负载
+    /// 过渡期霍尔/充电位抖动）不翻转。首次有效值（显示态为 0）立即采用。
+    /// </summary>
+    private byte StabilizeDisplayState(byte state)
+    {
+        long now = Environment.TickCount64;
+        if (_shownDisplayState == 0x00 || state == _shownDisplayState)
+        {
+            _shownDisplayState = state;
+            _pendingDisplayState = 0x00;
+            return state;
+        }
+        if (state != _pendingDisplayState)
+        {
+            _pendingDisplayState = state;
+            _pendingDisplaySinceMs = now;
+            return _shownDisplayState;      // 新候选未确认：维持旧显示
+        }
+        if (now - _pendingDisplaySinceMs >= DisplayStableMs)
+        {
+            _shownDisplayState = state;
+            _pendingDisplayState = 0x00;
+        }
+        return _shownDisplayState;
+    }
+
     private void ResetMagnetDisplay()
     {
         _chargingFilter.Reset();
+        _shownDisplayState = 0x00;
+        _pendingDisplayState = 0x00;
         TxtMagnetState.Text = "充电失能";
         TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
         TxtPlacement.Text = "—";
