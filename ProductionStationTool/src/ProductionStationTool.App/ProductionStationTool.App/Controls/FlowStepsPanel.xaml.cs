@@ -12,6 +12,10 @@ public enum StepStatus
     Running,
     Passed,
     Failed,
+
+    /// <summary>空白：不显示状态文本（PowerZ 汇总行专用——只滚动倒计时提示，
+    /// 通过/失败由其子步 5.1/5.2 承载）。</summary>
+    None,
 }
 
 /// <summary>单个流程步骤的显示状态。</summary>
@@ -110,6 +114,10 @@ public partial class FlowStepsPanel : UserControl
             case StepStatus.Failed:
                 step.StatusText = "失败";
                 step.StatusBrush = FailedBrush;
+                break;
+            case StepStatus.None:
+                step.StatusText = "";
+                step.StatusBrush = WaitingBrush;
                 break;
         }
     }

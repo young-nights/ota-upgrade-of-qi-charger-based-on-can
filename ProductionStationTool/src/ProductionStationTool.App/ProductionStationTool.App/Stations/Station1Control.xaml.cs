@@ -62,10 +62,12 @@ public partial class Station1Control : UserControl, IStationPage
             ("2", "生成 SN 码"),
             ("3", "写入 SN 并回读验证"),
             ("4", "开启无线充电"),
-            ("5", "PowerZ：A 线圈 + B 线圈检测"),
+            ("5", "PowerZ："),
             ("5.1", "A 线圈状态检测"),
             ("5.2", "B 线圈状态检测"),
             ("6", "停充并入库"));
+        // 5 汇总行：只滚动倒计时提示，通过/失败由 5.1/5.2 承载——初始空白
+        FlowPanel.Mark(4, StepStatus.None);
 
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
@@ -148,6 +150,7 @@ public partial class Station1Control : UserControl, IStationPage
 
         // 「下一个」并入「开始测试」：开测即复位上一台显示，连续测试免手点
         ResetForNext();
+        FlowPanel.Mark(4, StepStatus.None);   // 5 汇总行回空白
         _log.Append("开始工位 1 测试流程");
 
         // ① 连接设备：先唤醒 + 等 UDS 就绪（设备空闲 10s 会真休眠/整板断电，
@@ -266,9 +269,8 @@ public partial class Station1Control : UserControl, IStationPage
             {
                 ShowCoilJudgement(c);
 
-                // ⑤ A/B 线圈检测：含判定（B 超时/A 均值不足 = ⑤ Fail）
-                FlowPanel.Mark(4, c.IsNormal ? StepStatus.Passed : StepStatus.Failed,
-                    c.IsNormal ? null : string.Join("；", c.AbnormalItems));
+                // ⑤ PowerZ 汇总行回空白；通过/失败由 5.1/5.2 承载
+                FlowPanel.Mark(4, StepStatus.None);
                 // 5.1 / 5.2 子步分别定格 A、B 判定（B 未测到 = 未执行）
                 FlowPanel.Mark(5, c.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
                 if (!c.CoilAPassed)
@@ -292,8 +294,8 @@ public partial class Station1Control : UserControl, IStationPage
             else
             {
                 ShowCoilJudgement(result?.Coil);
-                FlowPanel.Mark(4, StepStatus.Failed, "无有效采样");
-                FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
+                FlowPanel.Mark(4, StepStatus.None);
+                FlowPanel.Mark(5, StepStatus.Failed);
                 FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
                 FlowPanel.Mark(7, StepStatus.Waiting, "未执行（前序失败）");
                 _log.Append("步骤 6：未执行（无有效采样），不入库");
@@ -306,7 +308,7 @@ public partial class Station1Control : UserControl, IStationPage
             if (!snOk)
                 FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
             ShowCoilJudgement(null);
-            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
+            FlowPanel.Mark(4, StepStatus.None);
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(7, StepStatus.Waiting, "未执行（前序失败）");

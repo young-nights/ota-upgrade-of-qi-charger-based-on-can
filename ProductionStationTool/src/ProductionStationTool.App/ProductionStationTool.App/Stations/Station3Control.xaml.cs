@@ -49,10 +49,12 @@ public partial class Station3Control : UserControl, IStationPage
             ("1", "连接设备（串口/CAN 自动检测）"),
             ("2", "读取 SN 并关联数据库"),
             ("3", "开启无线充电"),
-            ("4", "PowerZ：A 线圈 + B 线圈检测"),
+            ("4", "PowerZ："),
             ("4.1", "A 线圈状态检测"),
             ("4.2", "B 线圈状态检测"),
             ("5", "停充并入库"));
+        // 4 汇总行：只滚动倒计时提示，通过/失败由 4.1/4.2 承载——初始空白
+        FlowPanel.Mark(3, StepStatus.None);
 
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
@@ -170,7 +172,7 @@ public partial class Station3Control : UserControl, IStationPage
         if (!chargeOk)
         {
             FlowPanel.Mark(2, StepStatus.Failed);
-            FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
+            FlowPanel.Mark(3, StepStatus.None);
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
@@ -207,8 +209,8 @@ public partial class Station3Control : UserControl, IStationPage
         if (coil is null || coil.NoValidSample)
         {
             ShowCoilJudgement(null);
-            FlowPanel.Mark(3, StepStatus.Failed, "无有效采样");
-            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（无有效采样）");
+            FlowPanel.Mark(3, StepStatus.None);
+            FlowPanel.Mark(4, StepStatus.Failed);
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（无有效采样）");
             FlowPanel.Mark(6, StepStatus.Waiting, "未执行（无有效采样），不入库");
             ListAbnormal.Items.Add("PowerZ 无有效采样");
@@ -221,8 +223,7 @@ public partial class Station3Control : UserControl, IStationPage
         }
 
         ShowCoilJudgement(coil);
-        FlowPanel.Mark(3, coil.IsNormal ? StepStatus.Passed : StepStatus.Failed,
-            coil.IsNormal ? null : string.Join("；", coil.AbnormalItems));
+        FlowPanel.Mark(3, StepStatus.None);
         // 4.1 / 4.2 子步分别定格 A、B 判定（B 未测到 = 未执行）
         FlowPanel.Mark(4, coil.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
         if (!coil.CoilAPassed)
