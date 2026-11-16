@@ -119,23 +119,6 @@
         <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
 
-    <!-- 日期选择器：与输入框同观感——默认 DatePicker 外框+内文本框双层黑线，这里收成单层浅边 -->
-    <Style TargetType="DatePickerTextBox">
-        <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Padding" Value="8,6"/>
-        <Setter Property="FontSize" Value="14"/>
-        <Setter Property="VerticalContentAlignment" Value="Center"/>
-    </Style>
-
-    <Style x:Key="FieldDate" TargetType="DatePicker">
-        <Setter Property="FontSize" Value="14"/>
-        <Setter Property="Background" Value="{StaticResource FieldBgBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}"/>
-        <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="VerticalContentAlignment" Value="Center"/>
-    </Style>
-
     <!-- 表格：去掉默认深色外框，只留浅横线 -->
     <Style TargetType="DataGrid">
         <Setter Property="BorderBrush" Value="Transparent"/>

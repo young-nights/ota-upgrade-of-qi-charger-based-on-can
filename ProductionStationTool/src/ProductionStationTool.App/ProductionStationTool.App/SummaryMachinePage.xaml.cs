@@ -254,50 +254,68 @@ public partial class SummaryMachinePage : UserControl
 
     private void BtnResetFilter_Click(object sender, RoutedEventArgs e)
     {
-        PickFrom.SelectedDate = null;
-        PickTo.SelectedDate = null;
+        BoxFrom.Text = "";
+        BoxTo.Text = "";
         ComboStation.SelectedIndex = 0;
         ComboMachine.SelectedIndex = 0;
         ComboResult.SelectedIndex = 0;
         RefreshRecords();
     }
 
+    /// <summary>手输日期（yyyy-MM-dd）解析；空 = 不限，非法输入视为不限并提示。</summary>
+    private static DateTime? ParseDay(string text, bool endOfDay, out bool bad)
+    {
+        text = text.Trim();
+        bad = false;
+        if (text.Length == 0)
+            return null;
+        if (!DateTime.TryParse(text, out var day))
+        {
+            bad = true;
+            return null;
+        }
+        day = day.Date;
+        return endOfDay ? day.AddDays(1).AddSeconds(-1) : day;
+    }
+
     private void BtnRefreshDb_Click(object sender, RoutedEventArgs e) => RefreshRecords();
 
-    // 快捷范围：今天 / 近 7 天 / 近 30 天 / 全部
-    private void BtnRangeToday_Click(object sender, RoutedEventArgs e)
+    // 快捷区间：今天 / 近 7 天 / 近 30 天 / 本月 / 全部（一键填入手输框并查询）
+    private void ApplyRange(DateTime from, DateTime to)
     {
-        PickFrom.SelectedDate = DateTime.Today;
-        PickTo.SelectedDate = DateTime.Today;
+        BoxFrom.Text = from.ToString("yyyy-MM-dd");
+        BoxTo.Text = to.ToString("yyyy-MM-dd");
         RefreshRecords();
     }
+
+    private void BtnRangeToday_Click(object sender, RoutedEventArgs e)
+        => ApplyRange(DateTime.Today, DateTime.Today);
 
     private void BtnRange7d_Click(object sender, RoutedEventArgs e)
-    {
-        PickFrom.SelectedDate = DateTime.Today.AddDays(-6);
-        PickTo.SelectedDate = DateTime.Today;
-        RefreshRecords();
-    }
+        => ApplyRange(DateTime.Today.AddDays(-6), DateTime.Today);
 
     private void BtnRange30d_Click(object sender, RoutedEventArgs e)
-    {
-        PickFrom.SelectedDate = DateTime.Today.AddDays(-29);
-        PickTo.SelectedDate = DateTime.Today;
-        RefreshRecords();
-    }
+        => ApplyRange(DateTime.Today.AddDays(-29), DateTime.Today);
+
+    private void BtnRangeMonth_Click(object sender, RoutedEventArgs e)
+        => ApplyRange(new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1), DateTime.Today);
 
     private void BtnRangeAll_Click(object sender, RoutedEventArgs e)
     {
-        PickFrom.SelectedDate = null;
-        PickTo.SelectedDate = null;
+        BoxFrom.Text = "";
+        BoxTo.Text = "";
         RefreshRecords();
     }
 
+    private bool _dateInputBad;
+
     private TestRecordFilter BuildFilter()
     {
-        // 选中日期不含时刻：起点取 00:00:00，止点取当天 23:59:59
-        DateTime? from = PickFrom.SelectedDate is { } f ? f.Date : null;
-        DateTime? to = PickTo.SelectedDate is { } t ? t.Date.AddDays(1).AddSeconds(-1) : null;
+        // 手输日期：起点取 00:00:00，止点取当天 23:59:59；空 = 该端不限
+        bool badFrom, badTo;
+        DateTime? from = ParseDay(BoxFrom.Text, endOfDay: false, out badFrom);
+        DateTime? to = ParseDay(BoxTo.Text, endOfDay: true, out badTo);
+        _dateInputBad = badFrom || badTo;
         var station = ComboStation.SelectedItem as string;
         var machine = ComboMachine.SelectedItem as string;
         return new TestRecordFilter(
@@ -345,7 +363,8 @@ public partial class SummaryMachinePage : UserControl
             double yield = rows.Count == 0 ? 0 : pass * 100.0 / rows.Count;
             TxtDbStats.Text =
                 $"筛选结果 {rows.Count} 条：PASS {pass} · FAIL {rows.Count - pass} · 良率 {yield:F1}% · 已打印 {printed}（单次上限 {RecordLoadLimit} 条）"
-                + (FilterActive(filter) ? "　|　已按筛选条件查询" : "");
+                + (FilterActive(filter) ? "　|　已按筛选条件查询" : "")
+                + (_dateInputBad ? "　|　日期格式无法识别（按 yyyy-MM-dd 填写），该项已忽略" : "");
             TxtDbStats.Foreground = MutedBrush;
         }
         catch (Exception ex)
