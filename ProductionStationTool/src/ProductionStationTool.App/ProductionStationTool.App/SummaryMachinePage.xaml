@@ -227,55 +227,45 @@
                                     <Button Content="全部" Height="32" Padding="14,2" FontSize="12"
                                             Margin="6,0,0,0" Style="{StaticResource GhostButton}"
                                             Click="BtnRangeAll_Click"/>
-                                    <!-- 自定义区间：手输 yyyy-MM-dd，留空 = 该端不限 -->
-                                    <Grid Margin="14,0,0,0" VerticalAlignment="Center">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="120"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="120"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="自 " FontSize="12"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                        <Grid Grid.Column="1">
-                                            <TextBox x:Name="BoxFrom" Height="32" Style="{StaticResource FieldBox}"/>
-                                            <TextBlock Text="2026-11-01" FontSize="12" Foreground="#94A3B8"
-                                                       IsHitTestVisible="False" VerticalAlignment="Center"
-                                                       Margin="9,0,0,0">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding Text, ElementName=BoxFrom}" Value="">
-                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </TextBlock.Style>
-                                            </TextBlock>
-                                        </Grid>
-                                        <TextBlock Grid.Column="2" Text=" 至 " FontSize="12"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                                   VerticalAlignment="Center" Margin="6,0"/>
-                                        <Grid Grid.Column="3">
-                                            <TextBox x:Name="BoxTo" Height="32" Style="{StaticResource FieldBox}"/>
-                                            <TextBlock Text="2026-11-16" FontSize="12" Foreground="#94A3B8"
-                                                       IsHitTestVisible="False" VerticalAlignment="Center"
-                                                       Margin="9,0,0,0">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding Text, ElementName=BoxTo}" Value="">
-                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </TextBlock.Style>
-                                            </TextBlock>
-                                        </Grid>
-                                    </Grid>
+                                    <!-- 自定义区间：年/月/日 三下拉（可滚动）；未选 = 该项不限 -->
+                                    <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="自 " FontSize="12"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <ComboBox x:Name="CmbFromYear" Width="72" Height="32"
+                                                      Style="{StaticResource FieldCombo}" ToolTip="起始年"/>
+                                        <TextBlock Text="年" FontSize="12"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                        <ComboBox x:Name="CmbFromMonth" Width="54" Height="32"
+                                                      Style="{StaticResource FieldCombo}" ToolTip="起始月"/>
+                                        <TextBlock Text="月" FontSize="12"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                        <ComboBox x:Name="CmbFromDay" Width="54" Height="32"
+                                                      Style="{StaticResource FieldCombo}" ToolTip="起始日"/>
+                                        <TextBlock Text="日" FontSize="12"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="4,0,8,0"/>
+                                        <TextBlock Text="至" FontSize="12"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox x:Name="CmbToYear" Width="72" Height="32"
+                                                      Style="{StaticResource FieldCombo}" ToolTip="结束年"/>
+                                        <TextBlock Text="年" FontSize="12"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                        <ComboBox x:Name="CmbToMonth" Width="54" Height="32"
+                                                      Style="{StaticResource FieldCombo}" ToolTip="结束月"/>
+                                        <TextBlock Text="月" FontSize="12"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                        <ComboBox x:Name="CmbToDay" Width="54" Height="32"
+                                                      Style="{StaticResource FieldCombo}" ToolTip="结束日"/>
+                                        <TextBlock Text="日" FontSize="12"
+                                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                    </StackPanel>
                                 </WrapPanel>
                                 <WrapPanel>
                                     <StackPanel>

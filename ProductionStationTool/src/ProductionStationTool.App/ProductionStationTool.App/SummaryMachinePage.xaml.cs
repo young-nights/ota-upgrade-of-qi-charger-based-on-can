@@ -38,6 +38,7 @@ public partial class SummaryMachinePage : UserControl
     public SummaryMachinePage()
     {
         InitializeComponent();
+        InitDateCombos();
     }
 
     /// <summary>密码验证通过后进入页面调用：启动接入监听，载入两页数据。</summary>
@@ -254,37 +255,97 @@ public partial class SummaryMachinePage : UserControl
 
     private void BtnResetFilter_Click(object sender, RoutedEventArgs e)
     {
-        BoxFrom.Text = "";
-        BoxTo.Text = "";
+        ClearDateCombos();
         ComboStation.SelectedIndex = 0;
         ComboMachine.SelectedIndex = 0;
         ComboResult.SelectedIndex = 0;
         RefreshRecords();
     }
 
-    /// <summary>手输日期（yyyy-MM-dd）解析；空 = 不限，非法输入视为不限并提示。</summary>
-    private static DateTime? ParseDay(string text, bool endOfDay, out bool bad)
+    // ---- 年/月/日 三下拉（可滚动）：-- 该项不限；只选年=整年，年+月=整月 ----
+
+    private const string AnyText = "--";
+
+    private void InitDateCombos()
     {
-        text = text.Trim();
-        bad = false;
-        if (text.Length == 0)
-            return null;
-        if (!DateTime.TryParse(text, out var day))
+        int yearNow = DateTime.Today.Year;
+        var years = new List<string> { AnyText };
+        for (int y = yearNow + 1; y >= yearNow - 3; y--)
+            years.Add(y.ToString());
+        var months = new List<string> { AnyText };
+        for (int m = 1; m <= 12; m++)
+            months.Add(m.ToString());
+        var days = new List<string> { AnyText };
+        for (int d = 1; d <= 31; d++)
+            days.Add(d.ToString());
+        foreach (var cmb in new[] { CmbFromYear, CmbToYear })
         {
-            bad = true;
+            cmb.ItemsSource = years;
+            cmb.SelectedIndex = 0;
+        }
+        foreach (var cmb in new[] { CmbFromMonth, CmbToMonth })
+        {
+            cmb.ItemsSource = months;
+            cmb.SelectedIndex = 0;
+        }
+        foreach (var cmb in new[] { CmbFromDay, CmbToDay })
+        {
+            cmb.ItemsSource = days;
+            cmb.SelectedIndex = 0;
+        }
+    }
+
+    private void ClearDateCombos()
+    {
+        foreach (var cmb in new[] { CmbFromYear, CmbFromMonth, CmbFromDay, CmbToYear, CmbToMonth, CmbToDay })
+            cmb.SelectedIndex = 0;
+    }
+
+    private void SetDateCombos(DateTime from, DateTime to)
+    {
+        CmbFromYear.Text = from.Year.ToString();
+        CmbFromMonth.Text = from.Month.ToString();
+        CmbFromDay.Text = from.Day.ToString();
+        CmbToYear.Text = to.Year.ToString();
+        CmbToMonth.Text = to.Month.ToString();
+        CmbToDay.Text = to.Day.ToString();
+    }
+
+    private static int ComboVal(ComboBox cmb)
+        => cmb.SelectedItem is string s && s != AnyText && int.TryParse(s, out var v) ? v : 0;
+
+    /// <summary>三下拉合成日期段。year=0 → 该端不限；只选年 → 整年；年+月 → 整月。</summary>
+    private static DateTime? ParseDateCombo(ComboBox year, ComboBox month, ComboBox day,
+        bool endOfDay, out bool bad)
+    {
+        bad = false;
+        int y = ComboVal(year), m = ComboVal(month), d = ComboVal(day);
+        if (y == 0)
+            return null;                       // 年未选 = 该端不限
+        if (m == 0)
+            return endOfDay ? new DateTime(y, 12, 31, 23, 59, 59) : new DateTime(y, 1, 1);
+        if (d == 0)
+        {
+            var first = new DateTime(y, m, 1);
+            return endOfDay
+                ? first.AddMonths(1).AddSeconds(-1)
+                : first;
+        }
+        if (!DateTime.TryParse($"{y}-{m}-{d}", out var dayVal))
+        {
+            bad = true;                        // 如 2 月 30 日
             return null;
         }
-        day = day.Date;
-        return endOfDay ? day.AddDays(1).AddSeconds(-1) : day;
+        dayVal = dayVal.Date;
+        return endOfDay ? dayVal.AddDays(1).AddSeconds(-1) : dayVal;
     }
 
     private void BtnRefreshDb_Click(object sender, RoutedEventArgs e) => RefreshRecords();
 
-    // 快捷区间：今天 / 近 7 天 / 近 30 天 / 本月 / 全部（一键填入手输框并查询）
+    // 快捷区间：今天 / 近 7 天 / 近 30 天 / 本月 / 全部（一键填入三下拉并查询）
     private void ApplyRange(DateTime from, DateTime to)
     {
-        BoxFrom.Text = from.ToString("yyyy-MM-dd");
-        BoxTo.Text = to.ToString("yyyy-MM-dd");
+        SetDateCombos(from, to);
         RefreshRecords();
     }
 
@@ -302,8 +363,7 @@ public partial class SummaryMachinePage : UserControl
 
     private void BtnRangeAll_Click(object sender, RoutedEventArgs e)
     {
-        BoxFrom.Text = "";
-        BoxTo.Text = "";
+        ClearDateCombos();
         RefreshRecords();
     }
 
@@ -311,10 +371,10 @@ public partial class SummaryMachinePage : UserControl
 
     private TestRecordFilter BuildFilter()
     {
-        // 手输日期：起点取 00:00:00，止点取当天 23:59:59；空 = 该端不限
+        // 三下拉日期：起 00:00:00 / 止 23:59:59；未选年 = 该端不限
         bool badFrom, badTo;
-        DateTime? from = ParseDay(BoxFrom.Text, endOfDay: false, out badFrom);
-        DateTime? to = ParseDay(BoxTo.Text, endOfDay: true, out badTo);
+        DateTime? from = ParseDateCombo(CmbFromYear, CmbFromMonth, CmbFromDay, endOfDay: false, out badFrom);
+        DateTime? to = ParseDateCombo(CmbToYear, CmbToMonth, CmbToDay, endOfDay: true, out badTo);
         _dateInputBad = badFrom || badTo;
         var station = ComboStation.SelectedItem as string;
         var machine = ComboMachine.SelectedItem as string;
@@ -364,7 +424,7 @@ public partial class SummaryMachinePage : UserControl
             TxtDbStats.Text =
                 $"筛选结果 {rows.Count} 条：PASS {pass} · FAIL {rows.Count - pass} · 良率 {yield:F1}% · 已打印 {printed}（单次上限 {RecordLoadLimit} 条）"
                 + (FilterActive(filter) ? "　|　已按筛选条件查询" : "")
-                + (_dateInputBad ? "　|　日期格式无法识别（按 yyyy-MM-dd 填写），该项已忽略" : "");
+                + (_dateInputBad ? "　|　日期无效（如 2 月 30 日），该项已忽略" : "");
             TxtDbStats.Foreground = MutedBrush;
         }
         catch (Exception ex)
