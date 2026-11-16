@@ -107,8 +107,12 @@ public static class QiChipStatusCodec
         => v == 0x00 ? "需开qi检测"
            : DisplayStates.TryGetValue(v, out var n) ? n : $"未知(0x{v:X2})";
 
-    /// <summary>设备放置指示（状态字节 b0，独立显示）：true=已放置 / false=未放置 / null=未读到。</summary>
-    public static bool? DevicePlaced(byte? statusRaw)
+    /// <summary>
+    /// PING 指示（状态字节 b0，独立显示）——2026-11-12 台架实测口径：
+    /// true=ping 中（充电使能且**无负载**时随 ping 脉冲翻转、灯闪烁）；
+    /// false=未 ping（**有负载**充电时常为 0）；null=未读到。
+    /// </summary>
+    public static bool? PingActive(byte? statusRaw)
         => statusRaw is { } s ? (s & QiStatusPing) != 0 : null;
 
     /// <summary>
@@ -146,7 +150,7 @@ public static class QiChipStatusCodec
     public const byte QiStatusOtp = 1 << 6;
     /// <summary>b7: 1=异物检测保护。</summary>
     public const byte QiStatusFod = 1 << 7;
-    /// <summary>b0: 1=检测到设备放置。</summary>
+    /// <summary>b0: PING——充电器 ping 脉冲位（2026-11-12 实测：无负载时闪烁 1，有负载恒 0）。</summary>
     public const byte QiStatusPing = 1 << 0;
     /// <summary>b1: 1=正在充电。</summary>
     public const byte QiStatusCharging = 1 << 1;

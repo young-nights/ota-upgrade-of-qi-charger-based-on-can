@@ -175,11 +175,12 @@
                            Foreground="#0D47A1" Margin="0,2,0,0"/>
               </StackPanel>
               <StackPanel Grid.Column="1">
-                <!-- 设备放置（状态字节 b0，独立显示，与磁铁/实际充电同构） -->
-                <TextBlock Text="设备放置" FontSize="11" Foreground="#5B7FA6"/>
-                <TextBlock x:Name="TxtPlacement" Text="—" FontSize="18" FontWeight="Bold"
-                           Foreground="#0D47A1" Margin="0,2,0,6"
-                           ToolTip="状态字节 b0（DID 0x2111）：1=设备已放置 / 0=未放置。独立指示，不参与磁铁/充电状态轮转"/>
+                <!-- PING 指示灯（状态字节 b0）：亮=ping 中（无负载时随 b0 翻转闪烁）/ 灭=未 ping -->
+                <TextBlock Text="PING" FontSize="11" Foreground="#5B7FA6"/>
+                <Ellipse x:Name="PingLamp" Width="18" Height="18" Margin="0,6,0,8"
+                         Fill="#ECEFF1" Stroke="#CBD5E1" StrokeThickness="1"
+                         HorizontalAlignment="Left"
+                         ToolTip="状态字节 b0（DID 0x2111）：1=ping 中——充电使能且无负载时随 ping 脉冲闪烁；0=未 ping——有负载充电时常为 0。b1=充电状态，b2=充满状态"/>
                 <TextBlock Text="磁铁 / 实际充电" FontSize="11" Foreground="#5B7FA6"/>
                 <TextBlock x:Name="TxtMagnetState" Text="—" FontSize="18" FontWeight="Bold"
                            Foreground="#0D47A1" Margin="0,2,0,0"

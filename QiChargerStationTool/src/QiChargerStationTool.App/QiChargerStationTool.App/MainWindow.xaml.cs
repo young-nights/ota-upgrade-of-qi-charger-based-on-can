@@ -1302,15 +1302,15 @@ public partial class MainWindow : Window
         TxtChargeCount.Text = st.ChargeCount is { } cc ? $"{cc} 次" : "— 次";
 
         // 设备放置指示（状态字节 b0，独立显示，与磁铁/实际充电同构大字）
-        switch (QiChipStatusCodec.DevicePlaced(st.StatusRaw))
+        // PING 指示灯（状态字节 b0，独立于磁铁/充电状态）：亮=ping 中
+        // ——充电使能且无负载时 b0 随 ping 脉冲翻转、灯闪烁；有负载恒 0、灯灭
+        switch (QiChipStatusCodec.PingActive(st.StatusRaw))
         {
             case true:
-                TxtPlacement.Text = "已放置";
-                TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
+                PingLamp.Fill = new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50));
                 break;
             default:
-                TxtPlacement.Text = st.StatusRaw is null ? "—" : "未放置";
-                TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+                PingLamp.Fill = new SolidColorBrush(Color.FromRgb(0xEC, 0xEF, 0xF1));
                 break;
         }
 
@@ -1435,8 +1435,7 @@ public partial class MainWindow : Window
         _pendingDisplayState = 0x00;
         TxtMagnetState.Text = "充电失能";
         TxtMagnetState.Foreground = new SolidColorBrush(Color.FromRgb(0x0D, 0x47, 0xA1));
-        TxtPlacement.Text = "—";
-        TxtPlacement.Foreground = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+        PingLamp.Fill = new SolidColorBrush(Color.FromRgb(0xEC, 0xEF, 0xF1));
         TxtQiSummary.Text = "充电失能 — Qi 状态面板已失效";
     }
 

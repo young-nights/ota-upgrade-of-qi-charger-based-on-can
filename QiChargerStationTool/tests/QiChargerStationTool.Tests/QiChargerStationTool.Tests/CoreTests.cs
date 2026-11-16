@@ -157,10 +157,10 @@ public class QiChipStatusTests
             QiChipStatusCodec.ChargingVerdict(true, 0x01, false,
                 (byte)(QiChipStatusCodec.QiStatusPing | QiChipStatusCodec.QiStatusCharging)));
 
-        // 设备放置独立指示（b0）：1=已放置 / 0=未放置 / null=未读到
-        Assert.True(QiChipStatusCodec.DevicePlaced(QiChipStatusCodec.QiStatusPing));
-        Assert.False(QiChipStatusCodec.DevicePlaced((byte)0x00));
-        Assert.Null(QiChipStatusCodec.DevicePlaced(null));
+        // PING 灯（b0，独立）：true=ping 中（无负载闪烁）/ false=未 ping（有负载恒 0）
+        Assert.True(QiChipStatusCodec.PingActive(QiChipStatusCodec.QiStatusPing));
+        Assert.False(QiChipStatusCodec.PingActive((byte)0x00));
+        Assert.Null(QiChipStatusCodec.PingActive(null));
 
         // 派生常量闭环（与固件 DID 0x2117 编码一致）
         Assert.Equal("电已充满", QiChipStatusCodec.DisplayStateName(QiChipStatusCodec.DisplayFull));
