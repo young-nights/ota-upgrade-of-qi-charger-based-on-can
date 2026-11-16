@@ -2,6 +2,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ProductionStationTool.Core.Printing;
 using ProductionStationTool.Core.Station;
 
 namespace ProductionStationTool.App.Utilities;
@@ -171,6 +172,51 @@ public static class MachineConfig
             $" / HW {ShowOrDash(before.Item2)}→{ShowOrDash(hw)}  ({Environment.MachineName})\n");
     }
 
+    /// <summary>打印预设（SN 码预设 / 外包箱预设），「打印机设置」页保存。</summary>
+    public static (LabelPreset Sn, LabelPreset Box) LoadPrintPresets()
+    {
+        var cfg = ReadCfgOrDefault();
+        return (cfg.SnLabelPreset ?? new LabelPreset(), cfg.BoxLabelPreset ?? new LabelPreset());
+    }
+
+    /// <summary>保存打印预设；变更时写 machine_change.log 留痕。</summary>
+    public static void SavePrintPresets(LabelPreset sn, LabelPreset box)
+    {
+        var cfg = ReadCfgOrDefault();
+        var before = (cfg.SnLabelPreset ?? new LabelPreset(), cfg.BoxLabelPreset ?? new LabelPreset());
+        cfg.SnLabelPreset = sn;
+        cfg.BoxLabelPreset = box;
+        WriteCfg(cfg);
+
+        if (before.Item1.TemplatePath == sn.TemplatePath && before.Item1.PrinterName == sn.PrinterName &&
+            before.Item2.TemplatePath == box.TemplatePath && before.Item2.PrinterName == box.PrinterName &&
+            BeforeDict(before.Item1.NamedValues).SequenceEqual(BeforeDict(sn.NamedValues)) &&
+            BeforeDict(before.Item2.NamedValues).SequenceEqual(BeforeDict(box.NamedValues)))
+            return;
+        File.AppendAllText(ChangeLogPath,
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  打印预设 SN[{ShowOrDash(sn.TemplatePath)} @ {ShowOrDash(sn.PrinterName)}]" +
+            $" / 箱[{ShowOrDash(box.TemplatePath)} @ {ShowOrDash(box.PrinterName)}]  ({Environment.MachineName})\n");
+    }
+
+    private static IEnumerable<string> BeforeDict(Dictionary<string, string> d)
+        => d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}");
+
+    /// <summary>良率统计口径（「数据管理」页）：弃用记录是否计入良率。</summary>
+    public static bool LoadYieldExcludeAbandoned()
+        => ReadCfgOrDefault().YieldExcludeAbandoned;
+
+    /// <summary>保存良率统计口径；变更时写 machine_change.log 留痕。</summary>
+    public static void SaveYieldExcludeAbandoned(bool excludeAbandoned)
+    {
+        var cfg = ReadCfgOrDefault();
+        if (cfg.YieldExcludeAbandoned == excludeAbandoned)
+            return;
+        cfg.YieldExcludeAbandoned = excludeAbandoned;
+        WriteCfg(cfg);
+        File.AppendAllText(ChangeLogPath,
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  良率口径 弃用记录{(excludeAbandoned ? "不计入" : "计入")}良率  ({Environment.MachineName})\n");
+    }
+
     private static string ShowOrDash(string s) => string.IsNullOrEmpty(s) ? "(空)" : s;
 
     /// <summary>SHA-256 十六进制（小写）——汇总机管理密码存哈希不存明文。</summary>
@@ -256,6 +302,13 @@ public static class MachineConfig
         // 工位 4 版本预设（软件/硬件版本串；空 = 未预设）
         public string PresetSwVersion { get; set; } = "";
         public string PresetHwVersion { get; set; } = "";
+
+        // 打印预设（「打印机设置」页：SN 码预设 / 外包箱预设）
+        public LabelPreset SnLabelPreset { get; set; } = new();
+        public LabelPreset BoxLabelPreset { get; set; } = new();
+
+        // 良率统计口径（「数据管理」页）：true = 弃用记录不计入良率（默认）
+        public bool YieldExcludeAbandoned { get; set; } = true;
     }
 }
 

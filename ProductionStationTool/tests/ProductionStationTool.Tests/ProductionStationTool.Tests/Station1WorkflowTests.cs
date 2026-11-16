@@ -1,3 +1,4 @@
+using ProductionStationTool.Core.Sn;
 using ProductionStationTool.Core.Station;
 using ProductionStationTool.PowerZ;
 
@@ -39,8 +40,33 @@ public class Station1WorkflowTests
             => Rows.Select(x => (x.StationNo, x.MachineId)).Distinct()
                 .OrderBy(x => x.StationNo).ThenBy(x => x.MachineId).ToList();
 
-        public IReadOnlyList<Core.Data.MachineTestStats> StatsByMachine()
-            => Rows.GroupBy(x => (x.StationNo, x.MachineId))
+        public void MarkAbandoned(string sn)
+        {
+            foreach (var x in Rows.Where(x => x.Sn == sn))
+                x.Abandoned = true;
+        }
+
+        public void MarkPrinted(string sn)
+        {
+            foreach (var x in Rows.Where(x => x.Sn == sn))
+                x.Printed = true;
+        }
+
+        public void SetAbandoned(string sn, bool abandoned)
+        {
+            foreach (var x in Rows.Where(x => x.Sn == sn))
+                x.Abandoned = abandoned;
+        }
+
+        public void SetPrinted(string sn, bool printed)
+        {
+            foreach (var x in Rows.Where(x => x.Sn == sn))
+                x.Printed = printed;
+        }
+
+        public IReadOnlyList<Core.Data.MachineTestStats> StatsByMachine(bool excludeAbandoned = false)
+            => Rows.Where(x => !excludeAbandoned || !x.Abandoned)
+                .GroupBy(x => (x.StationNo, x.MachineId))
                 .Select(g => new Core.Data.MachineTestStats(
                     g.Key.StationNo, g.Key.MachineId,
                     g.Count(),
@@ -256,5 +282,92 @@ public class Station1WorkflowTests
         Assert.Equal(2, store.Rows[0].StationNo);
         Assert.Equal("3", store.Rows[0].MachineId);
         Assert.Equal("ST-02-3", wf.Identity.Code);
+    }
+
+    // ================= 联机取号 / 弃用回收（2026-11-16 防撞号改造） =================
+
+    private sealed class FakeAlloc
+    {
+        public SnAllocResult Result = new(true, "LSCH42JY012601010001", 1, null, "取号成功");
+        public readonly List<string> Released = new();
+    }
+
+    private static Station1Workflow NewAllocWorkflow(FakeStore store, FakeAlloc alloc)
+        => new(store,
+            snAllocate: _ => Task.FromResult(alloc.Result),
+            snRelease: (sn, _) => { alloc.Released.Add(sn); return Task.CompletedTask; });
+
+    [Fact]
+    public async Task AllocateFails_CapReached_ShowsErrorAndSkipsTest()
+    {
+        var store = new FakeStore();
+        var alloc = new FakeAlloc { Result = SnAllocResult.Fail("CAP_REACHED", "今日 SN 已达上限 9999（无弃用号可回收）") };
+        var wf = NewAllocWorkflow(store, alloc);
+        var pz = new FakePowerZ();
+
+        var r = await wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("x"),
+            () => Task.CompletedTask, pz, FastOpts);
+
+        Assert.False(r.Passed);
+        Assert.Equal("", r.Sn);
+        Assert.Contains("上限", r.AbnormalItems[0]);
+        Assert.Empty(store.Rows);
+        Assert.Empty(alloc.Released);
+    }
+
+    [Fact]
+    public async Task WriteFail_ReleasesSn()
+    {
+        var store = new FakeStore();
+        var alloc = new FakeAlloc();
+        var wf = NewAllocWorkflow(store, alloc);
+        var pz = new FakePowerZ();
+
+        var r = await wf.RunAsync(_ => Task.FromResult(false), () => Task.FromResult<string?>(null),
+            () => Task.CompletedTask, pz, FastOpts);
+
+        Assert.False(r.Passed);
+        Assert.Empty(store.Rows);
+        Assert.Equal(new[] { "LSCH42JY012601010001" }, alloc.Released);   // 本号立即弃用回收
+    }
+
+    [Fact]
+    public async Task CoilFail_StoredAsAbandoned_AndReleasesSn()
+    {
+        var store = new FakeStore();
+        var alloc = new FakeAlloc();
+        var wf = NewAllocWorkflow(store, alloc);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("LSCH42JY012601010001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await EmitAsync(pz, 5.0, 0.5, 400);   // A 均值 0.5A < 1.0A → FAIL
+        var r = await run;
+
+        Assert.False(r.Passed);
+        Assert.Single(store.Rows);
+        Assert.Equal("FAIL", store.Rows[0].Result);
+        Assert.True(store.Rows[0].Abandoned);                     // FAIL 记录保留但标弃用
+        Assert.Equal(new[] { "LSCH42JY012601010001" }, alloc.Released);
+    }
+
+    [Fact]
+    public async Task Pass_NotReleased_NotAbandoned()
+    {
+        var store = new FakeStore();
+        var alloc = new FakeAlloc();
+        var wf = NewAllocWorkflow(store, alloc);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("LSCH42JY012601010001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await RunHappyScriptAsync(pz);
+        var r = await run;
+
+        Assert.True(r.Passed);
+        Assert.Single(store.Rows);
+        Assert.Equal("PASS", store.Rows[0].Result);
+        Assert.False(store.Rows[0].Abandoned);
+        Assert.Empty(alloc.Released);
     }
 }

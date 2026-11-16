@@ -27,7 +27,7 @@ public partial class Station4Control : UserControl, IStationPage
     private static readonly int[] GateStations = { 1, 2, 3 };
 
     private readonly ITestRecordStore _store = new SqliteTestRecordStore();
-    private readonly ISnPrinter _printer = new NullSnPrinter();
+    private readonly ISnPrinter _printer;
     private readonly LogBuffer _log = new();
     private LogWindow? _logWin;
 
@@ -49,12 +49,18 @@ public partial class Station4Control : UserControl, IStationPage
     public Station4Control()
     {
         InitializeComponent();
+        // 打印机：「打印机设置 → SN 码预设」配置了模板即走 BarTender COM；
+        // 未配置/本机无 BarTender 时占位放行（不误标「已打印出库」）
+        var (snPreset, _) = MachineConfig.LoadPrintPresets();
+        _printer = !string.IsNullOrWhiteSpace(snPreset.TemplatePath) && Core.Printing.BarTenderLabelPrinter.Available()
+            ? new Core.Printing.BarTenderLabelPrinter(snPreset)
+            : new NullSnPrinter();
         ConnPanel.ShowPowerZ = false;   // 本工位只用 CAN（读 SN/版本），不需要 PowerZ
         FlowPanel.SetSteps(
             "连接设备（串口/CAN 自动检测）",
             "读取 SN 码",
             "数据库门禁（工位1/2/3 全 PASS）",
-            "SN 输出打印机（接口占位）",
+            "SN 打印出库",
             "读取软硬件版本并与预设比对");
 
         ConnPanel.ConnectRequested += OnConnectRequested;
@@ -151,7 +157,7 @@ public partial class Station4Control : UserControl, IStationPage
         FlowPanel.Mark(2, StepStatus.Passed);
         _log.Append("步骤 3：门禁通过（工位1/2/3 全 PASS）");
 
-        // ④ SN 输出打印机（接口占位）
+        // ④ SN 输出打印机（BarTender COM；未配置预设/未装 BarTender 时占位放行）
         FlowPanel.Mark(3, StepStatus.Running);
         var (printOk, printDetail) = await _printer.PrintSnAsync(sn, ct);
         TxtPrint.Text = printDetail;
@@ -165,6 +171,12 @@ public partial class Station4Control : UserControl, IStationPage
             _running = false;
             RaiseAvailability();
             return;
+        }
+        if (_printer is ProductionStationTool.Core.Printing.BarTenderLabelPrinter)
+        {
+            // 真实打印成功 → 标记「已打印出库」（占位打印不标，避免误报）
+            _store.MarkPrinted(sn);
+            _log.Append($"步骤 4：SN {sn} 已标记打印出库");
         }
 
         // ⑤ 读取软硬件版本并与预设比对

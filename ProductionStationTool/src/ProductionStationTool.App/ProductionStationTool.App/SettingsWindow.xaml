@@ -198,5 +198,70 @@
             </ScrollViewer>
         </TabItem>
 
+        <!-- ===== 页 4：数据管理（良率口径 + 手动修正） ===== -->
+        <TabItem Header="数据管理">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
+                <StackPanel>
+
+                    <!-- 良率统计口径 -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="良率统计口径" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock Text="良率 = PASS 数 ÷ 参与统计的记录数 × 100%（按机位聚合显示在汇总机卡片上）。弃用记录指工位1 失败弃用/被新 SN 取代的记录——默认不计入良率，避免失败重拉污染口径。"
+                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,10,0,12"/>
+                            <CheckBox x:Name="ChkYieldExclude" Content="弃用记录不计入良率（推荐）"
+                                      FontSize="13" Margin="0,0,0,12"/>
+                            <TextBlock x:Name="TxtYieldSummary" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,12"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="保存口径" Width="150" Height="40"
+                                        Style="{StaticResource PrimaryButton}" Click="BtnSaveYield_Click"/>
+                                <Button Content="刷新统计" Width="110" Height="40" Margin="12,0,0,0"
+                                        Style="{StaticResource GhostButton}" Click="BtnRefreshYield_Click"/>
+                                <TextBlock x:Name="TxtYieldResult" VerticalAlignment="Center"
+                                           Margin="12,0,0,0" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 手动修正良率（记录级标记） -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="手动修正（记录级标记）" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock Text="误判记录在此标记弃用/恢复、或修正「打印出库」标记，良率按上方口径自动重算。标记按 SN 生效（同 SN 各工位记录一起改）。按 SN 查询，留空查最近 200 条。"
+                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,10,0,12"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBox x:Name="BoxSnQuery" Width="260" Height="36"
+                                         Style="{StaticResource FieldBox}" Margin="0,0,8,0"
+                                         ToolTip="输入完整 SN 精确查询；留空查最近 200 条"/>
+                                <Button Content="查询" Width="90" Height="36"
+                                        Style="{StaticResource GhostButton}" Click="BtnQueryRecords_Click"/>
+                                <Button Content="应用修改" Width="110" Height="36" Margin="8,0,0,0"
+                                        Style="{StaticResource PrimaryButton}" Click="BtnApplyFix_Click"
+                                        ToolTip="把下方表格中的弃用/打印标记写回数据库"/>
+                            </StackPanel>
+
+                            <DataGrid x:Name="GridFix" AutoGenerateColumns="False" IsReadOnly="False"
+                                      SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                                      HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                      MaxHeight="260" FontSize="12">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="SN" Binding="{Binding Sn}" Width="*" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="工位" Binding="{Binding StationNo}" Width="50" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="56" IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="测试时间" Binding="{Binding TestTime, StringFormat=yyyy-MM-dd HH:mm}" Width="120" IsReadOnly="True"/>
+                                    <DataGridCheckBoxColumn Header="弃用" Binding="{Binding Abandoned, UpdateSourceTrigger=PropertyChanged}" Width="56"/>
+                                    <DataGridCheckBoxColumn Header="打印出库" Binding="{Binding Printed, UpdateSourceTrigger=PropertyChanged}" Width="76"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
     </TabControl>
 </Window>

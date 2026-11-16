@@ -208,41 +208,61 @@
                     <!-- 页 2：数据库表格（筛选 + 记录表） -->
                     <Border x:Name="PanelRecords" Style="{StaticResource Card}" Visibility="Collapsed">
                         <DockPanel>
-                            <!-- 筛选栏：时间 / 机位 / 工位 / 结果（机位号在工位号左边，纯数字） -->
-                            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <!-- 筛选栏：快捷范围 + 时间 / 机位 / 工位 / 结果（浅底条带，控件等高对齐） -->
+                            <Border DockPanel.Dock="Top" Background="#F1F5F9" CornerRadius="8"
+                                    Padding="12,10" Margin="0,0,0,8">
                                 <StackPanel>
-                                    <TextBlock Text="时间起" Style="{StaticResource FieldLabel}"/>
-                                    <DatePicker x:Name="PickFrom" Width="135" Height="36"/>
+                                    <WrapPanel Margin="0,0,0,8">
+                                        <TextBlock Text="快捷范围" Style="{StaticResource FieldLabel}"
+                                                   VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <Button Content="今天" Height="32" Padding="14,2" FontSize="12"
+                                                Style="{StaticResource GhostButton}" Click="BtnRangeToday_Click"/>
+                                        <Button Content="近 7 天" Height="32" Padding="14,2" FontSize="12"
+                                                Margin="6,0,0,0" Style="{StaticResource GhostButton}"
+                                                Click="BtnRange7d_Click"/>
+                                        <Button Content="近 30 天" Height="32" Padding="14,2" FontSize="12"
+                                                Margin="6,0,0,0" Style="{StaticResource GhostButton}"
+                                                Click="BtnRange30d_Click"/>
+                                        <Button Content="全部" Height="32" Padding="14,2" FontSize="12"
+                                                Margin="6,0,0,0" Style="{StaticResource GhostButton}"
+                                                Click="BtnRangeAll_Click"/>
+                                    </WrapPanel>
+                                    <WrapPanel>
+                                        <StackPanel>
+                                            <TextBlock Text="时间起" Style="{StaticResource FieldLabel}"/>
+                                            <DatePicker x:Name="PickFrom" Width="135" Height="36"/>
+                                        </StackPanel>
+                                        <StackPanel Margin="8,0,0,0">
+                                            <TextBlock Text="时间止" Style="{StaticResource FieldLabel}"/>
+                                            <DatePicker x:Name="PickTo" Width="135" Height="36"/>
+                                        </StackPanel>
+                                        <StackPanel Margin="8,0,0,0">
+                                            <TextBlock Text="机位" Style="{StaticResource FieldLabel}"/>
+                                            <ComboBox x:Name="ComboMachine" Width="105" Height="36"
+                                                      Style="{StaticResource FieldCombo}"/>
+                                        </StackPanel>
+                                        <StackPanel Margin="8,0,0,0">
+                                            <TextBlock Text="工位" Style="{StaticResource FieldLabel}"/>
+                                            <ComboBox x:Name="ComboStation" Width="105" Height="36"
+                                                      Style="{StaticResource FieldCombo}"/>
+                                        </StackPanel>
+                                        <StackPanel Margin="8,0,0,0">
+                                            <TextBlock Text="结果" Style="{StaticResource FieldLabel}"/>
+                                            <ComboBox x:Name="ComboResult" Width="105" Height="36"
+                                                      Style="{StaticResource FieldCombo}"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="12,0,0,0">
+                                            <Button x:Name="BtnQuery" Content="查询" Height="36" Padding="18,4"
+                                                    Style="{StaticResource PrimaryButton}" Click="BtnQuery_Click"
+                                                    ToolTip="按当前筛选条件查询 test_records"/>
+                                            <Button x:Name="BtnResetFilter" Content="重置" Height="36" Padding="18,4"
+                                                    Margin="8,0,0,0" Style="{StaticResource GhostButton}"
+                                                    Click="BtnResetFilter_Click"
+                                                    ToolTip="清空全部筛选条件并重新查询"/>
+                                        </StackPanel>
+                                    </WrapPanel>
                                 </StackPanel>
-                                <StackPanel Margin="8,0,0,0">
-                                    <TextBlock Text="时间止" Style="{StaticResource FieldLabel}"/>
-                                    <DatePicker x:Name="PickTo" Width="135" Height="36"/>
-                                </StackPanel>
-                                <StackPanel Margin="8,0,0,0">
-                                    <TextBlock Text="机位" Style="{StaticResource FieldLabel}"/>
-                                    <ComboBox x:Name="ComboMachine" Width="105" Height="36"
-                                              Style="{StaticResource FieldCombo}"/>
-                                </StackPanel>
-                                <StackPanel Margin="8,0,0,0">
-                                    <TextBlock Text="工位" Style="{StaticResource FieldLabel}"/>
-                                    <ComboBox x:Name="ComboStation" Width="105" Height="36"
-                                              Style="{StaticResource FieldCombo}"/>
-                                </StackPanel>
-                                <StackPanel Margin="8,0,0,0">
-                                    <TextBlock Text="结果" Style="{StaticResource FieldLabel}"/>
-                                    <ComboBox x:Name="ComboResult" Width="105" Height="36"
-                                              Style="{StaticResource FieldCombo}"/>
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="8,0,0,0">
-                                    <Button x:Name="BtnQuery" Content="查询" Height="40" Padding="18,4"
-                                            Style="{StaticResource PrimaryButton}" Click="BtnQuery_Click"
-                                            ToolTip="按当前筛选条件查询 test_records"/>
-                                    <Button x:Name="BtnResetFilter" Content="重置" Height="40" Padding="18,4"
-                                            Margin="8,0,0,0" Style="{StaticResource GhostButton}"
-                                            Click="BtnResetFilter_Click"
-                                            ToolTip="清空全部筛选条件并重新查询"/>
-                                </StackPanel>
-                            </WrapPanel>
+                            </Border>
                             <!-- 统计行 -->
                             <TextBlock x:Name="TxtDbStats" DockPanel.Dock="Top" Margin="0,0,0,8"
                                        FontSize="12" TextWrapping="Wrap"
@@ -296,6 +316,42 @@
                                             </Style>
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
+                                    <DataGridTemplateColumn Header="弃用" Width="52">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Abandoned}" VerticalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#64748B"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Abandoned}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#D97706"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTemplateColumn Header="打印出库" Width="68">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Printed}" VerticalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#64748B"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Printed}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#16A34A"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
                                     <DataGridTextColumn Header="测试时间" Binding="{Binding TestTime, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="130"/>
                                 </DataGrid.Columns>
                             </DataGrid>

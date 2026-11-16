@@ -26,6 +26,9 @@ public sealed class StationPresenceListener : IDisposable
     private TcpListener? _tcp;
     private CancellationTokenSource? _cts;
 
+    /// <summary>SN 发号台账（汇总机联机取号）；null = 取号接口未启用。</summary>
+    public Sn.SnIssuedStore? SnStore { get; set; }
+
     /// <summary>实际监听端口（Start(0) 时为系统分配的临时端口）。</summary>
     public int Port { get; private set; }
 
@@ -72,7 +75,22 @@ public sealed class StationPresenceListener : IDisposable
             {
                 var ip = (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "";
                 var stream = client.GetStream();
-                var body = await ReadHttpBodyAsync(stream, ct);
+                var (path, body) = await ReadHttpAsync(stream, ct);
+
+                // SN 联机取号接口（doc 21）：/api/v1/sn/next|release|lookup
+                if (path.StartsWith("/api/v1/sn/", StringComparison.Ordinal))
+                {
+                    var json = HandleSnApi(path, body);
+                    var payload = Encoding.UTF8.GetBytes(json);
+                    var head = Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+                        $"Content-Length: {payload.Length}\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(head, ct);
+                    await stream.WriteAsync(payload, ct);
+                    return;
+                }
+
+                // 其余路径按工位机心跳处理（POST /hello + JSON 身份）
                 var r = ParseReport(body);
                 MachineSeen?.Invoke(new StationPresence(
                     string.IsNullOrEmpty(r.Code) ? ip : r.Code,
@@ -90,9 +108,83 @@ public sealed class StationPresenceListener : IDisposable
         }
     }
 
-    /// <summary>极简 HTTP 请求体读取：扫到 \\r\\n\\r\\n 取 Content-Length，上限 4KB。</summary>
-    private static async Task<string> ReadHttpBodyAsync(NetworkStream stream, CancellationToken ct)
+    /// <summary>SN 取号接口派发（next=发号 / release=弃用 / lookup=查询）。</summary>
+    private string HandleSnApi(string path, string body)
     {
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        if (SnStore is null)
+            return JsonSerializer.Serialize(new { ok = false, error = "NO_STORE", message = "联机取号服务未启用" });
+        try
+        {
+            if (path.Contains("/sn/next"))
+            {
+                var dto = JsonSerializer.Deserialize<SnReqDto>(body, opts) ?? new SnReqDto();
+                var r = SnStore.Allocate(DateTime.Now, dto.Station, dto.Machine);
+                return JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    date = r.Day,
+                    items = new[] { new { sn = r.Sn, seq = r.Seq } },
+                });
+            }
+            if (path.Contains("/sn/release"))
+            {
+                var dto = JsonSerializer.Deserialize<SnReqDto>(body, opts) ?? new SnReqDto();
+                if (string.IsNullOrEmpty(dto.Sn))
+                    return JsonSerializer.Serialize(new { ok = false, error = "BAD_REQUEST", message = "缺少 sn" });
+                SnStore.Release(dto.Sn);
+                return JsonSerializer.Serialize(new { ok = true });
+            }
+            if (path.Contains("/sn/lookup"))
+            {
+                var sn = QueryParam(path, "sn") ?? "";
+                var item = SnStore.Lookup(sn);
+                return item is null
+                    ? JsonSerializer.Serialize(new { ok = false, error = "NOT_FOUND" })
+                    : JsonSerializer.Serialize(new { ok = true, item = new
+                      {
+                          sn = item.Value.Sn, day = item.Value.Day, seq = item.Value.Seq,
+                          state = item.Value.State, machine = item.Value.Machine,
+                      } });
+            }
+            return JsonSerializer.Serialize(new { ok = false, error = "NOT_FOUND" });
+        }
+        catch (Sn.SnExceededException ex)
+        {
+            return JsonSerializer.Serialize(new { ok = false, error = "CAP_REACHED", message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(new { ok = false, error = "INTERNAL", message = ex.Message });
+        }
+    }
+
+    /// <summary>从 URL 查询串取参数（极简）。</summary>
+    private static string? QueryParam(string path, string key)
+    {
+        var q = path.IndexOf('?');
+        if (q < 0)
+            return null;
+        foreach (var kv in path[(q + 1)..].Split('&'))
+        {
+            var p = kv.Split('=', 2);
+            if (p.Length == 2 && p[0] == key)
+                return Uri.UnescapeDataString(p[1]);
+        }
+        return null;
+    }
+
+    private sealed class SnReqDto
+    {
+        public int Station { get; set; }
+        public string Machine { get; set; } = "";
+        public string Sn { get; set; } = "";
+    }
+
+    /// <summary>极简 HTTP 解析：返回请求行 path 与 body（Content-Length 上限 4KB）。</summary>
+    private static async Task<(string Path, string Body)> ReadHttpAsync(NetworkStream stream, CancellationToken ct)
+    {
+        string path = "/";
         var head = new MemoryStream();
         var b = new byte[1];
         while (head.Length < 8192)
@@ -110,11 +202,18 @@ public sealed class StationPresenceListener : IDisposable
         var contentLen = 0;
         foreach (var line in Encoding.ASCII.GetString(head.GetBuffer(), 0, (int)head.Length).Split("\r\n"))
         {
+            // 请求行 "POST /api/v1/sn/next HTTP/1.1" → 取 path
+            if (line.StartsWith("GET ") || line.StartsWith("POST ") || line.StartsWith("PUT "))
+            {
+                var parts = line.Split(' ');
+                if (parts.Length >= 2)
+                    path = parts[1];
+            }
             if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
                 int.TryParse(line["Content-Length:".Length..].Trim(), out contentLen);
         }
         if (contentLen <= 0 || contentLen > 4096)
-            return "";
+            return (path, "");
 
         var body = new byte[contentLen];
         var read = 0;
@@ -125,7 +224,7 @@ public sealed class StationPresenceListener : IDisposable
                 break;
             read += n;
         }
-        return Encoding.UTF8.GetString(body, 0, read);
+        return (path, Encoding.UTF8.GetString(body, 0, read));
     }
 
     private sealed class ReportDto

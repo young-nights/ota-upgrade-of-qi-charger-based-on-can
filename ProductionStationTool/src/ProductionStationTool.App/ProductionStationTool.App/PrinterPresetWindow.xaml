@@ -1,0 +1,91 @@
+<Window x:Class="ProductionStationTool.App.PrinterPresetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="打印机设置" Height="680" Width="660"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
+        <StackPanel Margin="16">
+
+            <!-- 模板与打印机 -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock x:Name="TxtTitle" Text="SN 码预设" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="BarTender 模板（.btw）与目标打印机。模板排版（字体/行距/布局）在 BarTender Designer 中所见即所得；此处管理模板路径、打印机与命名数据源。"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,10,0,12"/>
+
+                    <TextBlock Text="模板路径（.btw）" Style="{StaticResource FieldLabel}"/>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="BoxTemplate" Grid.Column="0" Style="{StaticResource FieldBox}"
+                                 Margin="0,0,8,0"/>
+                        <Button Grid.Column="1" Content="浏览…" Width="90" Height="36"
+                                Style="{StaticResource GhostButton}" Click="BtnBrowse_Click"/>
+                    </Grid>
+
+                    <TextBlock Text="打印机名（与系统打印机名一致，留空 = BarTender 默认打印机）"
+                               Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="BoxPrinter" Style="{StaticResource FieldBox}" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="命名数据源（每行「名称=值」，值可用 {SN} 占位）"
+                               Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="BoxNamed" Style="{StaticResource FieldBox}" Height="96"
+                             AcceptsReturn="True" AcceptsTab="True" VerticalScrollBarVisibility="Auto"
+                             FontFamily="Consolas" FontSize="12"
+                             ToolTip="键 = .btw 内 NamedSubStrings 名；值 = 打印时填入的内容，{SN} 会替换为实际 SN"/>
+                </StackPanel>
+            </Border>
+
+            <!-- 模板信息（逆向查看 + 字体套用） -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="模板信息（逆向查看）" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="经 BarTender COM 读取模板内的命名数据源与文本对象（字体/字号/坐标），用于核对预设与模板是否对得上。行距等 COM 未暴露的属性请在 BarTender Designer 中调整。"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,10,0,12"/>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="读取模板信息" Width="150" Height="36"
+                                Style="{StaticResource GhostButton}" Click="BtnReadInfo_Click"
+                                ToolTip="需本机安装 BarTender（Automation 及以上）"/>
+                        <TextBlock x:Name="TxtInfoStatus" VerticalAlignment="Center"
+                                   Margin="12,0,0,0" FontSize="12"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <TextBox x:Name="TxtInfo" Style="{StaticResource FieldBox}" Height="120"
+                             Margin="0,10,0,12" IsReadOnly="True" AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11"/>
+
+                    <TextBlock Text="套用字体到模板全部文本对象" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox x:Name="BoxFontName" Width="200" Height="36"
+                                 Style="{StaticResource FieldBox}" Margin="0,0,8,0"
+                                 ToolTip="字体名（如 SimSun / Arial）；留空不改字体"/>
+                        <TextBox x:Name="BoxFontSize" Width="90" Height="36"
+                                 Style="{StaticResource FieldBox}" Margin="0,0,8,0"
+                                 ToolTip="字号（磅）；留空或 0 不改字号"/>
+                        <Button Content="应用到模板" Width="120" Height="36"
+                                Style="{StaticResource GhostButton}" Click="BtnApplyFont_Click"
+                                ToolTip="直接改写 .btw 模板并保存（字体/字号；行距请在 Designer 调）"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 操作 -->
+            <StackPanel Orientation="Horizontal">
+                <Button Content="保存预设" Width="150" Height="40"
+                        Style="{StaticResource PrimaryButton}" Click="BtnSave_Click"/>
+                <Button Content="试打印一张" Width="130" Height="40" Margin="12,0,0,0"
+                        Style="{StaticResource GhostButton}" Click="BtnTestPrint_Click"
+                        ToolTip="用 {SN}=TEST0001 按当前填写内容试打一张"/>
+                <TextBlock x:Name="TxtResult" VerticalAlignment="Center"
+                           Margin="12,0,0,0" FontSize="12" TextWrapping="Wrap" MaxWidth="280"
+                           Foreground="{StaticResource TextSecondaryBrush}"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

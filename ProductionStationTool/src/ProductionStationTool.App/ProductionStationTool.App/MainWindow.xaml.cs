@@ -140,6 +140,14 @@ public partial class MainWindow : Window
 
     private void MenuSettingsPresets_Click(object sender, RoutedEventArgs e) => OpenSettings(2);
 
+    private void MenuSettingsData_Click(object sender, RoutedEventArgs e) => OpenSettings(3);
+
+    private void MenuPrintSn_Click(object sender, RoutedEventArgs e)
+        => new PrinterPresetWindow("sn") { Owner = this }.ShowDialog();
+
+    private void MenuPrintBox_Click(object sender, RoutedEventArgs e)
+        => new PrinterPresetWindow("box") { Owner = this }.ShowDialog();
+
     private void OpenSettings(int startTab)
     {
         var win = new SettingsWindow(startTab) { Owner = this };

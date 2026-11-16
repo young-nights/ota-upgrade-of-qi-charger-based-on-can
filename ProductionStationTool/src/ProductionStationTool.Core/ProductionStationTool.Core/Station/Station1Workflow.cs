@@ -13,18 +13,23 @@ public sealed record Station1Result(
 
 /// <summary>
 /// 工位 1 流程编排（构想文档）：
-///   生成 SN → 写入 SN → 回读验证 → 开充电 → PowerZ A/B 线圈检测 → 入库
+///   取号生成 SN → 写入 SN → 回读验证 → 开充电 → PowerZ A/B 线圈检测 → 入库
 ///
 /// 关键约定：
-///  - SN 写入失败 → **不入库**，流水号不消耗（下次生成仍用同一序号）；
+///  - SN 联机取号（汇总机统一发号，防多机位撞号）；当日 9999 用尽后回收弃用号，
+///    无号可回收时报「今日 SN 已达上限」并终止（UI 需失败提示）；
+///  - SN 写入/回读失败 → **不入库**、本号立即弃用回收（下次取新号）；
+///  - 测试 FAIL → 入库 FAIL 记录并标记弃用（不流入打印工序），SN 弃用可回收；
+///    弃用号重测通过时 upsert 覆盖原失败记录；
 ///  - 任何异常项 → 页面显示异常原因；全正常才 PASS；
-///  - 步骤 5 双线圈检测见 <see cref="CoilCheck"/>：A 线圈 10s 均值 ≥ 1A、
-///    换线圈跌落（正常不判失败）、B 线圈恢复 ≥ 1A 并持续；整体超时判 FAIL。
+///  - 步骤 5 双线圈检测见 <see cref="CoilCheck"/>。
 /// </summary>
 public sealed class Station1Workflow
 {
     private readonly ITestRecordStore _store;
-    private readonly Func<DateTime, int, string> _snGenerate; // 可注入以便测试
+    private readonly Func<DateTime, int, string> _snGenerate; // 本地生成（测试/离线兜底）
+    private readonly Func<CancellationToken, Task<SnAllocResult>>? _snAllocate; // 联机取号（防撞号）
+    private readonly Func<string, CancellationToken, Task>? _snRelease;         // 弃用回收
     private int _nextSequence;
 
     /// <summary>本机身份（工位号 + 机位号），入库记录按此标记来源。</summary>
@@ -34,12 +39,25 @@ public sealed class Station1Workflow
         ITestRecordStore store,
         int startSequence = 1,
         Func<DateTime, int, string>? snGenerate = null,
-        StationIdentity? identity = null)
+        StationIdentity? identity = null,
+        Func<CancellationToken, Task<SnAllocResult>>? snAllocate = null,
+        Func<string, CancellationToken, Task>? snRelease = null)
     {
         _store = store;
         _nextSequence = startSequence;
         _snGenerate = snGenerate ?? ((d, s) => SnGenerator.Generate(d, s));
         Identity = identity ?? new StationIdentity(1, "1");
+        _snAllocate = snAllocate;
+        _snRelease = snRelease;
+    }
+
+    /// <summary>弃用回收（失败静默，不阻塞流程）。</summary>
+    private async Task ReleaseSnAsync(string sn, CancellationToken ct)
+    {
+        if (_snRelease is null || string.IsNullOrEmpty(sn))
+            return;
+        try { await _snRelease(sn, ct); }
+        catch { /* 回收失败不阻塞 */ }
     }
 
     /// <summary>执行一次工位 1 测试。snWrite/snRead/device 由上位机 CAN 层提供。</summary>
@@ -53,30 +71,53 @@ public sealed class Station1Workflow
         CancellationToken ct = default,
         Action<CoilProgress>? onProgress = null)
     {
-        // 1. 生成 SN
-        var sn = _snGenerate(DateTime.Now, _nextSequence);
+        // 1. 取号生成 SN：优先联机取号（汇总机统一发号，防多机撞号）
+        string sn;
+        if (_snAllocate is not null)
+        {
+            var alloc = await _snAllocate(ct);
+            if (!alloc.Ok || string.IsNullOrEmpty(alloc.Sn))
+                return new Station1Result("", false, null,
+                    new[] { string.IsNullOrEmpty(alloc.Message) ? "SN 取号失败" : alloc.Message });
+            sn = alloc.Sn!;
+        }
+        else
+        {
+            sn = _snGenerate(DateTime.Now, _nextSequence);
+        }
 
-        // 2. 写 SN + 回读验证；失败不入库、不消耗流水号
+        // 2. 写 SN + 回读验证；失败不入库、本号立即弃用回收
         if (!await snWriteAsync(sn))
+        {
+            await ReleaseSnAsync(sn, ct);
             return new Station1Result(sn, false, null,
-                new[] { "SN 写入失败" });
+                new[] { "SN 写入失败（本号已弃用回收）" });
+        }
 
         var readBack = await snReadAsync();
         if (!string.Equals(readBack, sn, StringComparison.Ordinal))
+        {
+            await ReleaseSnAsync(sn, ct);
             return new Station1Result(sn, false, null,
-                new[] { $"SN 回读不一致：写入 {sn}，读回 {readBack ?? "(空)"}" });
+                new[] { $"SN 回读不一致：写入 {sn}，读回 {readBack ?? "(空)"}（本号已弃用回收）" });
+        }
 
         // 3. 开充电 + PowerZ 双线圈检测
         //    A 线圈 10s 均值 ≥ 阈值 → 跌落过渡（正常不判失败）→ B 线圈恢复并持续；整体限时
         await chargeStartAsync();
         var coil = await CoilCheck.RunAsync(powerZ, coils, log, ct, onProgress);
 
-        // 4. 无有效采样 = 流程错误：停止，不判限、不入库
+        // 4. 无有效采样 = 流程错误：停止，不判限、不入库（本号弃用回收）
         if (coil.NoValidSample)
+        {
+            await ReleaseSnAsync(sn, ct);
             return new Station1Result(sn, false, coil,
-                new[] { "PowerZ 无有效采样" });
+                new[] { "PowerZ 无有效采样（本号已弃用回收）" });
+        }
 
         // 5. 入库（SN 写入成功 + 有采样才走到这里；线圈判 FAIL 也入库为 FAIL 记录）
+        //    FAIL = 弃用：记录保留（后台仍记失败）但不流入打印工序，SN 可回收；
+        //    弃用号重测通过时 Add 按 SN+工位 upsert 覆盖原失败记录。
         var passed = coil.IsNormal;
         _store.Add(new TestRecord
         {
@@ -89,6 +130,11 @@ public sealed class Station1Workflow
             AbnormalItems = string.Join("；", coil.AbnormalItems),
             TestTime = DateTime.Now,
         });
+        if (!passed)
+        {
+            _store.MarkAbandoned(sn);
+            await ReleaseSnAsync(sn, ct);
+        }
         _nextSequence++;
 
         return new Station1Result(sn, passed, coil, coil.AbnormalItems);

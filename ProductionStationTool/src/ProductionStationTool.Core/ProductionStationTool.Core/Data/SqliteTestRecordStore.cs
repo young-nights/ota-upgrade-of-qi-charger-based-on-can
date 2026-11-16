@@ -32,6 +32,8 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
                     current        REAL    NOT NULL,
                     abnormal_items TEXT    NOT NULL DEFAULT '',
                     test_time      TEXT    NOT NULL,
+                    abandoned      INTEGER NOT NULL DEFAULT 0,
+                    printed        INTEGER NOT NULL DEFAULT 0,
                     UNIQUE(sn, station_no)
                 )
                 """;
@@ -53,6 +55,20 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
         // 旧库升级②：sn 单列 UNIQUE → UNIQUE(sn, station_no)（同 SN 各工位各一条）
         if (HasUniqueIndexOnSnOnly())
             RebuildForMultiStation();
+
+        // 旧库升级③：补 abandoned（弃用标记）/ printed（是否打印出库）列
+        foreach (var col in new[] { "abandoned", "printed" })
+        {
+            try
+            {
+                using var mig = _conn.CreateCommand();
+                mig.CommandText = $"ALTER TABLE test_records ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0";
+                mig.ExecuteNonQuery();
+            }
+            catch (SqliteException)
+            {
+            }
+        }
     }
 
     /// <summary>检测旧表结构：存在仅覆盖 sn 单列的 UNIQUE 约束（sqlite 自动索引）。</summary>
@@ -124,15 +140,17 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
         // 同 SN 同工位重测：覆盖更新取最新结果（UNIQUE(sn, station_no)）
         cmd.CommandText =
             """
-            INSERT INTO test_records (sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time)
-            VALUES ($sn, $st, $mid, $res, $v, $i, $ab, $t)
+            INSERT INTO test_records (sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time, abandoned, printed)
+            VALUES ($sn, $st, $mid, $res, $v, $i, $ab, $t, $aband, $print)
             ON CONFLICT(sn, station_no) DO UPDATE SET
                 machine_id     = excluded.machine_id,
                 result         = excluded.result,
                 voltage        = excluded.voltage,
                 current        = excluded.current,
                 abnormal_items = excluded.abnormal_items,
-                test_time      = excluded.test_time
+                test_time      = excluded.test_time,
+                abandoned      = excluded.abandoned,
+                printed        = excluded.printed
             """;
         cmd.Parameters.AddWithValue("$sn", r.Sn);
         cmd.Parameters.AddWithValue("$st", r.StationNo);
@@ -142,14 +160,56 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
         cmd.Parameters.AddWithValue("$i", r.Current);
         cmd.Parameters.AddWithValue("$ab", r.AbnormalItems);
         cmd.Parameters.AddWithValue("$t", r.TestTime.ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.Parameters.AddWithValue("$aband", r.Abandoned ? 1 : 0);
+        cmd.Parameters.AddWithValue("$print", r.Printed ? 1 : 0);
         cmd.ExecuteNonQuery();
+    }
+
+    public void MarkAbandoned(string sn)
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "UPDATE test_records SET abandoned = 1 WHERE sn = $sn";
+        cmd.Parameters.AddWithValue("$sn", sn);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void MarkPrinted(string sn)
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "UPDATE test_records SET printed = 1 WHERE sn = $sn";
+        cmd.Parameters.AddWithValue("$sn", sn);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void SetAbandoned(string sn, bool abandoned)
+    {
+        lock (_conn)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "UPDATE test_records SET abandoned = $v WHERE sn = $sn";
+            cmd.Parameters.AddWithValue("$v", abandoned ? 1 : 0);
+            cmd.Parameters.AddWithValue("$sn", sn);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public void SetPrinted(string sn, bool printed)
+    {
+        lock (_conn)
+        {
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = "UPDATE test_records SET printed = $v WHERE sn = $sn";
+            cmd.Parameters.AddWithValue("$v", printed ? 1 : 0);
+            cmd.Parameters.AddWithValue("$sn", sn);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     public IReadOnlyList<TestRecord> FindAllBySn(string sn)
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
-            "SELECT id, sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time " +
+            "SELECT id, sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time, abandoned, printed " +
             "FROM test_records WHERE sn = $sn ORDER BY station_no";
         cmd.Parameters.AddWithValue("$sn", sn);
         return ReadAll(cmd);
@@ -159,7 +219,7 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
-            "SELECT id, sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time " +
+            "SELECT id, sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time, abandoned, printed " +
             "FROM test_records ORDER BY id DESC LIMIT $n";
         cmd.Parameters.AddWithValue("$n", n);
         return ReadAll(cmd);
@@ -169,7 +229,7 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
     {
         using var cmd = _conn.CreateCommand();
         var sql =
-            "SELECT id, sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time " +
+            "SELECT id, sn, station_no, machine_id, result, voltage, current, abnormal_items, test_time, abandoned, printed " +
             "FROM test_records WHERE 1=1";
         if (f.From is { } from)
         {
@@ -214,16 +274,17 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
         return list;
     }
 
-    public IReadOnlyList<MachineTestStats> StatsByMachine()
+    public IReadOnlyList<MachineTestStats> StatsByMachine(bool excludeAbandoned = false)
     {
         using var cmd = _conn.CreateCommand();
+        var where = excludeAbandoned ? "WHERE abandoned = 0" : "";
         cmd.CommandText =
-            """
+            $"""
             SELECT station_no, machine_id, COUNT(*),
                    SUM(CASE WHEN result = 'PASS' THEN 1 ELSE 0 END),
                    SUM(CASE WHEN result = 'FAIL' THEN 1 ELSE 0 END),
                    MAX(test_time)
-            FROM test_records GROUP BY station_no, machine_id
+            FROM test_records {where} GROUP BY station_no, machine_id
             ORDER BY station_no, machine_id
             """;
         using var rd = cmd.ExecuteReader();
@@ -258,6 +319,8 @@ public sealed class SqliteTestRecordStore : ITestRecordStore, IDisposable
         Current = rd.GetDouble(6),
         AbnormalItems = rd.GetString(7),
         TestTime = DateTime.Parse(rd.GetString(8)),
+        Abandoned = rd.GetInt64(9) != 0,
+        Printed = rd.GetInt64(10) != 0,
     };
 
     public void Dispose() => _conn.Dispose();

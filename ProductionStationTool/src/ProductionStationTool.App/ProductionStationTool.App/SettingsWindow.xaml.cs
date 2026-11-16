@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using ProductionStationTool.App.Utilities;
+using ProductionStationTool.Core.Data;
 using ProductionStationTool.Core.Station;
 
 namespace ProductionStationTool.App;
@@ -24,11 +25,11 @@ public partial class SettingsWindow : Window
 
     public SettingsWindow() : this(0) { }
 
-    /// <summary>startTab：0=机位与网络，1=检测参数，2=版本预设（顶部菜单直达对应页）。</summary>
+    /// <summary>startTab：0=机位与网络，1=检测参数，2=版本预设，3=数据管理（顶部菜单直达对应页）。</summary>
     public SettingsWindow(int startTab)
     {
         InitializeComponent();
-        Tabs.SelectedIndex = startTab is 0 or 1 or 2 ? startTab : 0;
+        Tabs.SelectedIndex = startTab is 0 or 1 or 2 or 3 ? startTab : 0;
         // 可编辑 ComboBox 的文本变化是内部 TextBox 的路由事件，挂上以便实时预览编码
         CmbStationNo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
             new TextChangedEventHandler((_, _) => Identity_Changed(CmbStationNo, EventArgs.Empty)));
@@ -51,6 +52,122 @@ public partial class SettingsWindow : Window
         var (sw, hw) = MachineConfig.LoadVersionPresets();
         BoxPresetSw.Text = sw;
         BoxPresetHw.Text = hw;
+
+        // 页 4：数据管理
+        ChkYieldExclude.IsChecked = MachineConfig.LoadYieldExcludeAbandoned();
+        RefreshYieldSummary();
+        QueryFixRows();
+    }
+
+    // ================= 页 4：数据管理 =================
+
+    /// <summary>手动修正表行（弃用/打印标记可改，写回按 SN 生效）。</summary>
+    private sealed class FixRow
+    {
+        public string Sn { get; init; } = "";
+        public int StationNo { get; init; }
+        public string Result { get; init; } = "";
+        public DateTime TestTime { get; init; }
+        public bool Abandoned { get; set; }
+        public bool Printed { get; set; }
+    }
+
+    private void RefreshYieldSummary()
+    {
+        try
+        {
+            using var store = new Core.Data.SqliteTestRecordStore();
+            bool exclude = ChkYieldExclude.IsChecked == true;
+            var lines = new List<string> { $"当前口径：{(exclude ? "弃用记录不计入良率" : "全部记录计入良率")}" };
+            var rows = store.StatsByMachine(exclude);
+            if (rows.Count == 0)
+            {
+                lines.Add("（暂无测试记录）");
+            }
+            else
+            {
+                int total = 0, pass = 0, fail = 0;
+                foreach (var r in rows)
+                {
+                    total += r.Total;
+                    pass += r.Pass;
+                    fail += r.Fail;
+                    double y = r.Total == 0 ? 0 : r.Pass * 100.0 / r.Total;
+                    lines.Add($"工位{r.StationNo}·机位{r.MachineId}：测试 {r.Total} · PASS {r.Pass} · FAIL {r.Fail} · 良率 {y:F1}%");
+                }
+                double all = total == 0 ? 0 : pass * 100.0 / total;
+                lines.Insert(1, $"全部机位合计：测试 {total} · PASS {pass} · FAIL {fail} · 良率 {all:F1}%");
+            }
+            TxtYieldSummary.Text = string.Join("\n", lines);
+        }
+        catch (Exception ex)
+        {
+            TxtYieldSummary.Text = $"统计读取失败：{ex.Message}";
+        }
+    }
+
+    private void BtnSaveYield_Click(object sender, RoutedEventArgs e)
+    {
+        MachineConfig.SaveYieldExcludeAbandoned(ChkYieldExclude.IsChecked == true);
+        RefreshYieldSummary();
+        TxtYieldResult.Text = "口径已保存（machine.json）";
+    }
+
+    private void BtnRefreshYield_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshYieldSummary();
+        TxtYieldResult.Text = "已刷新";
+    }
+
+    private void QueryFixRows()
+    {
+        try
+        {
+            using var store = new Core.Data.SqliteTestRecordStore();
+            var sn = BoxSnQuery.Text.Trim();
+            var records = sn.Length > 0
+                ? store.FindAllBySn(sn)
+                : store.Query(new Core.Data.TestRecordFilter(Limit: 200));
+            GridFix.ItemsSource = records.Select(r => new FixRow
+            {
+                Sn = r.Sn,
+                StationNo = r.StationNo,
+                Result = r.Result,
+                TestTime = r.TestTime,
+                Abandoned = r.Abandoned,
+                Printed = r.Printed,
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            TxtYieldResult.Text = $"查询失败：{ex.Message}";
+        }
+    }
+
+    private void BtnQueryRecords_Click(object sender, RoutedEventArgs e) => QueryFixRows();
+
+    private void BtnApplyFix_Click(object sender, RoutedEventArgs e)
+    {
+        if (GridFix.ItemsSource is not IEnumerable<FixRow> rows)
+            return;
+        try
+        {
+            using var store = new Core.Data.SqliteTestRecordStore();
+            int n = 0;
+            foreach (var grp in rows.GroupBy(r => r.Sn))
+            {
+                var row = grp.First();
+                store.SetAbandoned(row.Sn, row.Abandoned);
+                store.SetPrinted(row.Sn, row.Printed);
+                n++;
+            }
+            RefreshYieldSummary();
+            TxtYieldResult.Text = $"已应用 {n} 个 SN 的标记修正";
+        }
+        catch (Exception ex)
+        {
+            TxtYieldResult.Text = $"应用失败：{ex.Message}";
+        }
     }
 
     // ================= 页 1：机位与网络 =================

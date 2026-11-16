@@ -4,6 +4,7 @@ using System.Windows.Media;
 using ProductionStationTool.App.Controls;
 using ProductionStationTool.App.Utilities;
 using ProductionStationTool.Core.Data;
+using ProductionStationTool.Core.Sn;
 using ProductionStationTool.Core.Station;
 using ProductionStationTool.PowerZ;
 
@@ -29,6 +30,9 @@ public partial class Station1Control : UserControl, IStationPage
     private readonly LogBuffer _log = new();
     private LogWindow? _logWin;
     private readonly Station1Workflow _workflow;
+    /// <summary>SN 联机取号客户端（汇总机统一发号，防多机位撞号）。</summary>
+    private readonly SnAllocationClient _snClient = new();
+    private readonly string _serverHost;
 
     private CanUdsDevice? _can;
 
@@ -55,8 +59,12 @@ public partial class Station1Control : UserControl, IStationPage
     public Station1Control(StationIdentity identity)
     {
         InitializeComponent();
-        _workflow = new Station1Workflow(_store, identity: identity);
+        _serverHost = MachineConfig.LoadServerHost();
+        _workflow = new Station1Workflow(_store, identity: identity,
+            snAllocate: ct => _snClient.NextAsync(_serverHost, identity.StationNo, identity.MachineId, ct),
+            snRelease: (sn, ct) => _snClient.ReleaseAsync(_serverHost, sn, ct));
         _log.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
+        _log.Append($"SN 联机取号：汇总机 {_serverHost}:5000（防撞号；超 9999 回收弃用号）");
         FlowPanel.SetSteps(
             ("1", "连接设备（串口/CAN 自动检测）"),
             ("2", "生成 SN 码"),
@@ -203,6 +211,23 @@ public partial class Station1Control : UserControl, IStationPage
                     _log.Append($"生成 SN：{sn}");
                     FlowPanel.Mark(1, StepStatus.Passed);      // ② 生成 SN：完成
 
+                    // 换新号前：设备残留的旧 SN 被取代 → 标弃用并回收
+                    // （返修重测：旧 SN 的历史记录保留，但不流入打印工序）
+                    try
+                    {
+                        var oldSn = await _can.TryReadSnAsync(ct);
+                        if (!string.IsNullOrEmpty(oldSn) && !string.Equals(oldSn, sn, StringComparison.Ordinal))
+                        {
+                            _store.MarkAbandoned(oldSn);
+                            await _snClient.ReleaseAsync(_serverHost, oldSn, ct);
+                            _log.Append($"旧 SN {oldSn} 被新号取代：已标弃用并回收");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Append($"旧 SN 读取失败（不阻塞写入新号）：{ex.Message}");
+                    }
+
                     FlowPanel.Mark(2, StepStatus.Running);     // ③ 写入并回读：开始
                     var (ok, detail) = await _can.WriteSnAsync(sn, ct);
                     _log.Append(ok ? $"步骤 3：写 SN 成功 {detail}" : $"步骤 3：写 SN 失败 {detail}");
@@ -305,6 +330,12 @@ public partial class Station1Control : UserControl, IStationPage
         {
             // 前序失败：未到达的步骤全部标未执行（已定格 FAIL 的步骤不覆盖——
             // 开充电失败时步骤 4 已标 FAIL，不得改回「未执行」）
+            if (result is { Sn.Length: 0 })
+            {
+                // SN 取号失败（如超上限）：② 生成 SN 定格失败，③ 起未执行
+                FlowPanel.Mark(1, StepStatus.Failed);
+                FlowPanel.Mark(2, StepStatus.Waiting, "未执行（前序失败）");
+            }
             if (!snOk)
                 FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
             ShowCoilJudgement(null);

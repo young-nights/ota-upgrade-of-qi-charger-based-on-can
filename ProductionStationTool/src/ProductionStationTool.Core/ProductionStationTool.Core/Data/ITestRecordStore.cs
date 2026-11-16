@@ -13,6 +13,12 @@ public sealed class TestRecord
     public double Current { get; set; }
     public string AbnormalItems { get; set; } = ""; // 异常项（分号分隔，空 = 正常）
     public DateTime TestTime { get; set; }
+
+    /// <summary>弃用标记（工位1 失败弃用 / 被新 SN 取代）：不计入良率、可回收重发。</summary>
+    public bool Abandoned { get; set; }
+
+    /// <summary>是否打印出库（该 SN 标签经 BarTender 打印成功后置位）。</summary>
+    public bool Printed { get; set; }
 }
 
 /// <summary>
@@ -39,10 +45,23 @@ public sealed record MachineTestStats(
 public interface ITestRecordStore
 {
     /// <summary>
-    /// 追加一条记录（同 SN 同工位覆盖更新，取最新结果）。
-    /// **只有 SN 写入/读取设备成功后才应调用**——构想要求：失败的 SN 不计入数据库。
+    /// 追加一条记录（同 SN 同工位覆盖更新，取最新结果；覆盖时以新记录的
+    /// 弃用/打印标记为准——回收号重测通过即覆盖旧失败记录）。
+    /// **只有 SN 写入/读取设备成功后才应调用**。
     /// </summary>
     void Add(TestRecord record);
+
+    /// <summary>标记该 SN 的记录为弃用（工位1 失败弃用 / 被新 SN 取代）。</summary>
+    void MarkAbandoned(string sn);
+
+    /// <summary>标记该 SN 已打印出库。</summary>
+    void MarkPrinted(string sn);
+
+    /// <summary>手动修正：设置该 SN 全部记录的弃用标记（「数据管理」修正良率口径）。</summary>
+    void SetAbandoned(string sn, bool abandoned);
+
+    /// <summary>手动修正：设置该 SN 全部记录的打印出库标记。</summary>
+    void SetPrinted(string sn, bool printed);
 
     /// <summary>按 SN 查全部工位记录（工位3 关联历史 / 工位4 出货门禁），按工位号升序。</summary>
     IReadOnlyList<TestRecord> FindAllBySn(string sn);
@@ -56,6 +75,7 @@ public interface ITestRecordStore
     /// <summary>库里出现过的（工位号, 机位号）组合（筛选下拉用），按工位号升序。</summary>
     IReadOnlyList<(int StationNo, string MachineId)> DistinctSources();
 
-    /// <summary>按机位聚合的测试统计（总数/PASS/FAIL/最近测试时间）。</summary>
-    IReadOnlyList<MachineTestStats> StatsByMachine();
+    /// <summary>按机位聚合的测试统计（总数/PASS/FAIL/最近测试时间）；
+    /// excludeAbandoned=true 时弃用记录不计入（良率口径）。</summary>
+    IReadOnlyList<MachineTestStats> StatsByMachine(bool excludeAbandoned = false);
 }

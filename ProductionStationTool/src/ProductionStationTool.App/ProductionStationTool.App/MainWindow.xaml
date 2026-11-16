@@ -17,6 +17,7 @@
                         <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
                         <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
                         <MenuItem Header="版本预设…" Click="MenuSettingsPresets_Click"/>
+                        <MenuItem Header="数据管理…" Click="MenuSettingsData_Click"/>
                     </MenuItem>
                     <!-- 工位切换：菜单栏下拉，勾选当前工位；默认工位1 -->
                     <MenuItem x:Name="MenuStations" Header="工位选择">
@@ -28,6 +29,11 @@
                                   IsCheckable="True" Click="MenuStation_Click"/>
                         <MenuItem Header="工位4 — 出货门禁 + 版本比对" Tag="3"
                                   IsCheckable="True" Click="MenuStation_Click"/>
+                    </MenuItem>
+                    <!-- 打印机设置：SN 码预设 / 外包箱预设（BarTender 模板与数据源） -->
+                    <MenuItem Header="打印机设置">
+                        <MenuItem Header="SN 码预设…" Click="MenuPrintSn_Click"/>
+                        <MenuItem Header="外包箱预设…" Click="MenuPrintBox_Click"/>
                     </MenuItem>
                     <MenuItem Header="关于">
                         <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>

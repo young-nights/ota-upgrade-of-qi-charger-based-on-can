@@ -142,7 +142,8 @@ public partial class SummaryMachinePage : UserControl
         var statsByCode = new Dictionary<string, MachineTestStats>(StringComparer.OrdinalIgnoreCase);
         using (var store = new SqliteTestRecordStore())
         {
-            foreach (var s in store.StatsByMachine())
+            // 良率口径：「设置 → 数据管理」可调（弃用记录是否计入）
+            foreach (var s in store.StatsByMachine(MachineConfig.LoadYieldExcludeAbandoned()))
                 statsByCode[CodeOf(s.StationNo, s.MachineId)] = s;
         }
 
@@ -263,6 +264,35 @@ public partial class SummaryMachinePage : UserControl
 
     private void BtnRefreshDb_Click(object sender, RoutedEventArgs e) => RefreshRecords();
 
+    // 快捷范围：今天 / 近 7 天 / 近 30 天 / 全部
+    private void BtnRangeToday_Click(object sender, RoutedEventArgs e)
+    {
+        PickFrom.SelectedDate = DateTime.Today;
+        PickTo.SelectedDate = DateTime.Today;
+        RefreshRecords();
+    }
+
+    private void BtnRange7d_Click(object sender, RoutedEventArgs e)
+    {
+        PickFrom.SelectedDate = DateTime.Today.AddDays(-6);
+        PickTo.SelectedDate = DateTime.Today;
+        RefreshRecords();
+    }
+
+    private void BtnRange30d_Click(object sender, RoutedEventArgs e)
+    {
+        PickFrom.SelectedDate = DateTime.Today.AddDays(-29);
+        PickTo.SelectedDate = DateTime.Today;
+        RefreshRecords();
+    }
+
+    private void BtnRangeAll_Click(object sender, RoutedEventArgs e)
+    {
+        PickFrom.SelectedDate = null;
+        PickTo.SelectedDate = null;
+        RefreshRecords();
+    }
+
     private TestRecordFilter BuildFilter()
     {
         // 选中日期不含时刻：起点取 00:00:00，止点取当天 23:59:59
@@ -299,6 +329,8 @@ public partial class SummaryMachinePage : UserControl
                         Current = r.Current,
                         AbnormalItems = r.AbnormalItems,
                         TestTime = r.TestTime,
+                        Abandoned = r.Abandoned,
+                        Printed = r.Printed,
                     })
                     // 按机位分组排序：同机位记录排在一起，一眼扫过去看清该机位 PASS/FAIL
                     .OrderBy(r => r.StationNo)
@@ -309,8 +341,10 @@ public partial class SummaryMachinePage : UserControl
             GridRecords.ItemsSource = rows;
 
             var pass = rows.Count(r => r.Result == "PASS");
+            var printed = rows.Count(r => r.Printed);
+            double yield = rows.Count == 0 ? 0 : pass * 100.0 / rows.Count;
             TxtDbStats.Text =
-                $"筛选结果 {rows.Count} 条：PASS {pass} · FAIL {rows.Count - pass}（单次上限 {RecordLoadLimit} 条）"
+                $"筛选结果 {rows.Count} 条：PASS {pass} · FAIL {rows.Count - pass} · 良率 {yield:F1}% · 已打印 {printed}（单次上限 {RecordLoadLimit} 条）"
                 + (FilterActive(filter) ? "　|　已按筛选条件查询" : "");
             TxtDbStats.Foreground = MutedBrush;
         }
@@ -339,6 +373,10 @@ public partial class SummaryMachinePage : UserControl
         public double Current { get; init; }
         public string AbnormalItems { get; init; } = "";
         public DateTime TestTime { get; init; }
+        /// <summary>弃用标记（不流入打印；良率口径可排除）。</summary>
+        public bool Abandoned { get; init; }
+        /// <summary>已打印出库。</summary>
+        public bool Printed { get; init; }
     }
 
     private sealed class MachineCardVm
