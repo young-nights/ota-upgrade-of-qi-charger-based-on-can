@@ -208,10 +208,8 @@
                     <!-- 页 2：数据库表格（筛选 + 记录表） -->
                     <Border x:Name="PanelRecords" Style="{StaticResource Card}" Visibility="Collapsed">
                         <DockPanel>
-                            <!-- 筛选栏：快捷范围 + 时间 / 机位 / 工位 / 结果（浅底条带，控件等高对齐） -->
-                            <Border DockPanel.Dock="Top" Background="#F1F5F9" CornerRadius="8"
-                                    Padding="12,10" Margin="0,0,0,8">
-                                <StackPanel>
+                            <!-- 筛选栏：快捷范围 + 时间 / 机位 / 工位 / 结果（无外框，控件等高对齐） -->
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                                     <WrapPanel Margin="0,0,0,8">
                                         <TextBlock Text="快捷范围" Style="{StaticResource FieldLabel}"
                                                    VerticalAlignment="Center" Margin="0,0,10,0"/>
@@ -230,11 +228,13 @@
                                     <WrapPanel>
                                         <StackPanel>
                                             <TextBlock Text="时间起" Style="{StaticResource FieldLabel}"/>
-                                            <DatePicker x:Name="PickFrom" Width="135" Height="36"/>
+                                            <DatePicker x:Name="PickFrom" Width="135" Height="36"
+                                                    Style="{StaticResource FieldDate}"/>
                                         </StackPanel>
                                         <StackPanel Margin="8,0,0,0">
                                             <TextBlock Text="时间止" Style="{StaticResource FieldLabel}"/>
-                                            <DatePicker x:Name="PickTo" Width="135" Height="36"/>
+                                            <DatePicker x:Name="PickTo" Width="135" Height="36"
+                                                    Style="{StaticResource FieldDate}"/>
                                         </StackPanel>
                                         <StackPanel Margin="8,0,0,0">
                                             <TextBlock Text="机位" Style="{StaticResource FieldLabel}"/>
@@ -261,8 +261,7 @@
                                                     ToolTip="清空全部筛选条件并重新查询"/>
                                         </StackPanel>
                                     </WrapPanel>
-                                </StackPanel>
-                            </Border>
+                            </StackPanel>
                             <!-- 统计行 -->
                             <TextBlock x:Name="TxtDbStats" DockPanel.Dock="Top" Margin="0,0,0,8"
                                        FontSize="12" TextWrapping="Wrap"
