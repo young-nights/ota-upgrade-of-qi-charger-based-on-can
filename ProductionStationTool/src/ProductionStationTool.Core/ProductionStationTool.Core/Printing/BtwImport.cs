@@ -218,21 +218,21 @@ public static class BtwImport
 
             int from = marks[b].Offset;
             int to = b + 1 < marks.Count ? marks[b + 1].Offset : param.Length;
+            var block = records.Where(r => r.Offset > from && r.Offset < to).ToList();
 
-            string content = "";
-            for (int i = 0; i < records.Count; i++)
+            // 一个 BarTender 文本对象可由多个子文本拼接（如 120 + / + 1）。
+            // 每个子文本前都有同一模板记录，不能只保留最后一条值。
+            string content = ExtractCompositeText(block);
+            for (int i = 0; i < block.Count && content.Length == 0; i++)
             {
-                var r = records[i];
-                if (r.Offset <= from || r.Offset >= to)
-                    continue;
+                var r = block[i];
 
                 // 命名数据源样值组（s01…s07 连续 ≥2 条）→ {SN} 拼接对象
                 if (r.Text.StartsWith("s0") && r.Text.Length <= 3)
                 {
                     int run = 1;
-                    for (int j = i + 1; j < records.Count
-                         && records[j].Offset < to
-                         && records[j].Text.StartsWith("s0") && records[j].Text.Length <= 3; j++)
+                    for (int j = i + 1; j < block.Count
+                         && block[j].Text.StartsWith("s0") && block[j].Text.Length <= 3; j++)
                         run++;
                     if (run >= 2)
                     {
@@ -246,9 +246,9 @@ public static class BtwImport
                     continue;
 
                 // 数据源样值：[值][值][s0x] 成对出现 → 跳过（SN 段样值，如 LS/LS/s01）
-                if (i + 2 < records.Count
-                    && string.Equals(records[i].Text, records[i + 1].Text, StringComparison.Ordinal)
-                    && records[i + 2].Text.StartsWith("s0", StringComparison.Ordinal))
+                if (i + 2 < block.Count
+                    && string.Equals(block[i].Text, block[i + 1].Text, StringComparison.Ordinal)
+                    && block[i + 2].Text.StartsWith("s0", StringComparison.Ordinal))
                 {
                     i++;
                     continue;
@@ -262,6 +262,39 @@ public static class BtwImport
             result.Add(new BtwObject(isBarcode ? "barcode" : "text", content, GuessCommonFont(param)));
         }
         return result;
+    }
+
+    /// <summary>
+    /// 复合文本对象：模板以 "(???) ???-????" 分隔每个子文本，其后第一条记录即该段内容。
+    /// 返回空串表示不是复合对象，交由原有单文本/数据源逻辑处理。
+    /// </summary>
+    private static string ExtractCompositeText(IReadOnlyList<Rec> block)
+    {
+        var markers = new List<int>();
+        for (int i = 0; i < block.Count; i++)
+            if (block[i].Text == "(???) ???-????")
+                markers.Add(i);
+        if (markers.Count <= 1)
+            return "";
+
+        var parts = new List<string>();
+        foreach (int marker in markers)
+        {
+            int valueAt = marker + 1;
+            if (valueAt >= block.Count || block[valueAt].Text == "Box Options")
+                continue;
+            // 空子文本后直接进入下一模板段。
+            if (valueAt + 3 < block.Count
+                && block[valueAt].Text == "1"
+                && block[valueAt + 1].Text == "999999"
+                && block[valueAt + 2].Text == "1"
+                && block[valueAt + 3].Text == "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                continue;
+            string value = block[valueAt].Text;
+            if (parts.Count == 0 || parts[^1] != value)
+                parts.Add(value);
+        }
+        return string.Concat(parts);
     }
 
     /// <summary>扫参数流找出现最多的已知字体名（Tahoma 为界面字体，跳过）。</summary>

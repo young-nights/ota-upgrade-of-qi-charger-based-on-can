@@ -27,6 +27,9 @@ public sealed class LabelDesign
     /// <summary>对象级排版（画布上各对象的文本/字体/位置）。</summary>
     public List<LabelObjectDesign> Objects { get; set; } = new();
 
+    /// <summary>表格/框线（标签左上为原点，mm）；用于保留 .btw 唛头模板的单元格边框。</summary>
+    public List<LabelLineDesign> Lines { get; set; } = new();
+
     // ---- 直驱打印（TSPL/ZPL 指令直发打印机）----
     /// <summary>直驱脚本语言："tspl"（TSC 及兼容机，中文 TTF 友好）/ "zpl"（Zebra）。</summary>
     public string Script { get; set; } = "tspl";
@@ -86,4 +89,13 @@ public sealed class LabelObjectDesign
 
     /// <summary>Y 坐标 mm（null = 不改）。</summary>
     public double? YMm { get; set; }
+}
+
+/// <summary>标签上的一条实线/矩形填充线（mm）。横竖表格线都统一用左上角 + 宽高表示。</summary>
+public sealed class LabelLineDesign
+{
+    public double XMm { get; set; }
+    public double YMm { get; set; }
+    public double WidthMm { get; set; }
+    public double HeightMm { get; set; }
 }

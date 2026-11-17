@@ -16,6 +16,11 @@ public class DirectLabelScriptTests
         {
             new LabelObjectDesign { Name = "Line1", Content = "SN:{SN}", FontName = "SimSun", FontSizePt = 12, XMm = 5, YMm = 5 },
         },
+        Lines =
+        {
+            new LabelLineDesign { XMm = 0, YMm = 0, WidthMm = 50, HeightMm = 0.2 },
+            new LabelLineDesign { XMm = 20, YMm = 0, WidthMm = 0.2, HeightMm = 30 },
+        },
         Barcode = new LabelBarcodeDesign
         {
             Enabled = true,
@@ -39,6 +44,8 @@ public class DirectLabelScriptTests
         Assert.DoesNotContain("{SN}", script);
         Assert.Contains("\"128\"", script);                        // Code128 条码
         Assert.Contains("\"LSCH42JY012601010001\"", script);
+        Assert.Contains("BAR 0,0,400,2", script);                    // 表格横线
+        Assert.Contains("BAR 160,0,2,240", script);                   // 表格竖线
         Assert.Contains("PRINT 1,1", script);
     }
 
@@ -53,6 +60,8 @@ public class DirectLabelScriptTests
         Assert.DoesNotContain("{SN}", script);
         Assert.Contains("^BCN", script);                           // Code128
         Assert.Contains("^FDTEST0001^FS", script);
+        Assert.Contains("^GB400,2,2^FS", script);                    // 表格横线
+        Assert.Contains("^GB2,240,2^FS", script);                    // 表格竖线
         Assert.EndsWith("^XZ", script.TrimEnd());
     }
 

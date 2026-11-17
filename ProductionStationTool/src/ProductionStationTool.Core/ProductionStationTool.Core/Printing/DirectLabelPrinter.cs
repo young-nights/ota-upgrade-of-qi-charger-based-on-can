@@ -30,6 +30,14 @@ public static class DirectLabelScript
         sb.AppendLine("DIRECTION 1");
         sb.AppendLine("CLS");
 
+        foreach (var line in d.Lines)
+        {
+            if (line.WidthMm <= 0 || line.HeightMm <= 0)
+                continue;
+            sb.AppendLine($"BAR {dots(line.XMm):0},{dots(line.YMm):0}," +
+                          $"{Math.Max(1, dots(line.WidthMm)):0},{Math.Max(1, dots(line.HeightMm)):0}");
+        }
+
         foreach (var o in d.Objects)
         {
             if (string.IsNullOrEmpty(o.Content))
@@ -83,6 +91,17 @@ public static class DirectLabelScript
             sb.AppendLine($"^MD{Math.Clamp((int)Math.Round(d.PrintDarkness), -30, 30)}");
         if (d.PrintSpeed > 0)
             sb.AppendLine($"^PR{Math.Clamp((int)Math.Round(d.PrintSpeed), 2, 14)}");
+
+        foreach (var line in d.Lines)
+        {
+            if (line.WidthMm <= 0 || line.HeightMm <= 0)
+                continue;
+            double width = Math.Max(1, dots(line.WidthMm));
+            double height = Math.Max(1, dots(line.HeightMm));
+            double thickness = Math.Min(width, height);
+            sb.AppendLine($"^FO{dots(line.XMm):0},{dots(line.YMm):0}" +
+                          $"^GB{width:0},{height:0},{Math.Max(1, thickness):0}^FS");
+        }
 
         foreach (var o in d.Objects)
         {

@@ -33,6 +33,22 @@ public static class LabelPreviewRenderer
         Canvas.SetTop(sheet, offY);
         target.Children.Add(sheet);
 
+        // 表格线先画，文字后画，避免线压在字符上。
+        foreach (var line in d.Lines)
+        {
+            if (line.WidthMm <= 0 || line.HeightMm <= 0)
+                continue;
+            var bar = new Rectangle
+            {
+                Width = mm2dip(line.WidthMm),
+                Height = mm2dip(line.HeightMm),
+                Fill = Brushes.Black,
+            };
+            Canvas.SetLeft(bar, offX + mm2dip(line.XMm));
+            Canvas.SetTop(bar, offY + mm2dip(line.YMm));
+            target.Children.Add(bar);
+        }
+
         const double ptToMm = 25.4 / 72.0;
 
         foreach (var o in d.Objects)

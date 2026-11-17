@@ -1,5 +1,14 @@
 # 仓库代理规则
 
+## 构建产物目录规则（2026-11-18 起）
+
+- 适用范围：`/home/nights/embedded_item/ota-upgrade-of-qi-charger-based-on-can`（即 `\\wsl.localhost\Ubuntu\home\nights\embedded_item\ota-upgrade-of-qi-charger-based-on-can`）。
+- 所有 `dotnet build` / `dotnet test` / `dotnet publish` 的编译产物必须放在**对应项目自身目录**下，默认使用该项目目录内的 `bin/` 与 `obj/`。
+- 示例：`ProductionStationTool/src/ProductionStationTool.App/ProductionStationTool.App/bin/...`、同目录 `obj/...`。
+- 禁止把 `bin/`、`obj/` 或其他编译产物汇总到仓库根目录，也禁止使用仓库根 `build/bin`、`build/obj` 作为 .NET 构建输出目录。
+- `Directory.Build.props` 等构建配置文件不得再添加指向仓库根目录的 `BaseOutputPath` / `BaseIntermediateOutputPath` 重定向。
+- 编译产物属于生成文件，不得提交到 Git；构建配置或规则发生变化时，应通过一次实际 `dotnet build` 验证输出确实落在各项目路径下。
+
 ## 唯一改动源规则
 
 - 所有改动（代码、文档、脚本）一律先在 WSL 侧仓库 `\\wsl.localhost\Ubuntu-24.04\home\whites\embedded_item\ota-upgrade-of-qi-charger-based-on-can`（即 `/home/whites/embedded_item/ota-upgrade-of-qi-charger-based-on-can`）中进行。

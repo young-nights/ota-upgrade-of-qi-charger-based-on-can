@@ -32,6 +32,18 @@ public class BtwImportTests
         ms.Write(Rec("LS"));
         ms.Write(Rec("s01"));
         ms.Write(Rec("输入数据"));           // 界面样板
+        // 复合文本：120 + / + 1（实际唛头模板中的装箱数量写法）
+        ms.Write(Rec("文本 3"));
+        foreach (string value in new[] { "120", "/", "1" })
+        {
+            ms.Write(Rec("1"));
+            ms.Write(Rec("999999"));
+            ms.Write(Rec("1"));
+            ms.Write(Rec("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
+            ms.Write(Rec("(???) ???-????"));
+            ms.Write(Rec(value));
+        }
+        ms.Write(Rec("Box Options"));
         var param = ms.ToArray();
 
         using var zip = new MemoryStream();
@@ -66,6 +78,7 @@ public class BtwImportTests
             Assert.Contains(r.Objects, o => o.Content == "Trade:" && !o.IsBarcode); // 显示文本留下
             Assert.DoesNotContain(r.Objects, o => o.Content == "LS");               // 数据源样值过滤
             Assert.DoesNotContain(r.Objects, o => o.Content == "输入数据");          // 界面样板过滤
+            Assert.Contains(r.Objects, o => o.Content == "120/1");                 // 复合文本完整拼接
         }
         finally
         {

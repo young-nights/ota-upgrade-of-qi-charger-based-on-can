@@ -52,6 +52,13 @@ public partial class LabelDesignerWindow : Window
         BoxBcX.Text = d.Barcode.XMm.ToString("0.##");
         BoxBcY.Text = d.Barcode.YMm.ToString("0.##");
         GridObjects.ItemsSource = d.Objects.Select(ToRow).ToList();
+        _importedLines = d.Lines
+            .Select(v => new LabelLineDesign
+            {
+                XMm = v.XMm, YMm = v.YMm,
+                WidthMm = v.WidthMm, HeightMm = v.HeightMm,
+            })
+            .ToList();
         RefreshPrinters();
         TxtResult.Text = "配置后「试打印一张」核对版式，「保存」后工位 4 按此出标签。";
 
@@ -70,6 +77,7 @@ public partial class LabelDesignerWindow : Window
     }
 
     private DispatcherTimer? _redrawTimer;
+    private List<LabelLineDesign> _importedLines = new();
 
     private void ScheduleRedraw()
     {
@@ -192,6 +200,15 @@ public partial class LabelDesignerWindow : Window
         if (rows.Count > 0)
             GridObjects.ItemsSource = rows;
 
+        _importedLines = items
+            .Where(p => p.Kind == "line")
+            .Select(p => new LabelLineDesign
+            {
+                XMm = p.XMm, YMm = p.YMm,
+                WidthMm = p.WidthMm, HeightMm = p.HeightMm,
+            })
+            .ToList();
+
         var bc = items.FirstOrDefault(p => p.Kind == "barcode");
         if (bc is not null)
         {
@@ -216,7 +233,9 @@ public partial class LabelDesignerWindow : Window
             ComboScript.SelectedIndex = BtwImport.GuessScript(r.PrinterName) == "zpl" ? 1 : 0;
         }
 
-        TxtImportNote.Text = r.Note + (items.Count > 0 ? "——坐标/字号已自动摆位，看右侧效果预览核对。" : "——未能测量版式（预览图缺失？），请手动摆位。");
+        TxtImportNote.Text = r.Note + (items.Count > 0
+            ? $"——已识别 {_importedLines.Count} 条表格/框线，坐标/字号自动摆位，看右侧效果预览核对。"
+            : "——未能测量版式（预览图缺失？），请手动摆位。");
         ScheduleRedraw();
     }
 
@@ -247,6 +266,11 @@ public partial class LabelDesignerWindow : Window
                 YMm = ParseD(BoxBcY.Text, 15),
             },
             Objects = new List<LabelObjectDesign>(),
+            Lines = _importedLines.Select(v => new LabelLineDesign
+            {
+                XMm = v.XMm, YMm = v.YMm,
+                WidthMm = v.WidthMm, HeightMm = v.HeightMm,
+            }).ToList(),
         };
         foreach (var r in GridObjects.Items.OfType<DesignRow>())
         {
