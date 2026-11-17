@@ -29,7 +29,10 @@ public static class BtwLayout
         try
         {
             using var ms = new System.IO.MemoryStream(png);
-            src = BitmapFrame.Create(ms);
+            // OnLoad：在流存活时全量解码（默认延迟解码会在流释放后 CopyPixels 抛 ObjectDisposed）
+            var decoder = BitmapDecoder.Create(ms, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            src = decoder.Frames[0];
+            src.Freeze();
         }
         catch
         {
