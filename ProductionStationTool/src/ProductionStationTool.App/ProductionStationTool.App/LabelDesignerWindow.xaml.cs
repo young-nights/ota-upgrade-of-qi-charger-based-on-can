@@ -28,6 +28,9 @@ public partial class LabelDesignerWindow : Window
     /// <summary>画布内命名数据源名（{SN} 只能落这些名字上）。</summary>
     private HashSet<string> _namedSources = new(StringComparer.OrdinalIgnoreCase);
 
+    private const string BarTenderMissingText =
+        "本机未检测到 BarTender——需安装 Seagull BarTender（Automation 及以上版本，如产线用的 10.1 企业自动化版），安装后 COM 自动注册即可用";
+
     public LabelDesignerWindow()
     {
         InitializeComponent();
@@ -74,9 +77,16 @@ public partial class LabelDesignerWindow : Window
     private void RefreshPrinters()
     {
         var printers = BarTenderTemplateBuilder.ListPrinters();
-        ComboPrinter.ItemsSource = printers;
-        if (printers.Count > 0 && string.IsNullOrWhiteSpace(ComboPrinter.Text))
+        // 纯下拉只显示列表内项：已选打印机名不在列表时补进去，保证选中值可见
+        var current = ComboPrinter.Text.Trim();
+        var list = printers.ToList();
+        if (current.Length > 0 && !list.Contains(current, StringComparer.OrdinalIgnoreCase))
+            list.Insert(0, current);
+        ComboPrinter.ItemsSource = list;
+        if (list.Count > 0 && string.IsNullOrWhiteSpace(current))
             ComboPrinter.SelectedIndex = 0;
+        else if (current.Length > 0)
+            ComboPrinter.Text = current;
     }
 
     private void BtnRefreshPrinters_Click(object sender, RoutedEventArgs e) => RefreshPrinters();
@@ -100,7 +110,7 @@ public partial class LabelDesignerWindow : Window
     {
         if (!BarTenderLabelPrinter.Available())
         {
-            TxtObjStatus.Text = "本机未安装 BarTender（Automation 及以上），无法读取画布";
+            TxtObjStatus.Text = BarTenderMissingText;
             return;
         }
         var info = BarTenderLabelPrinter.ReadTemplateInfo(BoxCanvas.Text.Trim());
@@ -195,7 +205,7 @@ public partial class LabelDesignerWindow : Window
     private (bool Ok, string Detail) Generate()
     {
         if (!BarTenderLabelPrinter.Available())
-            return (false, "本机未安装 BarTender（Automation 及以上），无法生成");
+            return (false, BarTenderMissingText);
         return BarTenderTemplateBuilder.Generate(Collect());
     }
 
@@ -239,7 +249,7 @@ public partial class LabelDesignerWindow : Window
         var design = Collect();
         var (ok, detail) = BarTenderLabelPrinter.Available()
             ? BarTenderTemplateBuilder.Generate(design)
-            : (true, "本机无 BarTender：仅保存设计（生成/打印需装 BarTender 的机器）");
+            : (true, "本机未装 BarTender：仅保存设计参数（生成 .btw / 打印需在装了 BarTender 的机器上）");
         if (ok)
         {
             MachineConfig.SaveLabelDesign(design);

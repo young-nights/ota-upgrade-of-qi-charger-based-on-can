@@ -61,9 +61,8 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,8,0">
                             <TextBlock Text="打印机" Style="{StaticResource FieldLabel}"/>
-                            <ComboBox x:Name="ComboPrinter" Height="36" Style="{StaticResource FieldComboEditable}"
-                                      IsEditable="True"
-                                      ToolTip="目标打印机（本机打印机列表可点「刷新」枚举，也可直接手填打印机名）"/>
+                            <ComboBox x:Name="ComboPrinter" Height="36" Style="{StaticResource FieldCombo}"
+                                      ToolTip="目标打印机（点「刷新」枚举本机打印机，下拉选择）"/>
                         </StackPanel>
                         <Button Grid.Column="1" Content="刷新" Width="80" Height="36" VerticalAlignment="Bottom"
                                 Style="{StaticResource GhostButton}" Click="BtnRefreshPrinters_Click"/>
