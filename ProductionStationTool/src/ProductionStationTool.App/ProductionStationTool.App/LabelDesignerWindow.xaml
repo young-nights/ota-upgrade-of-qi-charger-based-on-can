@@ -228,7 +228,7 @@
                         <Border Background="#F8FAFC" BorderBrush="{StaticResource CardBorderBrush}"
                                 BorderThickness="1" CornerRadius="6" Padding="16" Height="420">
                             <Canvas x:Name="PreviewCanvas" ClipToBounds="True"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                     SizeChanged="PreviewCanvas_SizeChanged"/>
                         </Border>
                     </StackPanel>

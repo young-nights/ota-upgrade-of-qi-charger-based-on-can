@@ -89,9 +89,11 @@ public partial class LabelDesignerWindow : Window
         double w = d.LabelWidthMm, h = d.LabelHeightMm;
         if (w <= 0 || h <= 0)
             return;
-        double scale = Math.Min(PreviewCanvas.ActualWidth / w, PreviewCanvas.ActualHeight / h);
+        double scale = Math.Min(PreviewCanvas.ActualWidth / w, PreviewCanvas.ActualHeight / h) * 0.92;
+        double offX = (PreviewCanvas.ActualWidth - w * scale) / 2;
+        double offY = (PreviewCanvas.ActualHeight - h * scale) / 2;
 
-        // 标签底纸
+        // 标签底纸（画布内居中）
         var sheet = new System.Windows.Shapes.Rectangle
         {
             Width = w * scale,
@@ -100,6 +102,8 @@ public partial class LabelDesignerWindow : Window
             Stroke = new SolidColorBrush(Color.FromRgb(0xCB, 0xD5, 0xE1)),
             StrokeThickness = 1,
         };
+        Canvas.SetLeft(sheet, offX);
+        Canvas.SetTop(sheet, offY);
         PreviewCanvas.Children.Add(sheet);
 
         double mm2dip(double mm) => mm * scale;
@@ -120,8 +124,8 @@ public partial class LabelDesignerWindow : Window
                 FontWeight = o.Bold == true ? FontWeights.Bold : FontWeights.Normal,
                 Foreground = Brushes.Black,
             };
-            Canvas.SetLeft(tb, mm2dip(o.XMm ?? 0));
-            Canvas.SetTop(tb, mm2dip(o.YMm ?? 0));
+            Canvas.SetLeft(tb, offX + mm2dip(o.XMm ?? 0));
+            Canvas.SetTop(tb, offY + mm2dip(o.YMm ?? 0));
             PreviewCanvas.Children.Add(tb);
         }
 
@@ -136,7 +140,7 @@ public partial class LabelDesignerWindow : Window
                 ? Math.Min(b.HeightMm, w - b.XMm)                                  // QR 方形
                 : Math.Min(w - b.XMm, (data.Length + 3) * 11 * module);           // Code128 ≈11 模块/字符
             double bh = qr ? bw : b.HeightMm;
-            double bx = mm2dip(b.XMm), by = mm2dip(b.YMm);
+            double bx = offX + mm2dip(b.XMm), by = offY + mm2dip(b.YMm);
 
             var box = new System.Windows.Shapes.Rectangle
             {
