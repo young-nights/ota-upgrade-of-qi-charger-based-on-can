@@ -32,7 +32,7 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="工位号" Style="{StaticResource FieldLabel}"
                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <ComboBox x:Name="CmbStationNo" Grid.Column="1" Style="{StaticResource FieldCombo}"
+                                <ComboBox x:Name="CmbStationNo" Grid.Column="1" Style="{StaticResource FieldComboEditable}"
                                           IsEditable="True" SelectionChanged="Identity_Changed">
                                     <ComboBoxItem Content="1"/>
                                     <ComboBoxItem Content="2"/>

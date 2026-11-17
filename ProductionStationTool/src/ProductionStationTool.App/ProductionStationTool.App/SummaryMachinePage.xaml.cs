@@ -264,20 +264,20 @@ public partial class SummaryMachinePage : UserControl
 
     // ---- 年/月/日 三下拉（可滚动）：-- 该项不限；只选年=整年，年+月=整月 ----
 
-    private const string AnyText = "--";
+    private const string AnyText = "不限";
 
     private void InitDateCombos()
     {
         int yearNow = DateTime.Today.Year;
         var years = new List<string> { AnyText };
         for (int y = yearNow + 1; y >= yearNow - 3; y--)
-            years.Add(y.ToString());
+            years.Add($"{y} 年");
         var months = new List<string> { AnyText };
         for (int m = 1; m <= 12; m++)
-            months.Add(m.ToString());
+            months.Add($"{m} 月");
         var days = new List<string> { AnyText };
         for (int d = 1; d <= 31; d++)
-            days.Add(d.ToString());
+            days.Add($"{d} 日");
         foreach (var cmb in new[] { CmbFromYear, CmbToYear })
         {
             cmb.ItemsSource = years;
@@ -303,16 +303,22 @@ public partial class SummaryMachinePage : UserControl
 
     private void SetDateCombos(DateTime from, DateTime to)
     {
-        CmbFromYear.Text = from.Year.ToString();
-        CmbFromMonth.Text = from.Month.ToString();
-        CmbFromDay.Text = from.Day.ToString();
-        CmbToYear.Text = to.Year.ToString();
-        CmbToMonth.Text = to.Month.ToString();
-        CmbToDay.Text = to.Day.ToString();
+        CmbFromYear.Text = $"{from.Year} 年";
+        CmbFromMonth.Text = $"{from.Month} 月";
+        CmbFromDay.Text = $"{from.Day} 日";
+        CmbToYear.Text = $"{to.Year} 年";
+        CmbToMonth.Text = $"{to.Month} 月";
+        CmbToDay.Text = $"{to.Day} 日";
     }
 
+    /// <summary>取下拉项里的数字（「2026 年」→2026）；「不限」→0。</summary>
     private static int ComboVal(ComboBox cmb)
-        => cmb.SelectedItem is string s && s != AnyText && int.TryParse(s, out var v) ? v : 0;
+    {
+        if (cmb.SelectedItem is not string s)
+            return 0;
+        var digits = new string(s.Where(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var v) ? v : 0;
+    }
 
     /// <summary>三下拉合成日期段。year=0 → 该端不限；只选年 → 整年；年+月 → 整月。</summary>
     private static DateTime? ParseDateCombo(ComboBox year, ComboBox month, ComboBox day,

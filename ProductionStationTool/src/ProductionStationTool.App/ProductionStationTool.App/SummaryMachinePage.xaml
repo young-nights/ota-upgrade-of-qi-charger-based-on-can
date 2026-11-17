@@ -227,44 +227,26 @@
                                     <Button Content="全部" Height="32" Padding="14,2" FontSize="12"
                                             Margin="6,0,0,0" Style="{StaticResource GhostButton}"
                                             Click="BtnRangeAll_Click"/>
-                                    <!-- 自定义区间：年/月/日 三下拉（可滚动）；未选 = 该项不限 -->
+                                    <!-- 自定义区间：年/月/日 三下拉（可滚动，项自带单位后缀）；不限 = 该端不限 -->
                                     <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
-                                        <TextBlock Text="自 " FontSize="12"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                        <ComboBox x:Name="CmbFromYear" Width="72" Height="32"
-                                                      Style="{StaticResource FieldCombo}" ToolTip="起始年"/>
-                                        <TextBlock Text="年" FontSize="12"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                        <ComboBox x:Name="CmbFromMonth" Width="54" Height="32"
-                                                      Style="{StaticResource FieldCombo}" ToolTip="起始月"/>
-                                        <TextBlock Text="月" FontSize="12"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                        <ComboBox x:Name="CmbFromDay" Width="54" Height="32"
-                                                      Style="{StaticResource FieldCombo}" ToolTip="起始日"/>
-                                        <TextBlock Text="日" FontSize="12"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" Margin="4,0,8,0"/>
+                                        <TextBlock Text="自" FontSize="12"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox x:Name="CmbFromYear" Width="82" Height="32"
+                                                  Style="{StaticResource FieldCombo}" ToolTip="起始年"/>
+                                        <ComboBox x:Name="CmbFromMonth" Width="72" Height="32"
+                                                  Margin="6,0,0,0" Style="{StaticResource FieldCombo}" ToolTip="起始月"/>
+                                        <ComboBox x:Name="CmbFromDay" Width="72" Height="32"
+                                                  Margin="6,0,0,0" Style="{StaticResource FieldCombo}" ToolTip="起始日"/>
                                         <TextBlock Text="至" FontSize="12"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <ComboBox x:Name="CmbToYear" Width="72" Height="32"
-                                                      Style="{StaticResource FieldCombo}" ToolTip="结束年"/>
-                                        <TextBlock Text="年" FontSize="12"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                        <ComboBox x:Name="CmbToMonth" Width="54" Height="32"
-                                                      Style="{StaticResource FieldCombo}" ToolTip="结束月"/>
-                                        <TextBlock Text="月" FontSize="12"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
-                                        <ComboBox x:Name="CmbToDay" Width="54" Height="32"
-                                                      Style="{StaticResource FieldCombo}" ToolTip="结束日"/>
-                                        <TextBlock Text="日" FontSize="12"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center" Margin="12,0,8,0"/>
+                                        <ComboBox x:Name="CmbToYear" Width="82" Height="32"
+                                                  Style="{StaticResource FieldCombo}" ToolTip="结束年"/>
+                                        <ComboBox x:Name="CmbToMonth" Width="72" Height="32"
+                                                  Margin="6,0,0,0" Style="{StaticResource FieldCombo}" ToolTip="结束月"/>
+                                        <ComboBox x:Name="CmbToDay" Width="72" Height="32"
+                                                  Margin="6,0,0,0" Style="{StaticResource FieldCombo}" ToolTip="结束日"/>
                                     </StackPanel>
                                 </WrapPanel>
                                 <WrapPanel>
