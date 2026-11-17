@@ -49,21 +49,12 @@ public partial class Station4Control : UserControl, IStationPage
     public Station4Control()
     {
         InitializeComponent();
-        // 打印机：「打印机设置 → SN 码预设」保存的设计按打印方式路由——
-        // 直驱（默认）= TSPL/ZPL 指令直发打印机（无需 BarTender/授权）；
-        // BarTender = 模板填值 COM 打印；未配置时占位放行（不误标「已打印出库」）
+        // 打印机：「打印机设置」保存的设计 → TSPL/ZPL 直驱出标签（无需 BarTender）；
+        // 未选打印机时占位放行（不误标「已打印出库」）
         var design = MachineConfig.LoadLabelDesign();
-        if (design.PrintMode == "direct")
-        {
-            _printer = new Core.Printing.DirectLabelPrinter(design);
-        }
-        else
-        {
-            var (snPreset, _) = MachineConfig.LoadPrintPresets();
-            _printer = !string.IsNullOrWhiteSpace(snPreset.TemplatePath) && Core.Printing.BarTenderLabelPrinter.Available()
-                ? new Core.Printing.BarTenderLabelPrinter(snPreset)
-                : new NullSnPrinter();
-        }
+        _printer = string.IsNullOrWhiteSpace(design.PrinterName)
+            ? new NullSnPrinter()
+            : new Core.Printing.DirectLabelPrinter(design);
         ConnPanel.ShowPowerZ = false;   // 本工位只用 CAN（读 SN/版本），不需要 PowerZ
         FlowPanel.SetSteps(
             "连接设备（串口/CAN 自动检测）",
@@ -166,7 +157,7 @@ public partial class Station4Control : UserControl, IStationPage
         FlowPanel.Mark(2, StepStatus.Passed);
         _log.Append("步骤 3：门禁通过（工位1/2/3 全 PASS）");
 
-        // ④ SN 输出打印机（BarTender COM；未配置预设/未装 BarTender 时占位放行）
+        // ④ SN 打印出库（TSPL/ZPL 直驱；未选打印机时占位放行）
         FlowPanel.Mark(3, StepStatus.Running);
         var (printOk, printDetail) = await _printer.PrintSnAsync(sn, ct);
         TxtPrint.Text = printDetail;

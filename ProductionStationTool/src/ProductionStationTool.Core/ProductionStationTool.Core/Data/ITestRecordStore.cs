@@ -17,7 +17,7 @@ public sealed class TestRecord
     /// <summary>弃用标记（工位1 失败弃用 / 被新 SN 取代）：不计入良率、可回收重发。</summary>
     public bool Abandoned { get; set; }
 
-    /// <summary>是否打印出库（该 SN 标签经 BarTender 打印成功后置位）。</summary>
+    /// <summary>是否打印出库（该 SN 标签打印成功后置位）。</summary>
     public bool Printed { get; set; }
 }
 

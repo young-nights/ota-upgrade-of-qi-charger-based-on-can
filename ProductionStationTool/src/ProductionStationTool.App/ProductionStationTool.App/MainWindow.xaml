@@ -30,11 +30,8 @@
                         <MenuItem Header="工位4 — 出货门禁 + 版本比对" Tag="3"
                                   IsCheckable="True" Click="MenuStation_Click"/>
                     </MenuItem>
-                    <!-- 打印机设置：SN 码预设 / 外包箱预设（BarTender 模板与数据源） -->
-                    <MenuItem Header="打印机设置">
-                        <MenuItem Header="SN 码预设…" Click="MenuPrintSn_Click"/>
-                        <MenuItem Header="外包箱预设…" Click="MenuPrintBox_Click"/>
-                    </MenuItem>
+                    <!-- 打印机设置：SN 码标签设计器（TSPL/ZPL 直驱） -->
+                    <MenuItem Header="打印机设置…" Click="MenuPrintSn_Click"/>
                     <MenuItem Header="关于">
                         <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
                     </MenuItem>

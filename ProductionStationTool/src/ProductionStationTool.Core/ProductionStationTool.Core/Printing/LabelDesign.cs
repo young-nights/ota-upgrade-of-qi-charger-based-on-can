@@ -1,18 +1,13 @@
 namespace ProductionStationTool.Core.Printing;
 
 /// <summary>
-/// 标签设计器规格（「打印机设置」UI 直接配置，生成 .btw，不经手工导入）：
-///   标签尺寸（mm）+ 打印机参数（打印机名/份数/速度/浓度）+ 画布上的对象级排版
-///   （文本内容/字体/字号/粗体/位置 mm）。保存后由 <see cref="BarTenderTemplateBuilder"/>
-///   把参数应用到画布模板并生成输出 .btw；打印仍走既有 COM 填值链路。
+/// 标签设计器规格（「打印机设置」UI 直接配置）：
+///   标签尺寸（mm）+ 打印机参数（打印机名/份数/速度/浓度）+ 对象级排版
+///   （文本内容/字体/字号/粗体/位置 mm）+ 条码。打印时由 <see cref="DirectLabelPrinter"/>
+///   按 TSPL/ZPL 指令直发打印机（无需 BarTender）。
 /// </summary>
 public sealed class LabelDesign
 {
-    /// <summary>画布 .btw（参数的载体/骨架；默认用内置 SN 码模板）。</summary>
-    public string CanvasTemplatePath { get; set; } = "";
-
-    /// <summary>生成输出的 .btw 路径（保存时生成；打印用它）。</summary>
-    public string OutputTemplatePath { get; set; } = "";
 
     // ---- 标签尺寸（mm）----
     public double LabelWidthMm { get; set; } = 50;
@@ -32,10 +27,7 @@ public sealed class LabelDesign
     /// <summary>对象级排版（画布上各对象的文本/字体/位置）。</summary>
     public List<LabelObjectDesign> Objects { get; set; } = new();
 
-    // ---- 直驱打印（TSPL/ZPL 指令直发打印机，无需 BarTender/授权）----
-    /// <summary>打印方式："direct" = TSPL/ZPL 直驱；"bartender" = BarTender 模板。默认直驱。</summary>
-    public string PrintMode { get; set; } = "direct";
-
+    // ---- 直驱打印（TSPL/ZPL 指令直发打印机）----
     /// <summary>直驱脚本语言："tspl"（TSC 及兼容机，中文 TTF 友好）/ "zpl"（Zebra）。</summary>
     public string Script { get; set; } = "tspl";
 

@@ -129,6 +129,53 @@ public sealed class DirectLabelPrinter : ISnPrinter
 /// <summary>winspool 原始打印（RAW）：字节不经驱动加工直达打印机。</summary>
 public static class RawPrinterHelper
 {
+    /// <summary>本机可用的打印机名（winspool 枚举，默认打印机排前）。</summary>
+    public static List<string> ListPrinters()
+    {
+        var names = new List<string>();
+        try
+        {
+            const uint flags = 0x00000002 | 0x00000004;   // LOCAL | CONNECTIONS
+            EnumPrintersW(flags, null, 1, IntPtr.Zero, 0, out var needed, out _);
+            if (needed == 0)
+                return names;
+            var buf = Marshal.AllocHGlobal((int)needed);
+            try
+            {
+                if (!EnumPrintersW(flags, null, 1, buf, needed, out _, out var returned))
+                    return names;
+                int stride = IntPtr.Size * 4;              // PRINTER_INFO_1W: 4 个指针宽字段
+                for (int i = 0; i < returned; i++)
+                {
+                    var pName = Marshal.ReadIntPtr(buf, i * stride + IntPtr.Size * 2);
+                    var name = Marshal.PtrToStringUni(pName);
+                    if (!string.IsNullOrEmpty(name))
+                        names.Add(name);
+                }
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+
+            var def = GetDefaultPrinter();
+            if (!string.IsNullOrEmpty(def) && names.Remove(def!))
+                names.Insert(0, def!);
+        }
+        catch
+        {
+            // 枚举失败交由手填
+        }
+        return names;
+    }
+
+    private static string? GetDefaultPrinter()
+    {
+        uint size = 0;
+        GetDefaultPrinterW(null, ref size);
+        if (size == 0)
+            return null;
+        var sb = new StringBuilder((int)size);
+        return GetDefaultPrinterW(sb, ref size) ? sb.ToString() : null;
+    }
+
     public static bool SendToPrinter(string printerName, byte[] data, out string error)
     {
         error = "";
@@ -186,6 +233,13 @@ public static class RawPrinterHelper
         public string pOutputFile;
         public string pDatatype;
     }
+
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool EnumPrintersW(uint flags, string? name, uint level,
+        IntPtr buffer, uint cbNeeded, out uint pcbNeeded, out uint pcReturned);
+
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool GetDefaultPrinterW(StringBuilder? pszBuffer, ref uint pcchBuffer);
 
     [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);

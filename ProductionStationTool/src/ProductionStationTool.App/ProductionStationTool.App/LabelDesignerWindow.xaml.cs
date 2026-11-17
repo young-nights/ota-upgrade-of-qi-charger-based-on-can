@@ -1,17 +1,12 @@
-using System.IO;
 using System.Windows;
-using System.Windows.Media.Imaging;
-using Microsoft.Win32;
 using ProductionStationTool.App.Utilities;
 using ProductionStationTool.Core.Printing;
 
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// SN 码标签设计器（「打印机设置 → SN 码预设」）：
-/// 直接在本 UI 配置标签尺寸、打印机参数与对象排版（文本/字体/位置），
-/// 「生成」把参数应用到画布副本产出 .btw——不经手工导入导出。
-/// 生成/试打印走 BarTender COM（画布读取、参数写入、打印均本机 BarTender）。
+/// SN 码标签设计器（「打印机设置」）：直接配置标签尺寸、打印机参数、条码与文字排版，
+/// 打印时按 TSPL/ZPL 指令经 RAW 原始打印直发打印机——无需 BarTender / 无授权限制。
 /// </summary>
 public partial class LabelDesignerWindow : Window
 {
@@ -26,19 +21,10 @@ public partial class LabelDesignerWindow : Window
         public string YMm { get; set; } = "";
     }
 
-    /// <summary>画布内命名数据源名（{SN} 只能落这些名字上）。</summary>
-    private HashSet<string> _namedSources = new(StringComparer.OrdinalIgnoreCase);
-
-    private const string BarTenderMissingText =
-        "本机未检测到 BarTender——需安装 Seagull BarTender（Automation 及以上版本，如产线用的 10.1 企业自动化版），安装后 COM 自动注册即可用";
-
     public LabelDesignerWindow()
     {
         InitializeComponent();
         var d = MachineConfig.LoadLabelDesign();
-        BoxCanvas.Text = string.IsNullOrWhiteSpace(d.CanvasTemplatePath)
-            ? FindDefaultCanvas()
-            : d.CanvasTemplatePath;
         BoxWidthMm.Text = d.LabelWidthMm.ToString("0.##");
         BoxHeightMm.Text = d.LabelHeightMm.ToString("0.##");
         BoxPaperMm.Text = d.PaperHeightMm.ToString("0.##");
@@ -46,7 +32,6 @@ public partial class LabelDesignerWindow : Window
         BoxCopies.Text = Math.Max(1, d.Copies).ToString();
         BoxSpeed.Text = d.PrintSpeed.ToString("0.##");
         BoxDarkness.Text = d.PrintDarkness.ToString("0.##");
-        ComboPrintMode.SelectedIndex = string.Equals(d.PrintMode, "bartender", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         ComboScript.SelectedIndex = string.Equals(d.Script, "zpl", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         ComboDpi.SelectedIndex = d.Dpi == 300 ? 1 : 0;
         BoxGapMm.Text = d.GapMm.ToString("0.##");
@@ -59,39 +44,7 @@ public partial class LabelDesignerWindow : Window
         BoxBcY.Text = d.Barcode.YMm.ToString("0.##");
         GridObjects.ItemsSource = d.Objects.Select(ToRow).ToList();
         RefreshPrinters();
-        LoadPreview();
-        TxtResult.Text = "配置后点「生成 .btw」产出输出模板；「保存并应用」后工位 4 按此出标签。";
-    }
-
-    /// <summary>加载画布 .btw 内嵌预览 PNG（纯文件解析，无需 BarTender/授权）。</summary>
-    private void LoadPreview()
-    {
-        var path = BoxCanvas.Text.Trim();
-        var png = path.Length > 0 ? BtwPreview.ExtractPng(path) : null;
-        if (png is null)
-        {
-            ImgPreview.Source = null;
-            TxtPreviewNote.Text = path.Length == 0
-                ? "未选择画布模板"
-                : "该 .btw 未内嵌预览图（BarTender 保存时会附带缩略图）";
-            return;
-        }
-        try
-        {
-            var bmp = new BitmapImage();
-            bmp.BeginInit();
-            bmp.CacheOption = BitmapCacheOption.OnLoad;
-            bmp.StreamSource = new MemoryStream(png);
-            bmp.EndInit();
-            bmp.Freeze();
-            ImgPreview.Source = bmp;
-            TxtPreviewNote.Text = $"画布：{Path.GetFileName(path)}（内嵌缩略图，无需 BarTender）";
-        }
-        catch (Exception ex)
-        {
-            ImgPreview.Source = null;
-            TxtPreviewNote.Text = $"预览图解码失败：{ex.Message}";
-        }
+        TxtResult.Text = "配置后「试打印一张」核对版式，「保存」后工位 4 按此出标签。";
     }
 
     private static DesignRow ToRow(LabelObjectDesign o) => new()
@@ -105,22 +58,9 @@ public partial class LabelDesignerWindow : Window
         YMm = o.YMm?.ToString("0.##") ?? "",
     };
 
-    /// <summary>找内置画布：程序目录 / 仓库 docs/打印预设（开发机）。</summary>
-    private static string FindDefaultCanvas()
-    {
-        var candidates = new[]
-        {
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "打印预设", "SN码标签打印预设.btw"),
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SN码标签打印预设.btw"),
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
-                "docs", "打印预设", "SN码标签打印预设.btw"),
-        };
-        return candidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists) ?? "";
-    }
-
     private void RefreshPrinters()
     {
-        var printers = BarTenderTemplateBuilder.ListPrinters();
+        var printers = RawPrinterHelper.ListPrinters();
         // 纯下拉只显示列表内项：已选打印机名不在列表时补进去，保证选中值可见
         var current = ComboPrinter.Text.Trim();
         var list = printers.ToList();
@@ -135,69 +75,10 @@ public partial class LabelDesignerWindow : Window
 
     private void BtnRefreshPrinters_Click(object sender, RoutedEventArgs e) => RefreshPrinters();
 
-    private void BtnBrowseCanvas_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFileDialog
-        {
-            Filter = "BarTender 模板 (*.btw)|*.btw|所有文件 (*.*)|*.*",
-            CheckFileExists = true,
-        };
-        if (dlg.ShowDialog(this) == true)
-        {
-            BoxCanvas.Text = dlg.FileName;
-            _namedSources.Clear();
-            GridObjects.ItemsSource = new List<DesignRow>();
-            LoadPreview();
-        }
-    }
-
-    private void BtnReadObjects_Click(object sender, RoutedEventArgs e)
-    {
-        if (!BarTenderLabelPrinter.Available())
-        {
-            TxtObjStatus.Text = BarTenderMissingText;
-            return;
-        }
-        var info = BarTenderLabelPrinter.ReadTemplateInfo(BoxCanvas.Text.Trim());
-        if (info is null)
-        {
-            TxtObjStatus.Text = "读取失败：画布不存在或 BarTender 打不开";
-            return;
-        }
-
-        _namedSources = new HashSet<string>(info.NamedSubstrings, StringComparer.OrdinalIgnoreCase);
-        var saved = new Dictionary<string, LabelObjectDesign>(StringComparer.OrdinalIgnoreCase);
-        foreach (var o in MachineConfig.LoadLabelDesign().Objects)
-            saved[o.Name] = o;
-
-        var rows = new List<DesignRow>();
-        foreach (var o in info.TextObjects)
-        {
-            if (saved.TryGetValue(o.Name, out var s))
-            {
-                rows.Add(ToRow(s));
-                continue;
-            }
-            rows.Add(new DesignRow
-            {
-                Name = o.Name,
-                FontName = o.Font,
-                FontSizePt = o.Size > 0 ? o.Size.ToString("0.##") : "",
-                XMm = o.X.ToString("0.##"),
-                YMm = o.Y.ToString("0.##"),
-            });
-        }
-        GridObjects.ItemsSource = rows;
-        TxtObjStatus.Text = $"对象 {rows.Count} 个；命名数据源（{{SN}} 可用）：" +
-                            (_namedSources.Count > 0 ? string.Join("、", _namedSources) : "（无）");
-    }
-
     private LabelDesign Collect()
     {
         var d = new LabelDesign
         {
-            CanvasTemplatePath = BoxCanvas.Text.Trim(),
-            OutputTemplatePath = MachineConfig.DefaultOutputTemplatePath,
             LabelWidthMm = ParseD(BoxWidthMm.Text, 50),
             LabelHeightMm = ParseD(BoxHeightMm.Text, 30),
             PaperHeightMm = ParseD(BoxPaperMm.Text, 0),
@@ -205,7 +86,6 @@ public partial class LabelDesignerWindow : Window
             Copies = (int)Math.Max(1, ParseD(BoxCopies.Text, 1)),
             PrintSpeed = ParseD(BoxSpeed.Text, 0),
             PrintDarkness = ParseD(BoxDarkness.Text, 0),
-            PrintMode = ComboPrintMode.SelectedIndex == 1 ? "bartender" : "direct",
             Script = ComboScript.SelectedIndex == 1 ? "zpl" : "tspl",
             Dpi = ComboDpi.SelectedIndex == 1 ? 300 : 203,
             GapMm = ParseD(BoxGapMm.Text, 2),
@@ -261,115 +141,26 @@ public partial class LabelDesignerWindow : Window
     private void BtnShowScript_Click(object sender, RoutedEventArgs e)
     {
         var d = Collect();
-        string script = string.Equals(d.Script, "zpl", StringComparison.OrdinalIgnoreCase)
-            ? DirectLabelScript.BuildZpl(d, "TEST0001")
-            : DirectLabelScript.BuildTspl(d, "TEST0001");
+        bool zpl = d.Script == "zpl";
+        string script = zpl ? DirectLabelScript.BuildZpl(d, "TEST0001") : DirectLabelScript.BuildTspl(d, "TEST0001");
         BoxScript.Text = script;
         BoxScript.Visibility = Visibility.Visible;
-        TxtResult.Text = $"直驱打印指令（{(d.Script == "zpl" ? "ZPL" : "TSPL")}，SN 代入 TEST0001）如下——不需要打印机即可核对：";
+        TxtResult.Text = $"直驱打印指令（{(zpl ? "ZPL" : "TSPL")}，SN 代入 TEST0001）如下——不需要打印机即可核对：";
     }
 
-    /// <summary>设计 → 打印预设（输出模板 + {SN} 命名数据源映射）。</summary>
-    private static LabelPreset ToPreset(LabelDesign d)
+    private async void BtnTestPrint_Click(object sender, RoutedEventArgs e)
     {
-        var named = new Dictionary<string, string>();
-        foreach (var o in d.Objects)
-        {
-            if (string.IsNullOrEmpty(o.Content))
-                continue;
-            if (o.Content.Contains("{SN}", StringComparison.OrdinalIgnoreCase))
-                named[o.Name] = o.Content;       // 打印时替换 {SN}
-        }
-        return new LabelPreset
-        {
-            TemplatePath = d.OutputTemplatePath,
-            PrinterName = d.PrinterName,
-            NamedValues = named,
-        };
-    }
-
-    private (bool Ok, string Detail) Generate()
-    {
-        if (!BarTenderLabelPrinter.Available())
-            return (false, BarTenderMissingText);
-        return BarTenderTemplateBuilder.Generate(Collect());
-    }
-
-    private void BtnGenerate_Click(object sender, RoutedEventArgs e)
-    {
-        var (ok, detail) = Generate();
+        var (ok, detail) = await Task.Run(() => new DirectLabelPrinter(Collect()).Print("TEST0001"));
         TxtResult.Text = detail;
         TxtResult.Foreground = ok
             ? System.Windows.Media.Brushes.Green
             : System.Windows.Media.Brushes.Firebrick;
     }
 
-    private async void BtnTestPrint_Click(object sender, RoutedEventArgs e)
-    {
-        var design = Collect();
-
-        // 直驱：TSPL/ZPL 指令直接发打印机，无需 BarTender
-        if (design.PrintMode == "direct")
-        {
-            var (printOk, printDetail) = await Task.Run(() => new DirectLabelPrinter(design).Print("TEST0001"));
-            TxtResult.Text = printDetail;
-            TxtResult.Foreground = printOk
-                ? System.Windows.Media.Brushes.Green
-                : System.Windows.Media.Brushes.Firebrick;
-            return;
-        }
-
-        // BarTender：生成模板后填值打印
-        var (ok, detail) = Generate();
-        if (!ok)
-        {
-            TxtResult.Text = detail;
-            TxtResult.Foreground = System.Windows.Media.Brushes.Firebrick;
-            return;
-        }
-        try
-        {
-            using var printer = new BarTenderLabelPrinter(ToPreset(design));
-            var (printOk, printDetail) = await printer.PrintSnAsync("TEST0001");
-            TxtResult.Text = detail + "\n试打印：" + (printOk ? printDetail : "失败 " + printDetail);
-            TxtResult.Foreground = printOk
-                ? System.Windows.Media.Brushes.Green
-                : System.Windows.Media.Brushes.Firebrick;
-        }
-        catch (Exception ex)
-        {
-            TxtResult.Text = detail + $"\n试打印异常：{ex.Message}";
-            TxtResult.Foreground = System.Windows.Media.Brushes.Firebrick;
-        }
-    }
-
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
-        var design = Collect();
-        bool ok = true;
-        string detail;
-
-        if (design.PrintMode == "direct")
-        {
-            // 直驱：只存设计（打印时现场生成指令，无需模板/BarTender）
-            detail = "直驱模式：打印时按 TSPL/ZPL 指令直发打印机（无需 BarTender / 授权）";
-        }
-        else
-        {
-            (ok, detail) = BarTenderLabelPrinter.Available()
-                ? BarTenderTemplateBuilder.Generate(design)
-                : (true, "本机未装 BarTender：仅保存设计参数（生成 .btw / 打印需在装了 BarTender 的机器上）");
-        }
-
-        if (ok)
-        {
-            MachineConfig.SaveLabelDesign(design);
-            var (_, box) = MachineConfig.LoadPrintPresets();
-            MachineConfig.SavePrintPresets(ToPreset(design), box);
-        }
-        TxtResult.Text = detail + (ok ? "\n已保存设计（machine.json），工位 4 按此出标签。" : "");
-        TxtResult.Foreground = ok
-            ? System.Windows.Media.Brushes.Green
-            : System.Windows.Media.Brushes.Firebrick;
+        MachineConfig.SaveLabelDesign(Collect());
+        TxtResult.Text = "已保存设计（machine.json），工位 4 打印按 TSPL/ZPL 直驱出标签。";
+        TxtResult.Foreground = System.Windows.Media.Brushes.Green;
     }
 }

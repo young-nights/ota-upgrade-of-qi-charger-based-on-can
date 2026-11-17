@@ -172,36 +172,7 @@ public static class MachineConfig
             $" / HW {ShowOrDash(before.Item2)}→{ShowOrDash(hw)}  ({Environment.MachineName})\n");
     }
 
-    /// <summary>打印预设（SN 码预设 / 外包箱预设），「打印机设置」页保存。</summary>
-    public static (LabelPreset Sn, LabelPreset Box) LoadPrintPresets()
-    {
-        var cfg = ReadCfgOrDefault();
-        return (cfg.SnLabelPreset ?? new LabelPreset(), cfg.BoxLabelPreset ?? new LabelPreset());
-    }
-
-    /// <summary>保存打印预设；变更时写 machine_change.log 留痕。</summary>
-    public static void SavePrintPresets(LabelPreset sn, LabelPreset box)
-    {
-        var cfg = ReadCfgOrDefault();
-        var before = (cfg.SnLabelPreset ?? new LabelPreset(), cfg.BoxLabelPreset ?? new LabelPreset());
-        cfg.SnLabelPreset = sn;
-        cfg.BoxLabelPreset = box;
-        WriteCfg(cfg);
-
-        if (before.Item1.TemplatePath == sn.TemplatePath && before.Item1.PrinterName == sn.PrinterName &&
-            before.Item2.TemplatePath == box.TemplatePath && before.Item2.PrinterName == box.PrinterName &&
-            BeforeDict(before.Item1.NamedValues).SequenceEqual(BeforeDict(sn.NamedValues)) &&
-            BeforeDict(before.Item2.NamedValues).SequenceEqual(BeforeDict(box.NamedValues)))
-            return;
-        File.AppendAllText(ChangeLogPath,
-            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  打印预设 SN[{ShowOrDash(sn.TemplatePath)} @ {ShowOrDash(sn.PrinterName)}]" +
-            $" / 箱[{ShowOrDash(box.TemplatePath)} @ {ShowOrDash(box.PrinterName)}]  ({Environment.MachineName})\n");
-    }
-
-    private static IEnumerable<string> BeforeDict(Dictionary<string, string> d)
-        => d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}");
-
-    /// <summary>标签设计器规格（「打印机设置」页：尺寸/打印机参数/对象排版）。</summary>
+    /// <summary>标签设计器规格（「打印机设置」页：尺寸/打印机参数/对象排版/条码）。</summary>
     public static LabelDesign LoadLabelDesign()
         => ReadCfgOrDefault().SnLabelDesign ?? new LabelDesign();
 
@@ -212,14 +183,10 @@ public static class MachineConfig
         cfg.SnLabelDesign = design;
         WriteCfg(cfg);
         File.AppendAllText(ChangeLogPath,
-            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  标签设计 画布[{ShowOrDash(design.CanvasTemplatePath)}]" +
-            $" 尺寸 {design.LabelWidthMm}×{design.LabelHeightMm}mm" +
-            $" 打印机[{ShowOrDash(design.PrinterName)}] 对象 {design.Objects.Count} 个  ({Environment.MachineName})\n");
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  标签设计 尺寸 {design.LabelWidthMm}×{design.LabelHeightMm}mm" +
+            $" 打印机[{ShowOrDash(design.PrinterName)}] {design.Script.ToUpper()}" +
+            $" 对象 {design.Objects.Count} 个  ({Environment.MachineName})\n");
     }
-
-    /// <summary>默认输出模板目录（程序目录 generated/）。</summary>
-    public static string DefaultOutputTemplatePath =>
-        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "generated", "sn_label_design.btw");
 
     /// <summary>良率统计口径（「数据管理」页）：弃用记录是否计入良率。</summary>
     public static bool LoadYieldExcludeAbandoned()
@@ -322,10 +289,6 @@ public static class MachineConfig
         // 工位 4 版本预设（软件/硬件版本串；空 = 未预设）
         public string PresetSwVersion { get; set; } = "";
         public string PresetHwVersion { get; set; } = "";
-
-        // 打印预设（「打印机设置」页：SN 码预设 / 外包箱预设）
-        public LabelPreset SnLabelPreset { get; set; } = new();
-        public LabelPreset BoxLabelPreset { get; set; } = new();
 
         // 良率统计口径（「数据管理」页）：true = 弃用记录不计入良率（默认）
         public bool YieldExcludeAbandoned { get; set; } = true;

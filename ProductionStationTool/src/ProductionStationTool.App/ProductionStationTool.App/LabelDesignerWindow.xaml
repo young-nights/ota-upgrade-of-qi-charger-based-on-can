@@ -9,26 +9,13 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
         <StackPanel Margin="16">
 
-            <!-- 画布 + 标签尺寸 -->
+            <!-- 标签尺寸 -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>
-                    <TextBlock Text="标签尺寸与画布" Style="{StaticResource SectionTitle}"/>
-                    <TextBlock Text="画布 = 参数所附着的 .btw 骨架（默认取内置 SN 码模板）。在这里直接设置标签尺寸与打印机参数，「生成」时把参数写进输出模板——不需要手工在 BarTender 里导入导出。"
+                    <TextBlock Text="标签尺寸" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="在这里直接配置标签尺寸、打印机参数与排版，打印时按 TSPL/ZPL 指令直发打印机——不需要 BarTender，也没有授权限制。"
                                FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                TextWrapping="Wrap" Margin="0,10,0,12"/>
-
-                    <TextBlock Text="画布模板（.btw）" Style="{StaticResource FieldLabel}"/>
-                    <Grid Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="BoxCanvas" Grid.Column="0" Style="{StaticResource FieldBox}"
-                                 Margin="0,0,8,0"/>
-                        <Button Grid.Column="1" Content="浏览…" Width="90" Height="36"
-                                Style="{StaticResource GhostButton}" Click="BtnBrowseCanvas_Click"/>
-                    </Grid>
-
                     <UniformGrid Columns="3">
                         <StackPanel Margin="0,0,8,0" ToolTip="标签宽度（毫米）">
                             <TextBlock Text="标签宽 (mm)" Style="{StaticResource FieldLabel}"/>
@@ -43,26 +30,6 @@
                             <TextBox x:Name="BoxPaperMm" Style="{StaticResource FieldBox}" Text="0"/>
                         </StackPanel>
                     </UniformGrid>
-                </StackPanel>
-            </Border>
-
-            <!-- 模板预览（.btw 内嵌 PNG，无需 BarTender） -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock Text="模板预览" Style="{StaticResource SectionTitle}"/>
-                    <TextBlock Text="显示 .btw 文件内嵌的标签缩略图——读的是文件本身，不需要安装 BarTender，也没有授权限制。"
-                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                               TextWrapping="Wrap" Margin="0,10,0,10"/>
-                    <Border Background="#F8FAFC" BorderBrush="{StaticResource CardBorderBrush}"
-                            BorderThickness="1" CornerRadius="6" Padding="12">
-                        <StackPanel>
-                            <Image x:Name="ImgPreview" Stretch="Uniform" MaxHeight="260"
-                                   HorizontalAlignment="Center"/>
-                            <TextBlock x:Name="TxtPreviewNote" FontSize="11"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                       HorizontalAlignment="Center" Margin="0,8,0,0"/>
-                        </StackPanel>
-                    </Border>
                 </StackPanel>
             </Border>
 
@@ -92,32 +59,23 @@
                             <TextBox x:Name="BoxCopies" Style="{StaticResource FieldBox}" Text="1"/>
                         </StackPanel>
                         <StackPanel Grid.Column="5"
-                                    ToolTip="速度：打印机走纸/打印速度档位（数值越大越快）；0 = 用打印机当前默认，部分驱动不支持从软件设置">
+                                    ToolTip="速度：打印机走纸/打印速度档位（数值越大越快）；0 = 用打印机当前默认">
                             <TextBlock Text="速度" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="BoxSpeed" Style="{StaticResource FieldBox}" Text="0"/>
                         </StackPanel>
                     </Grid>
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                         <StackPanel Width="110" Margin="0,0,8,0"
-                                    ToolTip="浓度：打印黑度/深浅（数值越大越黑，条码对比度更高）；0 = 用打印机当前默认，部分驱动不支持从软件设置">
+                                    ToolTip="浓度：打印黑度/深浅（数值越大越黑，条码对比度更高）；0 = 用打印机当前默认">
                             <TextBlock Text="浓度" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="BoxDarkness" Style="{StaticResource FieldBox}" Text="0"/>
                         </StackPanel>
                     </StackPanel>
-                    <TextBlock Text="份数 = 一次任务出几张相同标签；速度 = 走纸/打印快慢档位（越大越快）；浓度 = 打印黑度（越大越黑）。速度/浓度填 0 表示用打印机默认——这两项是驱动相关参数，部分打印机不支持从软件设置，生成时会提示「未支持」。"
+                    <TextBlock Text="份数 = 一次任务出几张相同标签；速度 = 走纸/打印快慢档位（越大越快）；浓度 = 打印黑度（越大越黑）。速度/浓度填 0 表示用打印机默认。"
                                FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
                                TextWrapping="Wrap" Margin="0,10,0,10"/>
 
-                    <!-- 打印方式：直驱（TSPL/ZPL，无需 BarTender）/ BarTender -->
-                    <UniformGrid Columns="4">
-                        <StackPanel Margin="0,0,8,0"
-                                    ToolTip="直驱 = 按 TSPL/ZPL 指令直接发打印机，不需要 BarTender/授权；BarTender = 走模板生成与 COM 打印">
-                            <TextBlock Text="打印方式" Style="{StaticResource FieldLabel}"/>
-                            <ComboBox x:Name="ComboPrintMode" Height="36" Style="{StaticResource FieldCombo}">
-                                <ComboBoxItem Content="直驱（无需 BarTender）" IsSelected="True"/>
-                                <ComboBoxItem Content="BarTender"/>
-                            </ComboBox>
-                        </StackPanel>
+                    <UniformGrid Columns="3">
                         <StackPanel Margin="0,0,8,0"
                                     ToolTip="直驱指令语言：TSPL = TSC 及兼容机（中文 TTF 友好）；ZPL = Zebra（中文需亚洲字库）">
                             <TextBlock Text="指令语言" Style="{StaticResource FieldLabel}"/>
@@ -181,20 +139,16 @@
                 </StackPanel>
             </Border>
 
-            <!-- 对象排版 -->
+            <!-- 文字排版 -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>
-                    <TextBlock Text="对象排版（文本/字体/位置）" Style="{StaticResource SectionTitle}"/>
-                    <TextBlock Text="从画布读取对象后逐个调整：文本内容支持 {SN} 占位（须为命名数据源，打印时替换）；字体/字号/粗体/坐标 单位 mm，留空/0 表示不改画布原值。"
+                    <TextBlock Text="文字排版" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="逐行配置文字：文本内容支持 {SN} 占位（打印时替换）；字体（如 SimSun/Arial）、字号 pt、坐标 mm。"
                                FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                TextWrapping="Wrap" Margin="0,10,0,12"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                        <Button Content="从画布读取对象" Width="150" Height="36"
-                                Style="{StaticResource GhostButton}" Click="BtnReadObjects_Click"
-                                ToolTip="经 BarTender 读取画布内对象的名称/字体/字号/坐标（需本机装 BarTender）"/>
-                        <Button Content="添加行" Width="90" Height="36" Margin="8,0,0,0"
-                                Style="{StaticResource GhostButton}" Click="BtnAddRow_Click"
-                                ToolTip="直驱模式下手动添加一行文字（无需画布）"/>
+                        <Button Content="添加行" Width="90" Height="36"
+                                Style="{StaticResource GhostButton}" Click="BtnAddRow_Click"/>
                         <Button Content="删除行" Width="90" Height="36" Margin="8,0,0,0"
                                 Style="{StaticResource GhostButton}" Click="BtnDelRow_Click"
                                 ToolTip="删除选中行"/>
@@ -207,8 +161,8 @@
                               HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                               MaxHeight="220" FontSize="12">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="对象" Binding="{Binding Name}" Width="*" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="文本内容（{SN}）" Binding="{Binding Content}" Width="170"/>
+                            <DataGridTextColumn Header="行名" Binding="{Binding Name}" Width="*"/>
+                            <DataGridTextColumn Header="文本内容（{SN}）" Binding="{Binding Content}" Width="190"/>
                             <DataGridTextColumn Header="字体" Binding="{Binding FontName}" Width="100"/>
                             <DataGridTextColumn Header="字号" Binding="{Binding FontSizePt}" Width="56"/>
                             <DataGridCheckBoxColumn Header="粗体" Binding="{Binding Bold, UpdateSourceTrigger=PropertyChanged}" Width="52"/>
@@ -219,18 +173,15 @@
                 </StackPanel>
             </Border>
 
-            <!-- 生成与打印 -->
+            <!-- 打印与保存 -->
             <StackPanel Orientation="Horizontal">
                 <Button Content="试打印一张" Width="130" Height="40"
                         Style="{StaticResource PrimaryButton}" Click="BtnTestPrint_Click"
-                        ToolTip="直驱：直接出一张；BarTender：生成模板后以 {SN}=TEST0001 试打"/>
+                        ToolTip="按当前配置直驱出一张（SN 代入 TEST0001）"/>
                 <Button Content="查看打印指令" Width="130" Height="40" Margin="12,0,0,0"
                         Style="{StaticResource GhostButton}" Click="BtnShowScript_Click"
-                        ToolTip="显示直驱模式将下发的 TSPL/ZPL 指令（便于核对，不需要打印机）"/>
-                <Button Content="生成 .btw" Width="120" Height="40" Margin="12,0,0,0"
-                        Style="{StaticResource GhostButton}" Click="BtnGenerate_Click"
-                        ToolTip="BarTender 模式：把参数应用到画布副本并保存为输出模板"/>
-                <Button Content="保存并应用" Width="130" Height="40" Margin="12,0,0,0"
+                        ToolTip="显示将下发的 TSPL/ZPL 指令（便于核对，不需要打印机）"/>
+                <Button Content="保存" Width="110" Height="40" Margin="12,0,0,0"
                         Style="{StaticResource GhostButton}" Click="BtnSave_Click"
                         ToolTip="保存设计（machine.json），工位 4 打印按此出标签"/>
             </StackPanel>
