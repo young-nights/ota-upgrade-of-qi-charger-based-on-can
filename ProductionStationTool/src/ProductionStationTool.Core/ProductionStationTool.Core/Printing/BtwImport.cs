@@ -1,28 +1,36 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace ProductionStationTool.Core.Printing;
 
-/// <summary>.btw 导入结果（尽力提取；坐标/尺寸为二进制暂不可解析）。</summary>
+/// <summary>.btw 导入对象：显示文本或条码。</summary>
+public sealed record BtwObject(string Kind, string Content, string Font)
+{
+    public bool IsBarcode => Kind == "barcode";
+}
+
+/// <summary>.btw 导入结果（尽力提取；坐标/字号由预览图测量补齐，见 App 层 BtwLayout）。</summary>
 public sealed record BtwImportResult(
     byte[]? PreviewPng,
     string? PrinterName,
-    IReadOnlyList<(string Content, string Font)> Texts,
+    IReadOnlyList<BtwObject> Objects,
     string Note);
 
 /// <summary>
-/// .btw 参考导入：不解模板坐标，但可提取——
+/// .btw 参考导入：提取——
 ///   ① 内嵌 PNG 标签预览（无需 BarTender）；
-///   ② 参数 zlib 流里的 UTF-16 文本对象内容与字体；
+///   ② 参数 zlib 流里的对象块（文本/条形码：内容与字体；命名数据源拼接的对象 → {SN}）；
 ///   ③ 目标打印机名（顺带推断指令语言：含 Zebra/ZPL → ZPL，否则 TSPL）。
-/// 结构依据（SN码标签打印预设.btw 实证）：文件 = 文本头 + zlib 压缩段，
-/// 参数段内记录形如 FF FE FF &lt;u16 长度&gt; &lt;UTF-16LE 字符&gt;。
+/// 结构依据（SN码标签打印预设.btw 实证）：文件 = 文本头 + zlib 压缩段；
+/// 参数段内对象块以名称记录（"文本 N"/"条形码 N"/"方框 N"）分界，记录形如
+/// FF FE FF &lt;u8 长度&gt; &lt;UTF-16LE 字符&gt;；命名数据源样值成组出现（s01…s07）。
 /// </summary>
 public static class BtwImport
 {
     private static readonly byte[] PngMagic = { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
 
-    /// <summary>解析 .btw，返回预览图/打印机/文本行。</summary>
+    /// <summary>解析 .btw，返回预览图/打印机/对象列表。</summary>
     public static BtwImportResult Extract(string btwPath)
     {
         byte[] data;
@@ -32,16 +40,15 @@ public static class BtwImport
         }
         catch (Exception ex)
         {
-            return new BtwImportResult(null, null, Array.Empty<(string, string)>(), $"读取失败：{ex.Message}");
+            return new BtwImportResult(null, null, Array.Empty<BtwObject>(), $"读取失败：{ex.Message}");
         }
 
         var png = ExtractPng(data);
 
-        // 取含 BarTender 标识的参数 zlib 流
         byte[]? param = null;
         foreach (var raw in InflateStreams(data))
         {
-            // 参数流判据 = 解压后含 UTF-16 "BarTender"（不按长度过滤）
+            // 参数流判据 = 解压后含 UTF-16 "BarTender"
             if (IndexOf(raw, Encoding.Unicode.GetBytes("BarTender"), 0) >= 0)
             {
                 param = raw;
@@ -49,18 +56,20 @@ public static class BtwImport
             }
         }
         if (param is null)
-            return new BtwImportResult(png, null, Array.Empty<(string, string)>(),
+            return new BtwImportResult(png, null, Array.Empty<BtwObject>(),
                 "已提取预览图；未找到参数流（文件版本可能不同），无法导入文本/打印机");
 
         var records = ParseRecords(param);
-        string? printer = records.FirstOrDefault(r => ContainsAny(r, "ZDesigner", "Zebra", "ZPL", "TSPL", "TSC", "Toshiba", "SATO", "Honeywell", "Datamax", "Godex"));
-        var texts = ExtractTexts(records, out int skipped, param);
+        string? printer = records.Select(r => r.Text).FirstOrDefault(
+            t => ContainsAny(t, "ZDesigner", "Zebra", "ZPL", "TSPL", "TSC", "Toshiba", "SATO", "Honeywell", "Datamax", "Godex"));
+        var objects = ExtractObjects(records, param);
+        int barcode = objects.Count(o => o.IsBarcode);
 
-        var note = $"已导入文本 {texts.Count} 行"
+        var note = $"已导入文本 {objects.Count(o => !o.IsBarcode)} 行"
+            + (barcode > 0 ? $"、条码 {barcode} 个" : "")
             + (printer is not null ? $"、打印机「{printer}」" : "")
-            + $"（另跳过模板样板文本 {skipped} 条）；"
-            + "坐标/字号为二进制格式暂不可解析——请在效果预览里手动摆位";
-        return new BtwImportResult(png, printer, texts, note);
+            + "；坐标/字号按预览图自动测量";
+        return new BtwImportResult(png, printer, objects, note);
     }
 
     /// <summary>推断指令语言：打印机名含 Zebra/ZPL → "zpl"，否则 "tspl"。</summary>
@@ -139,11 +148,13 @@ public static class BtwImport
         return result;
     }
 
-    // ---- 参数流记录：FF FE FF <u16 长> <UTF-16LE> ----
+    // ---- 参数流记录：FF FE FF <u8 长> <UTF-16LE> ----
 
-    private static List<string> ParseRecords(byte[] param)
+    private readonly record struct Rec(int Offset, string Text);
+
+    private static List<Rec> ParseRecords(byte[] param)
     {
-        var list = new List<string>();
+        var list = new List<Rec>();
         for (int i = 0; i + 4 < param.Length; i++)
         {
             if (param[i] != 0xFF || param[i + 1] != 0xFE || param[i + 2] != 0xFF)
@@ -154,23 +165,23 @@ public static class BtwImport
                 continue;
             string text = Encoding.Unicode.GetString(param, start, len * 2);
             if (text.Length > 0 && text.All(c => !char.IsControl(c)))
-                list.Add(text);
+                list.Add(new Rec(i, text));
             i = start + len * 2 - 1;
         }
         return list;
     }
 
+    private static readonly Regex NameRec = new(@"^(文本|条形码|方框) ?\d*$", RegexOptions.Compiled);
+
     /// <summary>
-    /// 只留真正的标签文本。参数流记录结构（实证）：
-    ///   显示文本：[内容] [方框 1] [文本 N / 条形码 N]   → 留（名称 = 对象名）
-    ///   数据源值：[值] [值] [s01…s07 等数据源名]       → 弃（SN 段样值）
-    ///   其余为 BarTender 中英文界面样板 → 弃。
+    /// 对象块解析：名称记录（文本 N/条形码 N）为块首，到下一个名称记录为止；
+    /// 块内「命名数据源样值组」（s01…s07 成组）→ {SN}；否则第一条非样板记录 = 显示内容。
     /// </summary>
-    private static List<(string Content, string Font)> ExtractTexts(List<string> records, out int skipped, byte[]? param)
+    private static List<BtwObject> ExtractObjects(List<Rec> records, byte[] param)
     {
-        var uiNoise = new[]
+        var noise = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "1", ".", ",", ":", "/", "_", "CN", "2052", "1...", "bmp", "Picture.bmp",
+            "1", ".", ",", ":", "/", "_", "CN", "2052", "1...", "bmp", "Picture.bmp", "999999",
             "DbMultiDbStatusPage", "Db Status Page", "Db Table Status Page", "Db Field Status Page",
             "Enter Data", "Sample Text", "Functions and Subs", "OnProcessData", "OnPostSerialize",
             "Data Source", "DataSource", "TextTransforms", "Dialog Control", "Line Control",
@@ -179,64 +190,83 @@ public static class BtwImport
             "使用打印机设置", "输入数据", "样本文本", "数据输入表单", "RFID 天线 1",
             "背景磁条 1", "背景色 1", "背景图 1", "背景 1", "层 1", "格式 1", "模板 1",
             "按钮控件 1", "按钮控件 2", "按钮控件 3", "分隔符行 1", "副本 1", "序列号 1",
-            "副本:", "序列号:", "Box 1", "Text 1",
+            "副本:", "序列号:", "Box 1", "Text 1", "Box Options",
         };
-
-        bool IsUiNoise(string r)
-            => uiNoise.Any(n => string.Equals(r, n, StringComparison.OrdinalIgnoreCase))
+        bool IsNoise(string r)
+            => noise.Contains(r)
                || r.StartsWith("Root.", StringComparison.Ordinal)
                || r.StartsWith("Db ", StringComparison.Ordinal)
                || r.StartsWith("'")
                || r.StartsWith("s0") && r.Length <= 3
-               || r.Contains("___") || r.Contains("000-0000")
+               || r.Contains("___") || r.Contains("000-0000") || r.Contains("???")
                || r.Contains("0123456789")
                || r.StartsWith("Printer Templates") || r.EndsWith(".prn")
-               || System.Text.RegularExpressions.Regex.IsMatch(r, @"^(文本|方框|条形码|模板|背景|按钮控件|分隔符行|副本|序列号) ?\d*$")
+               || NameRec.IsMatch(r)
                || ContainsAny(r, "ZDesigner", "Zebra", "ZPL", "TSPL", "USB00", "BackgroundPicture",
                               "PredefinedStocks", "Status Page", "l Dlg", "数据源");
 
-        var texts = new List<(string, string)>();
-        skipped = 0;
-        for (int i = 0; i < records.Count; i++)
+        // 块边界 = 名称记录位置
+        var marks = records.Where(r => NameRec.IsMatch(r.Text)).ToList();
+        var result = new List<BtwObject>();
+        for (int b = 0; b < marks.Count; b++)
         {
-            string r = records[i];
-            if (IsUiNoise(r))
-            {
-                skipped++;
+            var name = marks[b].Text;
+            bool isBarcode = name.StartsWith("条形码", StringComparison.Ordinal);
+            bool isText = name.StartsWith("文本", StringComparison.Ordinal);
+            if (!isBarcode && !isText)
                 continue;
-            }
 
-            // 结构判定：[内容][方框 1][文本 N] = 显示文本；[值][值][s0x] = 数据源样值
-            string name = "";
-            bool looksLikeValue = i + 2 < records.Count
-                && string.Equals(records[i + 1], records[i], StringComparison.Ordinal)
-                && records[i + 2].StartsWith("s0", StringComparison.Ordinal);
-            if (looksLikeValue)
+            int from = marks[b].Offset;
+            int to = b + 1 < marks.Count ? marks[b + 1].Offset : param.Length;
+
+            string content = "";
+            for (int i = 0; i < records.Count; i++)
             {
-                skipped += 2;
-                i += 2;
-                continue;
-            }
-            if (i + 2 < records.Count
-                && records[i + 2].StartsWith("文本", StringComparison.Ordinal))
-                name = records[i + 2].Replace("文本", "Text");
-            else if (i + 2 < records.Count
-                && records[i + 2].StartsWith("条形码", StringComparison.Ordinal))
-                name = records[i + 2].Replace("条形码", "Barcode");
+                var r = records[i];
+                if (r.Offset <= from || r.Offset >= to)
+                    continue;
 
-            texts.Add((r, name));
+                // 命名数据源样值组（s01…s07 连续 ≥2 条）→ {SN} 拼接对象
+                if (r.Text.StartsWith("s0") && r.Text.Length <= 3)
+                {
+                    int run = 1;
+                    for (int j = i + 1; j < records.Count
+                         && records[j].Offset < to
+                         && records[j].Text.StartsWith("s0") && records[j].Text.Length <= 3; j++)
+                        run++;
+                    if (run >= 2)
+                    {
+                        content = "{SN}";
+                        break;
+                    }
+                    continue;
+                }
+
+                if (IsNoise(r.Text))
+                    continue;
+
+                // 数据源样值：[值][值][s0x] 成对出现 → 跳过（SN 段样值，如 LS/LS/s01）
+                if (i + 2 < records.Count
+                    && string.Equals(records[i].Text, records[i + 1].Text, StringComparison.Ordinal)
+                    && records[i + 2].Text.StartsWith("s0", StringComparison.Ordinal))
+                {
+                    i++;
+                    continue;
+                }
+
+                content = r.Text;   // 值记录在块尾：保留最后一条非样板
+            }
+            if (content.Length == 0)
+                continue;
+
+            result.Add(new BtwObject(isBarcode ? "barcode" : "text", content, GuessCommonFont(param)));
         }
-
-        // 字体名不在记录里（定长字段），扫原始流取出现最多的非界面字体，统一套用
-        string font = GuessCommonFont(param);
-        return texts.Select(t => (t.Item1, font)).ToList();
+        return result;
     }
 
     /// <summary>扫参数流找出现最多的已知字体名（Tahoma 为界面字体，跳过）。</summary>
-    private static string GuessCommonFont(byte[]? param)
+    private static string GuessCommonFont(byte[] param)
     {
-        if (param is null)
-            return "";
         string[] fontNames =
         {
             "Arial", "Times New Roman", "Verdana", "SimSun", "Microsoft YaHei",

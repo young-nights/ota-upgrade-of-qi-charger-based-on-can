@@ -23,7 +23,9 @@ public class BtwImportTests
         using var ms = new MemoryStream();
         ms.Write(Rec("BarTender"));
         ms.Write(Rec("ZDesigner ZT610-600dpi ZPL"));
-        ms.Write(Rec("Trade:"));            // 显示文本
+        // 真实块结构：[文本 N 名][值…][方框 N]…（值在本块内、名记录为块首）
+        ms.Write(Rec("文本 1"));
+        ms.Write(Rec("Trade:"));            // 显示文本（文本 1 的值）
         ms.Write(Rec("方框 1"));
         ms.Write(Rec("文本 2"));
         ms.Write(Rec("LS"));                // 数据源样值（成对 + s0x）
@@ -61,9 +63,9 @@ public class BtwImportTests
             Assert.NotNull(r.PreviewPng);                          // 内嵌 PNG
             Assert.Contains("ZT610", r.PrinterName ?? "");          // 打印机
             Assert.Equal("zpl", BtwImport.GuessScript(r.PrinterName));
-            Assert.Contains(r.Texts, t => t.Content == "Trade:");   // 显示文本留下
-            Assert.DoesNotContain(r.Texts, t => t.Content == "LS"); // 数据源样值过滤
-            Assert.DoesNotContain(r.Texts, t => t.Content == "输入数据"); // 界面样板过滤
+            Assert.Contains(r.Objects, o => o.Content == "Trade:" && !o.IsBarcode); // 显示文本留下
+            Assert.DoesNotContain(r.Objects, o => o.Content == "LS");               // 数据源样值过滤
+            Assert.DoesNotContain(r.Objects, o => o.Content == "输入数据");          // 界面样板过滤
         }
         finally
         {

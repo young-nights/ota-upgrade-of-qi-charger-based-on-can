@@ -43,6 +43,7 @@ public partial class LabelDesignerWindow : Window
         ComboDpi.SelectedIndex = d.Dpi == 300 ? 1 : 0;
         BoxGapMm.Text = d.GapMm.ToString("0.##");
         ChkBarcode.IsChecked = d.Barcode.Enabled;
+        ComboBcSymbology.SelectedIndex = string.Equals(d.Barcode.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         BoxBcContent.Text = d.Barcode.Content;
         BoxBcHeight.Text = d.Barcode.HeightMm.ToString("0.##");
         BoxBcModule.Text = d.Barcode.ModuleMm.ToString("0.##");
@@ -124,14 +125,17 @@ public partial class LabelDesignerWindow : Window
             PreviewCanvas.Children.Add(tb);
         }
 
-        // 条码占位：按模块宽/内容长度估宽，竖条纹示意（真实条纹由打印机生成）
+        // 条码占位：QR 画方块（含定位角），Code128 画竖条纹（真实图形由打印机生成）
         var b = d.Barcode;
         if (b.Enabled && !string.IsNullOrEmpty(b.Content))
         {
             string data = b.Content.Replace("{SN}", "TEST0001", StringComparison.OrdinalIgnoreCase);
             double module = b.ModuleMm > 0 ? b.ModuleMm : 0.4;
-            double bw = Math.Min(w - b.XMm, (data.Length + 3) * 11 * module);   // Code128 ≈11 模块/字符
-            double bh = b.HeightMm;
+            bool qr = string.Equals(b.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase);
+            double bw = qr
+                ? Math.Min(b.HeightMm, w - b.XMm)                                  // QR 方形
+                : Math.Min(w - b.XMm, (data.Length + 3) * 11 * module);           // Code128 ≈11 模块/字符
+            double bh = qr ? bw : b.HeightMm;
             double bx = mm2dip(b.XMm), by = mm2dip(b.YMm);
 
             var box = new System.Windows.Shapes.Rectangle
@@ -146,8 +150,26 @@ public partial class LabelDesignerWindow : Window
             Canvas.SetTop(box, by);
             PreviewCanvas.Children.Add(box);
 
-            // 伪条纹（确定性图案，仅示意密度/位置）
+            if (qr)
+            {
+                // QR 定位角 + 稀疏模块示意
+                double mark = mm2dip(bw) / 6;
+                foreach (var (mx, my) in new[] { (bx, by), (bx + mm2dip(bw) - mark, by), (bx, by + mm2dip(bh) - mark) })
+                {
+                    var corner = new System.Windows.Shapes.Rectangle
+                    {
+                        Width = mark, Height = mark,
+                        Fill = Brushes.Black,
+                    };
+                    Canvas.SetLeft(corner, mx);
+                    Canvas.SetTop(corner, my);
+                    PreviewCanvas.Children.Add(corner);
+                }
+            }
+
+            // 伪条纹（确定性图案，仅示意密度/位置；QR 跳过）
             double x = bx + mm2dip(module);
+            if (qr) x = bx + mm2dip(bw);
             int seed = 7;
             while (x < bx + mm2dip(bw) - mm2dip(module))
             {
@@ -232,7 +254,7 @@ public partial class LabelDesignerWindow : Window
         }
         var r = BtwImport.Extract(path);
 
-        // 内嵌预览图
+        // 内嵌预览图（左栏）
         if (r.PreviewPng is not null)
         {
             try
@@ -252,24 +274,42 @@ public partial class LabelDesignerWindow : Window
             ImgBtwPreview.Source = null;
         }
 
-        // 文本行 → 文字排版表格（保留用户已有行？导入即替换，行为可预期）
+        // 预览图量版式 → 自动摆位（坐标/字号/条码），无需手摆
+        double widthMm = ParseD(BoxWidthMm.Text, 50);
+        var (items, aspect) = BtwLayout.Measure(r.PreviewPng ?? Array.Empty<byte>(), r.Objects, widthMm);
+        if (aspect > 0.5)
+        {
+            // 标签高按 .btw 版式比例自适配（宽沿用当前设置）
+            BoxHeightMm.Text = (widthMm / aspect).ToString("0.##");
+        }
+
         int i = 0;
         var rows = new List<DesignRow>();
-        foreach (var (content, font) in r.Texts)
+        foreach (var it in items.Where(p => p.Kind == "text"))
         {
             i++;
             rows.Add(new DesignRow
             {
                 Name = $"Text{i}",
-                Content = content,
-                FontName = font,
-                FontSizePt = "12",
-                XMm = "5",
-                YMm = (5 + (i - 1) * 6).ToString(),
+                Content = it.Content,
+                FontName = it.Font,
+                FontSizePt = it.FontPt > 0 ? it.FontPt.ToString("0.#") : "12",
+                XMm = it.XMm.ToString("0.##"),
+                YMm = it.YMm.ToString("0.##"),
             });
         }
         if (rows.Count > 0)
             GridObjects.ItemsSource = rows;
+
+        var bc = items.FirstOrDefault(p => p.Kind == "barcode");
+        if (bc is not null)
+        {
+            ChkBarcode.IsChecked = true;
+            BoxBcX.Text = bc.XMm.ToString("0.##");
+            BoxBcY.Text = bc.YMm.ToString("0.##");
+            BoxBcHeight.Text = bc.HeightMm.ToString("0.##");
+            ComboBcSymbology.SelectedIndex = BtwLayout.LooksSquare(bc.HeightMm * 1.0, bc.HeightMm) && bc.HeightMm > 8 ? 1 : 0;
+        }
 
         // 打印机 + 指令语言推断
         if (!string.IsNullOrEmpty(r.PrinterName))
@@ -279,7 +319,7 @@ public partial class LabelDesignerWindow : Window
             ComboScript.SelectedIndex = BtwImport.GuessScript(r.PrinterName) == "zpl" ? 1 : 0;
         }
 
-        TxtImportNote.Text = r.Note;
+        TxtImportNote.Text = r.Note + (items.Count > 0 ? "——坐标/字号已自动摆位，看右侧效果预览核对。" : "——未能测量版式（预览图缺失？），请手动摆位。");
         ScheduleRedraw();
     }
 
@@ -300,6 +340,7 @@ public partial class LabelDesignerWindow : Window
             Barcode = new LabelBarcodeDesign
             {
                 Enabled = ChkBarcode.IsChecked == true,
+                Symbology = ComboBcSymbology.SelectedIndex == 1 ? "qrcode" : "code128",
                 Content = BoxBcContent.Text.Trim(),
                 HeightMm = ParseD(BoxBcHeight.Text, 8),
                 ModuleMm = ParseD(BoxBcModule.Text, 0.4),

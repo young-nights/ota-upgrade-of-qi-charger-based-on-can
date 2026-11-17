@@ -45,6 +45,9 @@ public sealed class LabelDesign
 public sealed class LabelBarcodeDesign
 {
     public bool Enabled { get; set; } = true;
+
+    /// <summary>码制："code128" / "qrcode"（二维码）。</summary>
+    public string Symbology { get; set; } = "code128";
     /// <summary>条码内容（支持 {SN} 占位）。</summary>
     public string Content { get; set; } = "{SN}";
     public double XMm { get; set; } = 5;
