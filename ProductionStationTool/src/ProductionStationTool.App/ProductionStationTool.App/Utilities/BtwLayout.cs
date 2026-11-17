@@ -155,10 +155,11 @@ public static class BtwLayout
         var heights = boxes.Select(b => b.y1 - b.y0 + 1).OrderBy(v => v).ToList();
         int typicalBandH = heights[heights.Count / 2];
 
-        // 条码盒 = 高度显著大于文字带且接近方形的盒
+        // 条码盒 = 高度显著大于文字带且接近方形的盒；同类候选取面积最大者
         var barcode = boxes.Where(b => b.y1 - b.y0 + 1 > typicalBandH * 2).ToList();
         (int x0, int y0, int x1, int y1)? bcBox = null;
-        foreach (var b in barcode)
+        foreach (var b in barcode.OrderByDescending(b =>
+                     (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1)))
         {
             double bw = b.x1 - b.x0 + 1, bh = b.y1 - b.y0 + 1;
             if (bw / bh is > 0.7 and < 1.45)
@@ -167,10 +168,35 @@ public static class BtwLayout
                 break;
             }
         }
-        var textBoxes = boxes.Where(b => !bcBox.HasValue || b != bcBox.Value).ToList();
 
-        // 字符宽度估算（Arial 近似逐字符宽，em = 行高/0.78）；{SN} 按 20 字符样值估宽
-        double em = typicalBandH / 0.78;
+        // 从连通域中剔除条码内部的模块。只剔“主体落在条码盒内”的连通域，
+        // 避免二维码旁边、上下方紧邻的文字被一并删除。
+        bool MostlyInsideBarcode((int x0, int y0, int x1, int y1) c,
+                                 (int x0, int y0, int x1, int y1) box)
+        {
+            int ow = Math.Min(c.x1, box.x1) - Math.Max(c.x0, box.x0) + 1;
+            int oh = Math.Min(c.y1, box.y1) - Math.Max(c.y0, box.y0) + 1;
+            return ow > 0 && oh > 0
+                && ow >= (c.x1 - c.x0 + 1) * 0.5
+                && oh >= (c.y1 - c.y0 + 1) * 0.5;
+        }
+        var textComponents = bcBox is { } codeBox
+            ? comps.Where(c => !MostlyInsideBarcode(c, codeBox)).ToList()
+            : comps;
+
+        // 字号只按所有字符的典型墨迹高度估算一次。若逐行/逐盒用最大高度，
+        // 带 g/Q/中文字形的行会被当成更大字号，效果预览会明显放大。
+        var characterHeights = textComponents
+            .Select(c => c.y1 - c.y0 + 1)
+            .OrderBy(v => v)
+            .ToList();
+        int fontBandH = characterHeights.Count > 0
+            ? characterHeights[Math.Min(characterHeights.Count - 1,
+                (int)(characterHeights.Count * 0.75))]
+            : typicalBandH;
+        double em = fontBandH / 0.78;
+
+        // 字符宽度估算（Arial 近似逐字符宽，em = 墨迹高/0.78）；{SN} 按 20 字符样值估宽
         double CharW(char c)
         {
             if (c > 0x2E80)
@@ -195,65 +221,164 @@ public static class BtwLayout
         var fonts = texts.Select(t => t.Font).FirstOrDefault(f => !string.IsNullOrEmpty(f)) ?? "";
         var placements = new List<BtwPlacement>();
 
-        // 盒-串匹配：逐盒选未分配串（1~2 个）使估算宽度和最贴盒宽
-        var unassigned = texts.Select((t, i) => i).ToList();
-        foreach (var box in textBoxes.OrderByDescending(b => b.x1 - b.x0))
+        // 先按纵向重叠归并成文本行，而不是横向拼字符盒。模板中同一对象可能
+        // 被较大字距拆成多个盒（如 SN: + 长 SN），逐盒匹配会把整行拆错。
+        var lineBands = new List<(int x0, int y0, int x1, int y1)>();
+        foreach (var c in textComponents
+                     .OrderBy(v => v.y0)
+                     .ThenBy(v => v.x0))
         {
-            double boxW = box.x1 - box.x0 + 1;
-            int pick1 = -1, pick2 = -1;
-            double best = double.MaxValue;
-            // 先扫双串（同分时对子优先——同宽的「Trade:+Lime」与「Qi Charger」靠此不互换）
-            foreach (int i in unassigned)
-                foreach (int j in unassigned)
+            int bestLine = -1;
+            double bestOverlap = 0;
+            for (int li = 0; li < lineBands.Count; li++)
+            {
+                var line = lineBands[li];
+                int overlap = Math.Max(0,
+                    Math.Min(c.y1, line.y1) - Math.Max(c.y0, line.y0) + 1);
+                int shorter = Math.Min(c.y1 - c.y0 + 1, line.y1 - line.y0 + 1);
+                double ratio = shorter > 0 ? overlap / (double)shorter : 0;
+                if (ratio > bestOverlap)
                 {
-                    if (j == i)
-                        continue;
-                    double d2 = Math.Abs(Est(texts[i].Content) + Est(texts[j].Content) - boxW);
-                    if (d2 <= best) { best = d2; pick1 = i; pick2 = j; }
+                    bestOverlap = ratio;
+                    bestLine = li;
                 }
-            foreach (int i in unassigned)
-            {
-                double d = Math.Abs(Est(texts[i].Content) - boxW);
-                if (d < best) { best = d; pick1 = i; pick2 = -1; }
-            }
-            if (pick1 < 0)
-                continue;
-            var picks = pick2 >= 0 ? new List<int> { pick1, pick2 } : new List<int> { pick1 };
-            // 含 ':' 的串在左（Trade:/SN:/PN: 均为前缀），否则宽的在左
-            if (picks.Count == 2)
-            {
-                bool a = texts[picks[0]].Content.Contains(':');
-                bool b = texts[picks[1]].Content.Contains(':');
-                if (a != b && !a)
-                    picks.Reverse();
-                else if (a == b && Est(texts[picks[0]].Content) < Est(texts[picks[1]].Content))
-                    picks.Reverse();
             }
 
-            double boxH = box.y1 - box.y0 + 1;
-            double fontPt = boxH / 0.78 * scale * 72 / 25.4;
-            // 2 串同盒：按串宽占比瓜分盒宽
-            double usedX = box.x0;
-            foreach (int i in picks)
+            if (bestLine >= 0 && bestOverlap >= 0.33)
             {
-                double share = picks.Count == 1 ? boxW : boxW * Est(texts[i].Content) / Math.Max(1, picks.Sum(p => Est(texts[p].Content)));
-                placements.Add(new BtwPlacement(
-                    "text", texts[i].Content, fonts,
-                    (usedX - x0) * scale,
-                    (box.y0 - y0) * scale,
-                    fontPt,
-                    share, boxH * scale));
-                usedX += share;
-                unassigned.Remove(i);
+                var line = lineBands[bestLine];
+                lineBands[bestLine] = (
+                    Math.Min(line.x0, c.x0), Math.Min(line.y0, c.y0),
+                    Math.Max(line.x1, c.x1), Math.Max(line.y1, c.y1));
+            }
+            else
+            {
+                lineBands.Add(c);
+            }
+        }
+        lineBands = lineBands
+            .OrderBy(v => v.y0)
+            .ThenBy(v => v.x0)
+            .ToList();
+
+        // 模板记录顺序不一定等于画面顺序（条码对象可能夹在两组文本记录之间）。
+        // 因此为每条文本行搜索一组不重复的文本，使“估算字宽之和”最接近行宽。
+        int textCount = texts.Count, lineCount = lineBands.Count;
+        var matched = new bool[textCount];
+        var bestLineMasks = new ulong[lineCount];
+        var currentLineMasks = new List<ulong>(lineCount);
+        bool solved = textCount is > 0 and <= 16 && lineCount > 0 && lineCount <= textCount;
+        if (solved)
+        {
+            ulong allMask = textCount == 64 ? ulong.MaxValue : (1UL << textCount) - 1;
+            var lineCandidates = new List<(ulong Mask, double Cost)>[lineCount];
+            for (int li = 0; li < lineCount; li++)
+            {
+                var line = lineBands[li];
+                double lineWidth = line.x1 - line.x0 + 1;
+                var candidates = new List<(ulong Mask, double Cost)>();
+                for (ulong mask = allMask; mask != 0; mask = (mask - 1) & allMask)
+                {
+                    int count = System.Numerics.BitOperations.PopCount(mask);
+                    if (count > 4)
+                        continue;
+                    double sum = 0;
+                    for (int i = 0; i < textCount; i++)
+                        if ((mask & (1UL << i)) != 0)
+                            sum += Est(texts[i].Content);
+                    double mismatch = Math.Abs(sum - lineWidth) / Math.Max(1.0, lineWidth);
+                    candidates.Add((mask, mismatch + 0.01 * (count - 1)));
+                }
+                // 只保留最贴合的少量组合，避免对象较多时组合搜索指数膨胀。
+                lineCandidates[li] = candidates
+                    .OrderBy(v => v.Cost)
+                    .Take(24)
+                    .ToList();
+            }
+            double bestCost = double.PositiveInfinity;
+
+            void SearchLines(int lineIndex, ulong usedMask, double cost)
+            {
+                if (cost >= bestCost)
+                    return;
+                if (lineIndex == lineCount)
+                {
+                    if (usedMask == allMask)
+                    {
+                        bestCost = cost;
+                        currentLineMasks.CopyTo(bestLineMasks);
+                    }
+                    return;
+                }
+
+                int usedCount = System.Numerics.BitOperations.PopCount(usedMask);
+                int remainingLines = lineCount - lineIndex - 1;
+                int maxTake = textCount - usedCount - remainingLines;
+                foreach (var candidate in lineCandidates[lineIndex])
+                {
+                    int count = System.Numerics.BitOperations.PopCount(candidate.Mask);
+                    if (count > maxTake)
+                        continue;
+                    if ((candidate.Mask & usedMask) != 0)
+                        continue;
+                    currentLineMasks.Add(candidate.Mask);
+                    SearchLines(lineIndex + 1, usedMask | candidate.Mask, cost + candidate.Cost);
+                    currentLineMasks.RemoveAt(currentLineMasks.Count - 1);
+                }
+            }
+
+            SearchLines(0, 0, 0);
+            solved = !double.IsPositiveInfinity(bestCost);
+        }
+
+        if (solved)
+        {
+            double fontPt = fontBandH / 0.78 * scale * 72 / 25.4;
+            for (int li = 0; li < lineCount; li++)
+            {
+                var line = lineBands[li];
+                double lineWidth = line.x1 - line.x0 + 1;
+                ulong mask = bestLineMasks[li];
+                var lineTexts = Enumerable.Range(0, textCount)
+                    .Where(i => (mask & (1UL << i)) != 0)
+                    .ToList();
+                double sumEst = 0;
+                foreach (int ti in lineTexts)
+                    sumEst += Est(texts[ti].Content);
+
+                double fit = sumEst > lineWidth ? lineWidth / Math.Max(1, sumEst) : 1;
+                double gap = lineTexts.Count > 1 && sumEst <= lineWidth
+                    ? (lineWidth - sumEst) / (lineTexts.Count - 1)
+                    : 0;
+                double usedX = line.x0;
+                foreach (int ti in lineTexts)
+                {
+                    matched[ti] = true;
+                    double width = Est(texts[ti].Content) * fit;
+                    placements.Add(new BtwPlacement(
+                        "text", texts[ti].Content, fonts,
+                        (usedX - x0) * scale,
+                        (line.y0 - y0) * scale,
+                        fontPt,
+                        width * scale,
+                        (line.y1 - line.y0 + 1) * scale));
+                    usedX += width + gap;
+                }
             }
         }
 
-        // 未匹配上的串（估算失配兜底）：放到第一行下方顺排
-        foreach (int i in unassigned)
+        // 无法分行时的兜底：放在标签左侧顺排，字号仍使用全局典型字高，
+        // 避免某个大图形盒导致文字字号异常放大。
+        for (int i = 0; i < textCount; i++)
         {
+            if (matched[i])
+                continue;
             placements.Add(new BtwPlacement("text", texts[i].Content, fonts,
-                labelWidthMm * 0.05, labelWidthMm / aspect * (0.1 + 0.12 * placements.Count),
-                typicalBandH / 0.78 * scale * 72 / 25.4, labelWidthMm * 0.4, typicalBandH * scale));
+                labelWidthMm * 0.05,
+                labelWidthMm / aspect * (0.1 + 0.12 * placements.Count),
+                fontBandH / 0.78 * scale * 72 / 25.4,
+                Math.Min(labelWidthMm * 0.9, Est(texts[i].Content) * scale * 0.9),
+                fontBandH * scale));
         }
 
         if (bcBox is { } bb && objects.Any(o => o.IsBarcode))
