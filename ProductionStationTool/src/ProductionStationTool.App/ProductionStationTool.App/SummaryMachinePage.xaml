@@ -208,27 +208,11 @@
                     <!-- 页 2：数据库表格（筛选 + 记录表） -->
                     <Border x:Name="PanelRecords" Style="{StaticResource Card}" Visibility="Collapsed">
                         <DockPanel>
-                            <!-- 筛选栏：快捷区间一键筛 + 自定义日期手输（无日历弹窗，占位提示） -->
-                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                                <WrapPanel Margin="0,0,0,8">
-                                    <TextBlock Text="测试时间" Style="{StaticResource FieldLabel}"
-                                               VerticalAlignment="Center" Margin="0,10,10,0"/>
-                                    <Button Content="今天" Height="32" Padding="14,2" FontSize="12"
-                                            Style="{StaticResource GhostButton}" Click="BtnRangeToday_Click"/>
-                                    <Button Content="近 7 天" Height="32" Padding="14,2" FontSize="12"
-                                            Margin="6,0,0,0" Style="{StaticResource GhostButton}"
-                                            Click="BtnRange7d_Click"/>
-                                    <Button Content="近 30 天" Height="32" Padding="14,2" FontSize="12"
-                                            Margin="6,0,0,0" Style="{StaticResource GhostButton}"
-                                            Click="BtnRange30d_Click"/>
-                                    <Button Content="本月" Height="32" Padding="14,2" FontSize="12"
-                                            Margin="6,0,0,0" Style="{StaticResource GhostButton}"
-                                            Click="BtnRangeMonth_Click"/>
-                                    <Button Content="全部" Height="32" Padding="14,2" FontSize="12"
-                                            Margin="6,0,0,0" Style="{StaticResource GhostButton}"
-                                            Click="BtnRangeAll_Click"/>
-                                    <!-- 自定义区间：年/月/日 三下拉（可滚动，项自带单位后缀）；不限 = 该端不限 -->
-                                    <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
+                            <!-- 筛选栏：年/月/日 下拉区间（未选 = 不限 = 全部）+ 机位/工位/结果 -->
+                            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="测试时间" Style="{StaticResource FieldLabel}"/>
+                                    <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="自" FontSize="12"
                                                    Foreground="{StaticResource TextSecondaryBrush}"
                                                    VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -248,34 +232,32 @@
                                         <ComboBox x:Name="CmbToDay" Width="72" Height="32"
                                                   Margin="6,0,0,0" Style="{StaticResource FieldCombo}" ToolTip="结束日"/>
                                     </StackPanel>
-                                </WrapPanel>
-                                <WrapPanel>
-                                    <StackPanel>
-                                        <TextBlock Text="机位" Style="{StaticResource FieldLabel}"/>
-                                        <ComboBox x:Name="ComboMachine" Width="105" Height="36"
-                                                  Style="{StaticResource FieldCombo}"/>
-                                    </StackPanel>
-                                    <StackPanel Margin="8,0,0,0">
-                                        <TextBlock Text="工位" Style="{StaticResource FieldLabel}"/>
-                                        <ComboBox x:Name="ComboStation" Width="105" Height="36"
-                                                  Style="{StaticResource FieldCombo}"/>
-                                    </StackPanel>
-                                    <StackPanel Margin="8,0,0,0">
-                                        <TextBlock Text="结果" Style="{StaticResource FieldLabel}"/>
-                                        <ComboBox x:Name="ComboResult" Width="105" Height="36"
-                                                  Style="{StaticResource FieldCombo}"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="12,0,0,0">
-                                        <Button x:Name="BtnQuery" Content="查询" Height="36" Padding="18,4"
-                                                Style="{StaticResource PrimaryButton}" Click="BtnQuery_Click"
-                                                ToolTip="按当前筛选条件查询 test_records"/>
-                                        <Button x:Name="BtnResetFilter" Content="重置" Height="36" Padding="18,4"
-                                                Margin="8,0,0,0" Style="{StaticResource GhostButton}"
-                                                Click="BtnResetFilter_Click"
-                                                ToolTip="清空全部筛选条件并重新查询"/>
-                                    </StackPanel>
-                                </WrapPanel>
-                            </StackPanel>
+                                </StackPanel>
+                                <StackPanel Margin="12,0,0,0">
+                                    <TextBlock Text="机位" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox x:Name="ComboMachine" Width="105" Height="36"
+                                              Style="{StaticResource FieldCombo}"/>
+                                </StackPanel>
+                                <StackPanel Margin="8,0,0,0">
+                                    <TextBlock Text="工位" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox x:Name="ComboStation" Width="105" Height="36"
+                                              Style="{StaticResource FieldCombo}"/>
+                                </StackPanel>
+                                <StackPanel Margin="8,0,0,0">
+                                    <TextBlock Text="结果" Style="{StaticResource FieldLabel}"/>
+                                    <ComboBox x:Name="ComboResult" Width="105" Height="36"
+                                              Style="{StaticResource FieldCombo}"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="12,0,0,0">
+                                    <Button x:Name="BtnQuery" Content="查询" Height="36" Padding="18,4"
+                                            Style="{StaticResource PrimaryButton}" Click="BtnQuery_Click"
+                                            ToolTip="按当前筛选条件查询 test_records"/>
+                                    <Button x:Name="BtnResetFilter" Content="重置" Height="36" Padding="18,4"
+                                            Margin="8,0,0,0" Style="{StaticResource GhostButton}"
+                                            Click="BtnResetFilter_Click"
+                                            ToolTip="清空全部筛选条件并重新查询"/>
+                                </StackPanel>
+                            </WrapPanel>
                             <!-- 统计行 -->
                             <TextBlock x:Name="TxtDbStats" DockPanel.Dock="Top" Margin="0,0,0,8"
                                        FontSize="12" TextWrapping="Wrap"

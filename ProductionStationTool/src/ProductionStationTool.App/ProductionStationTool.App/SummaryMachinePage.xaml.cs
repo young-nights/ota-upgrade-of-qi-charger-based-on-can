@@ -301,16 +301,6 @@ public partial class SummaryMachinePage : UserControl
             cmb.SelectedIndex = 0;
     }
 
-    private void SetDateCombos(DateTime from, DateTime to)
-    {
-        CmbFromYear.Text = $"{from.Year} 年";
-        CmbFromMonth.Text = $"{from.Month} 月";
-        CmbFromDay.Text = $"{from.Day} 日";
-        CmbToYear.Text = $"{to.Year} 年";
-        CmbToMonth.Text = $"{to.Month} 月";
-        CmbToDay.Text = $"{to.Day} 日";
-    }
-
     /// <summary>取下拉项里的数字（「2026 年」→2026）；「不限」→0。</summary>
     private static int ComboVal(ComboBox cmb)
     {
@@ -347,31 +337,6 @@ public partial class SummaryMachinePage : UserControl
     }
 
     private void BtnRefreshDb_Click(object sender, RoutedEventArgs e) => RefreshRecords();
-
-    // 快捷区间：今天 / 近 7 天 / 近 30 天 / 本月 / 全部（一键填入三下拉并查询）
-    private void ApplyRange(DateTime from, DateTime to)
-    {
-        SetDateCombos(from, to);
-        RefreshRecords();
-    }
-
-    private void BtnRangeToday_Click(object sender, RoutedEventArgs e)
-        => ApplyRange(DateTime.Today, DateTime.Today);
-
-    private void BtnRange7d_Click(object sender, RoutedEventArgs e)
-        => ApplyRange(DateTime.Today.AddDays(-6), DateTime.Today);
-
-    private void BtnRange30d_Click(object sender, RoutedEventArgs e)
-        => ApplyRange(DateTime.Today.AddDays(-29), DateTime.Today);
-
-    private void BtnRangeMonth_Click(object sender, RoutedEventArgs e)
-        => ApplyRange(new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1), DateTime.Today);
-
-    private void BtnRangeAll_Click(object sender, RoutedEventArgs e)
-    {
-        ClearDateCombos();
-        RefreshRecords();
-    }
 
     private bool _dateInputBad;
 
