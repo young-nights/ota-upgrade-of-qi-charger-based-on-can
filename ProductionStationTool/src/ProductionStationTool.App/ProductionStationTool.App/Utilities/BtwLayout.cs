@@ -8,7 +8,7 @@ using ProductionStationTool.Core.Printing;
 /// <summary>预览图量出的摆放结果（mm，坐标原点=标签左上）。</summary>
 public sealed record BtwPlacement(
     string Kind, string Content, string Font,
-    double XMm, double YMm, double FontPt, double HeightMm);
+    double XMm, double YMm, double FontPt, double WidthMm, double HeightMm);
 
 /// <summary>
 /// .btw 内嵌预览图版式测量：PNG 解码 → 标签白区 → 墨迹行带/列盒 → 与导入对象按宽度
@@ -169,10 +169,27 @@ public static class BtwLayout
         }
         var textBoxes = boxes.Where(b => !bcBox.HasValue || b != bcBox.Value).ToList();
 
-        // 字符宽度估算（Arial 均值）：ASCII≈0.55em，CJK≈1.0em
+        // 字符宽度估算（Arial 近似逐字符宽，em = 行高/0.78）；{SN} 按 20 字符样值估宽
         double em = typicalBandH / 0.78;
+        double CharW(char c)
+        {
+            if (c > 0x2E80)
+                return em;                                   // CJK 全宽
+            if ("iljtfrI.,:!'|\"".Contains(c))
+                return em * 0.30;                            // 窄
+            if ("mwMWQGODCN@".Contains(c))
+                return em * 0.80;                            // 宽
+            if (char.IsUpper(c))
+                return em * 0.68;
+            if (c == ' ')
+                return em * 0.28;
+            return em * 0.55;
+        }
         double Est(string s)
-            => s.Sum(c => c > 0x2E80 ? em : em * 0.55);
+        {
+            string sample = s.Replace("{SN}", "LSCH42JY012611140142", StringComparison.OrdinalIgnoreCase);
+            return sample.Sum(CharW);
+        }
 
         var texts = objects.Where(o => !o.IsBarcode).ToList();
         var fonts = texts.Select(t => t.Font).FirstOrDefault(f => !string.IsNullOrEmpty(f)) ?? "";
@@ -185,17 +202,19 @@ public static class BtwLayout
             double boxW = box.x1 - box.x0 + 1;
             int pick1 = -1, pick2 = -1;
             double best = double.MaxValue;
+            // 先扫双串（同分时对子优先——同宽的「Trade:+Lime」与「Qi Charger」靠此不互换）
             foreach (int i in unassigned)
-            {
-                double d = Math.Abs(Est(texts[i].Content) - boxW);
-                if (d < best) { best = d; pick1 = i; pick2 = -1; }
                 foreach (int j in unassigned)
                 {
                     if (j == i)
                         continue;
                     double d2 = Math.Abs(Est(texts[i].Content) + Est(texts[j].Content) - boxW);
-                    if (d2 < best) { best = d2; pick1 = i; pick2 = j; }
+                    if (d2 <= best) { best = d2; pick1 = i; pick2 = j; }
                 }
+            foreach (int i in unassigned)
+            {
+                double d = Math.Abs(Est(texts[i].Content) - boxW);
+                if (d < best) { best = d; pick1 = i; pick2 = -1; }
             }
             if (pick1 < 0)
                 continue;
@@ -223,7 +242,7 @@ public static class BtwLayout
                     (usedX - x0) * scale,
                     (box.y0 - y0) * scale,
                     fontPt,
-                    boxH * scale));
+                    share, boxH * scale));
                 usedX += share;
                 unassigned.Remove(i);
             }
@@ -234,18 +253,16 @@ public static class BtwLayout
         {
             placements.Add(new BtwPlacement("text", texts[i].Content, fonts,
                 labelWidthMm * 0.05, labelWidthMm / aspect * (0.1 + 0.12 * placements.Count),
-                typicalBandH / 0.78 * scale * 72 / 25.4, typicalBandH * scale));
+                typicalBandH / 0.78 * scale * 72 / 25.4, labelWidthMm * 0.4, typicalBandH * scale));
         }
 
         if (bcBox is { } bb && objects.Any(o => o.IsBarcode))
         {
             double bh = bb.y1 - bb.y0 + 1, bw = bb.x1 - bb.x0 + 1;
-            bool square = bw / bh is > 0.8 and < 1.25;
             placements.Add(new BtwPlacement(
                 "barcode", objects.First(o => o.IsBarcode).Content, "",
                 (bb.x0 - x0) * scale, (bb.y0 - y0) * scale, 0,
-                bh * scale));
-            _ = square;
+                bw * scale, bh * scale));
         }
 
         return (placements, aspect);

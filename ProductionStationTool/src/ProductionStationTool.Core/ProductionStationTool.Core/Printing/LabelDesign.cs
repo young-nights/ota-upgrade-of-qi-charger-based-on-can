@@ -54,6 +54,9 @@ public sealed class LabelBarcodeDesign
     public double YMm { get; set; } = 15;
     /// <summary>条码高度 mm。</summary>
     public double HeightMm { get; set; } = 8;
+
+    /// <summary>条码宽度 mm（0 = 按内容/模块宽自算；&gt;0 = 按此宽适配，对齐 .btw 版式）。</summary>
+    public double WidthMm { get; set; }
     /// <summary>窄条宽 mm（模块宽）。</summary>
     public double ModuleMm { get; set; } = 0.4;
     /// <summary>条码下方显示人读字符。</summary>

@@ -45,6 +45,7 @@ public partial class LabelDesignerWindow : Window
         ChkBarcode.IsChecked = d.Barcode.Enabled;
         ComboBcSymbology.SelectedIndex = string.Equals(d.Barcode.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         BoxBcContent.Text = d.Barcode.Content;
+        BoxBcWidth.Text = d.Barcode.WidthMm.ToString("0.##");
         BoxBcHeight.Text = d.Barcode.HeightMm.ToString("0.##");
         BoxBcModule.Text = d.Barcode.ModuleMm.ToString("0.##");
         ComboBcHuman.SelectedIndex = d.Barcode.HumanReadable ? 0 : 1;
@@ -197,8 +198,14 @@ public partial class LabelDesignerWindow : Window
             ChkBarcode.IsChecked = true;
             BoxBcX.Text = bc.XMm.ToString("0.##");
             BoxBcY.Text = bc.YMm.ToString("0.##");
+            BoxBcWidth.Text = bc.WidthMm.ToString("0.##");
             BoxBcHeight.Text = bc.HeightMm.ToString("0.##");
-            ComboBcSymbology.SelectedIndex = BtwLayout.LooksSquare(bc.HeightMm * 1.0, bc.HeightMm) && bc.HeightMm > 8 ? 1 : 0;
+            ComboBcSymbology.SelectedIndex = BtwLayout.LooksSquare(bc.WidthMm, bc.HeightMm) ? 1 : 0;
+        }
+        else
+        {
+            // .btw 里没有条码对象：关掉条码，避免残留设置画出多余条码块
+            ChkBarcode.IsChecked = false;
         }
 
         // 打印机 + 指令语言推断
@@ -232,6 +239,7 @@ public partial class LabelDesignerWindow : Window
                 Enabled = ChkBarcode.IsChecked == true,
                 Symbology = ComboBcSymbology.SelectedIndex == 1 ? "qrcode" : "code128",
                 Content = BoxBcContent.Text.Trim(),
+                WidthMm = ParseD(BoxBcWidth.Text, 0),
                 HeightMm = ParseD(BoxBcHeight.Text, 8),
                 ModuleMm = ParseD(BoxBcModule.Text, 0.4),
                 HumanReadable = ComboBcHuman.SelectedIndex != 1,

@@ -58,12 +58,16 @@ public static class LabelPreviewRenderer
         if (b.Enabled && !string.IsNullOrEmpty(b.Content))
         {
             string data = b.Content.Replace("{SN}", snSample, StringComparison.OrdinalIgnoreCase);
-            double module = b.ModuleMm > 0 ? b.ModuleMm : 0.4;
             bool qr = string.Equals(b.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase);
-            double bw = qr
-                ? Math.Min(b.HeightMm, w - b.XMm)
-                : Math.Min(w - b.XMm, (data.Length + 3) * 11 * module);
-            double bh = qr ? bw : b.HeightMm;
+            // 有指定宽高（.btw 导入）就按盒画；未指定才按内容/模块自算
+            double bw = b.WidthMm > 0
+                ? Math.Min(b.WidthMm, w - b.XMm)
+                : (qr ? Math.Min(b.HeightMm, w - b.XMm)
+                      : Math.Min(w - b.XMm, (data.Length + 3) * 11 * (b.ModuleMm > 0 ? b.ModuleMm : 0.4)));
+            double bh = b.HeightMm > 0 && b.WidthMm > 0
+                ? Math.Min(b.HeightMm, h - b.YMm)
+                : (qr ? bw : b.HeightMm);
+            double module = b.ModuleMm > 0 ? b.ModuleMm : 0.4;
             double bx = offX + mm2dip(b.XMm), by = offY + mm2dip(b.YMm);
 
             var box = new Rectangle
@@ -91,19 +95,21 @@ public static class LabelPreviewRenderer
             }
             else
             {
-                double x = bx + mm2dip(module);
+                // 竖条填满盒宽（示意密度与边界；真实条纹由打印机按数据生成）
+                double unit = mm2dip(bw) / ((data.Length + 3) * 11.0);
+                double x = bx;
                 int seed = 7;
-                while (x < bx + mm2dip(bw) - mm2dip(module))
+                while (x < bx + mm2dip(bw) - unit)
                 {
                     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-                    double barW = mm2dip(module) * (1 + (seed % 3));
+                    double barW = unit * (1 + (seed % 3));
                     if (x + barW > bx + mm2dip(bw))
                         break;
                     var bar = new Rectangle { Width = barW, Height = mm2dip(bh), Fill = Brushes.Black };
                     Canvas.SetLeft(bar, x);
                     Canvas.SetTop(bar, by);
                     target.Children.Add(bar);
-                    x += barW + mm2dip(module) * (1 + (seed >> 3) % 2);
+                    x += barW + unit * (1 + (seed >> 3) % 2);
                 }
             }
 

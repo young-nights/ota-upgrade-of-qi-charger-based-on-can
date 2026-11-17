@@ -132,7 +132,7 @@
                     <TextBlock Text="条码（Code128）" Style="{StaticResource SectionTitle}"/>
                     <CheckBox x:Name="ChkBarcode" Content="启用条码" IsChecked="True"
                               FontSize="13" Margin="0,10,0,10"/>
-                    <UniformGrid Columns="5">
+                    <UniformGrid Columns="6">
                         <StackPanel Margin="0,0,8,0" ToolTip="码制：Code128 一维码 / 二维码 QR">
                             <TextBlock Text="码制" Style="{StaticResource FieldLabel}"/>
                             <ComboBox x:Name="ComboBcSymbology" Height="36" Style="{StaticResource FieldCombo}">
@@ -143,6 +143,10 @@
                         <StackPanel Margin="0,0,8,0" ToolTip="条码内容，支持 {SN} 占位（打印时替换为实际 SN）">
                             <TextBlock Text="内容" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="BoxBcContent" Style="{StaticResource FieldBox}" Text="{}{SN}"/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,0" ToolTip="条码宽度（mm）；0 = 按内容自算，导入 .btw 后=模板盒子宽">
+                            <TextBlock Text="宽 (mm)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxBcWidth" Style="{StaticResource FieldBox}" Text="0"/>
                         </StackPanel>
                         <StackPanel Margin="0,0,8,0" ToolTip="条码高度（mm）">
                             <TextBlock Text="高度 (mm)" Style="{StaticResource FieldLabel}"/>

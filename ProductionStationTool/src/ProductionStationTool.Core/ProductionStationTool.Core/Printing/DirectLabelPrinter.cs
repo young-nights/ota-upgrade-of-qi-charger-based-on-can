@@ -49,12 +49,17 @@ public static class DirectLabelScript
             if (string.Equals(b.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase))
             {
                 // TSPL 二维码：QRCODE x,y,纠错等级,模块宽,模式,旋转,"数据"
-                int cell = Math.Max(2, (int)Math.Round(dots(b.ModuleMm)));
+                // 指定宽度时按 ~25 模块反推模块宽，使打印尺寸对齐 .btw 版式
+                int cell = b.WidthMm > 0
+                    ? Math.Max(1, (int)Math.Round(dots(b.WidthMm) / 25))
+                    : Math.Max(2, (int)Math.Round(dots(b.ModuleMm)));
                 sb.AppendLine($"QRCODE {dots(b.XMm):0},{dots(b.YMm):0},L,{cell},A,0,\"{data}\"");
             }
             else
             {
-                int narrow = Math.Max(1, (int)Math.Round(dots(b.ModuleMm)));
+                int narrow = b.WidthMm > 0
+                    ? Math.Max(1, (int)Math.Round(dots(b.WidthMm) / ((data.Length + 3) * 11.0)))
+                    : Math.Max(1, (int)Math.Round(dots(b.ModuleMm)));
                 int human = b.HumanReadable ? 1 : 0;
                 sb.AppendLine($"BARCODE {dots(b.XMm):0},{dots(b.YMm):0},\"128\",{dots(b.HeightMm):0}," +
                               $"{human},0,{narrow},{narrow * 3},\"{data}\"");
@@ -96,12 +101,16 @@ public static class DirectLabelScript
             string data = b.Content.Replace("{SN}", sn, StringComparison.OrdinalIgnoreCase);
             if (string.Equals(b.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase))
             {
-                int cell = Math.Max(2, (int)Math.Round(dots(b.ModuleMm)));
+                int cell = b.WidthMm > 0
+                    ? Math.Max(1, (int)Math.Round(dots(b.WidthMm) / 25))
+                    : Math.Max(2, (int)Math.Round(dots(b.ModuleMm)));
                 sb.AppendLine($"^FO{dots(b.XMm):0},{dots(b.YMm):0}^BQN,2,{cell}^FDLA,{data}^FS");
             }
             else
             {
-                int module = Math.Max(1, (int)Math.Round(dots(b.ModuleMm)));
+                int module = b.WidthMm > 0
+                    ? Math.Max(1, (int)Math.Round(dots(b.WidthMm) / ((data.Length + 3) * 11.0)))
+                    : Math.Max(1, (int)Math.Round(dots(b.ModuleMm)));
                 char human = b.HumanReadable ? 'Y' : 'N';
                 sb.AppendLine($"^FO{dots(b.XMm):0},{dots(b.YMm):0}^BY{module},3" +
                               $"^BCN,{dots(b.HeightMm):0},{human},N,N^FD{data}^FS");
