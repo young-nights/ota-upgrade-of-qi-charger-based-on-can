@@ -201,6 +201,26 @@ public static class MachineConfig
     private static IEnumerable<string> BeforeDict(Dictionary<string, string> d)
         => d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}");
 
+    /// <summary>标签设计器规格（「打印机设置」页：尺寸/打印机参数/对象排版）。</summary>
+    public static LabelDesign LoadLabelDesign()
+        => ReadCfgOrDefault().SnLabelDesign ?? new LabelDesign();
+
+    /// <summary>保存标签设计器规格；变更写 machine_change.log 留痕。</summary>
+    public static void SaveLabelDesign(LabelDesign design)
+    {
+        var cfg = ReadCfgOrDefault();
+        cfg.SnLabelDesign = design;
+        WriteCfg(cfg);
+        File.AppendAllText(ChangeLogPath,
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  标签设计 画布[{ShowOrDash(design.CanvasTemplatePath)}]" +
+            $" 尺寸 {design.LabelWidthMm}×{design.LabelHeightMm}mm" +
+            $" 打印机[{ShowOrDash(design.PrinterName)}] 对象 {design.Objects.Count} 个  ({Environment.MachineName})\n");
+    }
+
+    /// <summary>默认输出模板目录（程序目录 generated/）。</summary>
+    public static string DefaultOutputTemplatePath =>
+        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "generated", "sn_label_design.btw");
+
     /// <summary>良率统计口径（「数据管理」页）：弃用记录是否计入良率。</summary>
     public static bool LoadYieldExcludeAbandoned()
         => ReadCfgOrDefault().YieldExcludeAbandoned;
@@ -309,6 +329,9 @@ public static class MachineConfig
 
         // 良率统计口径（「数据管理」页）：true = 弃用记录不计入良率（默认）
         public bool YieldExcludeAbandoned { get; set; } = true;
+
+        // 标签设计器规格（「打印机设置」页）
+        public LabelDesign SnLabelDesign { get; set; } = new();
     }
 }
 
