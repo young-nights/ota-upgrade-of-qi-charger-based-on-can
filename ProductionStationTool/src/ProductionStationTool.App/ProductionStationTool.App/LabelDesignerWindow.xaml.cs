@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using ProductionStationTool.App.Utilities;
 using ProductionStationTool.Core.Printing;
@@ -47,7 +48,39 @@ public partial class LabelDesignerWindow : Window
         BoxDarkness.Text = d.PrintDarkness.ToString("0.##");
         GridObjects.ItemsSource = d.Objects.Select(ToRow).ToList();
         RefreshPrinters();
+        LoadPreview();
         TxtResult.Text = "配置后点「生成 .btw」产出输出模板；「保存并应用」后工位 4 按此出标签。";
+    }
+
+    /// <summary>加载画布 .btw 内嵌预览 PNG（纯文件解析，无需 BarTender/授权）。</summary>
+    private void LoadPreview()
+    {
+        var path = BoxCanvas.Text.Trim();
+        var png = path.Length > 0 ? BtwPreview.ExtractPng(path) : null;
+        if (png is null)
+        {
+            ImgPreview.Source = null;
+            TxtPreviewNote.Text = path.Length == 0
+                ? "未选择画布模板"
+                : "该 .btw 未内嵌预览图（BarTender 保存时会附带缩略图）";
+            return;
+        }
+        try
+        {
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.StreamSource = new MemoryStream(png);
+            bmp.EndInit();
+            bmp.Freeze();
+            ImgPreview.Source = bmp;
+            TxtPreviewNote.Text = $"画布：{Path.GetFileName(path)}（内嵌缩略图，无需 BarTender）";
+        }
+        catch (Exception ex)
+        {
+            ImgPreview.Source = null;
+            TxtPreviewNote.Text = $"预览图解码失败：{ex.Message}";
+        }
     }
 
     private static DesignRow ToRow(LabelObjectDesign o) => new()
@@ -103,6 +136,7 @@ public partial class LabelDesignerWindow : Window
             BoxCanvas.Text = dlg.FileName;
             _namedSources.Clear();
             GridObjects.ItemsSource = new List<DesignRow>();
+            LoadPreview();
         }
     }
 

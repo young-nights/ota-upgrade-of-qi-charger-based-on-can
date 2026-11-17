@@ -40,6 +40,26 @@
                 </StackPanel>
             </Border>
 
+            <!-- 模板预览（.btw 内嵌 PNG，无需 BarTender） -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="模板预览" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="显示 .btw 内嵌的标签缩略图（读文件本身，不需要 BarTender / 授权）。"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,10,0,10"/>
+                    <Border Background="#F8FAFC" BorderBrush="{StaticResource CardBorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel>
+                            <Image x:Name="ImgPreview" Stretch="Uniform" MaxHeight="240"
+                                   HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="TxtPreviewNote" FontSize="11"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
             <!-- 模板信息（逆向查看 + 字体套用） -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>

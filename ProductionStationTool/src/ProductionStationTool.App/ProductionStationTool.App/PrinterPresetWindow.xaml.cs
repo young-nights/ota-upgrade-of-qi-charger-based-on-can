@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using ProductionStationTool.App.Utilities;
 using ProductionStationTool.Core.Printing;
@@ -30,6 +31,38 @@ public partial class PrinterPresetWindow : Window
         BoxNamed.Text = string.Join("\r\n", preset.NamedValues
             .OrderBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => $"{kv.Key}={kv.Value}"));
+        LoadPreview();
+    }
+
+    /// <summary>加载 .btw 内嵌预览 PNG（纯文件解析，无需 BarTender/授权）。</summary>
+    private void LoadPreview()
+    {
+        var path = BoxTemplate.Text.Trim();
+        var png = path.Length > 0 ? BtwPreview.ExtractPng(path) : null;
+        if (png is null)
+        {
+            ImgPreview.Source = null;
+            TxtPreviewNote.Text = path.Length == 0
+                ? "未选择模板"
+                : "该 .btw 未内嵌预览图（BarTender 保存时会附带缩略图）";
+            return;
+        }
+        try
+        {
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.StreamSource = new MemoryStream(png);
+            bmp.EndInit();
+            bmp.Freeze();
+            ImgPreview.Source = bmp;
+            TxtPreviewNote.Text = $"模板：{Path.GetFileName(path)}（内嵌缩略图，无需 BarTender）";
+        }
+        catch (Exception ex)
+        {
+            ImgPreview.Source = null;
+            TxtPreviewNote.Text = $"预览图解码失败：{ex.Message}";
+        }
     }
 
     private LabelPreset Collect()
@@ -61,7 +94,10 @@ public partial class PrinterPresetWindow : Window
             CheckFileExists = true,
         };
         if (dlg.ShowDialog(this) == true)
+        {
             BoxTemplate.Text = dlg.FileName;
+            LoadPreview();
+        }
     }
 
     private void BtnReadInfo_Click(object sender, RoutedEventArgs e)
