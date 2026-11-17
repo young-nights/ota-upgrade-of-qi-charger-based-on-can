@@ -78,134 +78,20 @@ public partial class LabelDesignerWindow : Window
 
     private void PreviewCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => ScheduleRedraw();
 
-    /// <summary>按设计参数渲染标签效果预览（mm→DIP 等比映射，{SN} 代入 TEST0001）。</summary>
+    /// <summary>按设计参数渲染标签效果预览（与 PDF 导出共用 LabelPreviewRenderer）。</summary>
     private void RedrawPreview()
     {
         if (PreviewCanvas.ActualWidth <= 0 || PreviewCanvas.ActualHeight <= 0)
             return;
         var d = Collect();
         PreviewCanvas.Children.Clear();
-
         double w = d.LabelWidthMm, h = d.LabelHeightMm;
         if (w <= 0 || h <= 0)
             return;
         double scale = Math.Min(PreviewCanvas.ActualWidth / w, PreviewCanvas.ActualHeight / h) * 0.92;
         double offX = (PreviewCanvas.ActualWidth - w * scale) / 2;
         double offY = (PreviewCanvas.ActualHeight - h * scale) / 2;
-
-        // 标签底纸（画布内居中）
-        var sheet = new System.Windows.Shapes.Rectangle
-        {
-            Width = w * scale,
-            Height = h * scale,
-            Fill = Brushes.White,
-            Stroke = new SolidColorBrush(Color.FromRgb(0xCB, 0xD5, 0xE1)),
-            StrokeThickness = 1,
-        };
-        Canvas.SetLeft(sheet, offX);
-        Canvas.SetTop(sheet, offY);
-        PreviewCanvas.Children.Add(sheet);
-
-        double mm2dip(double mm) => mm * scale;
-        const double ptToMm = 25.4 / 72.0;
-
-        // 文字行
-        foreach (var o in d.Objects)
-        {
-            if (string.IsNullOrEmpty(o.Content))
-                continue;
-            string text = o.Content.Replace("{SN}", "TEST0001", StringComparison.OrdinalIgnoreCase);
-            double pt = o.FontSizePt > 0 ? o.FontSizePt : 12;
-            var tb = new TextBlock
-            {
-                Text = text,
-                FontFamily = new FontFamily(string.IsNullOrWhiteSpace(o.FontName) ? "Segoe UI" : o.FontName),
-                FontSize = Math.Max(6, mm2dip(pt * ptToMm)),
-                FontWeight = o.Bold == true ? FontWeights.Bold : FontWeights.Normal,
-                Foreground = Brushes.Black,
-            };
-            Canvas.SetLeft(tb, offX + mm2dip(o.XMm ?? 0));
-            Canvas.SetTop(tb, offY + mm2dip(o.YMm ?? 0));
-            PreviewCanvas.Children.Add(tb);
-        }
-
-        // 条码占位：QR 画方块（含定位角），Code128 画竖条纹（真实图形由打印机生成）
-        var b = d.Barcode;
-        if (b.Enabled && !string.IsNullOrEmpty(b.Content))
-        {
-            string data = b.Content.Replace("{SN}", "TEST0001", StringComparison.OrdinalIgnoreCase);
-            double module = b.ModuleMm > 0 ? b.ModuleMm : 0.4;
-            bool qr = string.Equals(b.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase);
-            double bw = qr
-                ? Math.Min(b.HeightMm, w - b.XMm)                                  // QR 方形
-                : Math.Min(w - b.XMm, (data.Length + 3) * 11 * module);           // Code128 ≈11 模块/字符
-            double bh = qr ? bw : b.HeightMm;
-            double bx = offX + mm2dip(b.XMm), by = offY + mm2dip(b.YMm);
-
-            var box = new System.Windows.Shapes.Rectangle
-            {
-                Width = mm2dip(bw),
-                Height = mm2dip(bh),
-                Fill = Brushes.White,
-                Stroke = new SolidColorBrush(Color.FromRgb(0x94, 0xA3, 0xB8)),
-                StrokeThickness = 0.5,
-            };
-            Canvas.SetLeft(box, bx);
-            Canvas.SetTop(box, by);
-            PreviewCanvas.Children.Add(box);
-
-            if (qr)
-            {
-                // QR 定位角 + 稀疏模块示意
-                double mark = mm2dip(bw) / 6;
-                foreach (var (mx, my) in new[] { (bx, by), (bx + mm2dip(bw) - mark, by), (bx, by + mm2dip(bh) - mark) })
-                {
-                    var corner = new System.Windows.Shapes.Rectangle
-                    {
-                        Width = mark, Height = mark,
-                        Fill = Brushes.Black,
-                    };
-                    Canvas.SetLeft(corner, mx);
-                    Canvas.SetTop(corner, my);
-                    PreviewCanvas.Children.Add(corner);
-                }
-            }
-
-            // 伪条纹（确定性图案，仅示意密度/位置；QR 跳过）
-            double x = bx + mm2dip(module);
-            if (qr) x = bx + mm2dip(bw);
-            int seed = 7;
-            while (x < bx + mm2dip(bw) - mm2dip(module))
-            {
-                seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-                double barW = mm2dip(module) * (1 + (seed % 3));
-                if (x + barW > bx + mm2dip(bw))
-                    break;
-                var bar = new System.Windows.Shapes.Rectangle
-                {
-                    Width = barW,
-                    Height = mm2dip(bh),
-                    Fill = Brushes.Black,
-                };
-                Canvas.SetLeft(bar, x);
-                Canvas.SetTop(bar, by);
-                PreviewCanvas.Children.Add(bar);
-                x += barW + mm2dip(module) * (1 + (seed >> 3) % 2);
-            }
-
-            if (b.HumanReadable)
-            {
-                var human = new TextBlock
-                {
-                    Text = data,
-                    FontSize = Math.Max(7, mm2dip(2.2)),
-                    Foreground = Brushes.Black,
-                };
-                Canvas.SetLeft(human, bx + mm2dip(bw) / 2 - data.Length * mm2dip(1.1));
-                Canvas.SetTop(human, by + mm2dip(bh) + mm2dip(0.6));
-                PreviewCanvas.Children.Add(human);
-            }
-        }
+        LabelPreviewRenderer.Draw(PreviewCanvas, d, scale, offX, offY, "TEST0001");
     }
 
     private static DesignRow ToRow(LabelObjectDesign o) => new()
@@ -403,8 +289,42 @@ public partial class LabelDesignerWindow : Window
 
     private async void BtnTestPrint_Click(object sender, RoutedEventArgs e)
     {
-        var design = Collect();      // 必须在 UI 线程收集（后台线程访问控件会抛 InvalidOperationException）
+        var design = PrintGuard(Collect());   // 必须在 UI 线程收集（后台线程访问控件会抛 InvalidOperationException）
+        if (design is null)
+            return;
         var (ok, detail) = await Task.Run(() => new DirectLabelPrinter(design).Print("TEST0001"));
+        TxtResult.Text = detail;
+        TxtResult.Foreground = ok
+            ? System.Windows.Media.Brushes.Green
+            : System.Windows.Media.Brushes.Firebrick;
+    }
+
+    /// <summary>虚拟打印机（PDF/XPS 等）不认 TSPL/ZPL 指令——拦截并引导用「导出 PDF」。返回 null 表示已拦截。</summary>
+    private LabelDesign? PrintGuard(LabelDesign design)
+    {
+        var name = design.PrinterName;
+        if (name.Contains("PDF", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("XPS", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("OneNote", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("文档", StringComparison.Ordinal))
+        {
+            TxtResult.Text = $"「{name}」是虚拟打印机，不接受 TSPL/ZPL 指令（RAW 输出会生成坏文件）。请点「导出 PDF」看效果，或选真实标签打印机试打。";
+            TxtResult.Foreground = System.Windows.Media.Brushes.Firebrick;
+            return null;
+        }
+        return design;
+    }
+
+    private void BtnExportPdf_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Filter = "PDF 文件 (*.pdf)|*.pdf",
+            FileName = "标签预览.pdf",
+        };
+        if (dlg.ShowDialog(this) != true)
+            return;
+        var (ok, detail) = LabelPdfExporter.Export(Collect(), dlg.FileName);
         TxtResult.Text = detail;
         TxtResult.Foreground = ok
             ? System.Windows.Media.Brushes.Green

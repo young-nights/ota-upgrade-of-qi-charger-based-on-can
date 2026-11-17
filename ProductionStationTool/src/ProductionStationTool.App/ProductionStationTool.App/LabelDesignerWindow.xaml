@@ -243,6 +243,9 @@
                 <Button Content="查看打印指令" Width="130" Height="40" Margin="12,0,0,0"
                         Style="{StaticResource GhostButton}" Click="BtnShowScript_Click"
                         ToolTip="显示将下发的 TSPL/ZPL 指令（便于核对，不需要打印机）"/>
+                <Button Content="导出 PDF" Width="110" Height="40" Margin="12,0,0,0"
+                        Style="{StaticResource GhostButton}" Click="BtnExportPdf_Click"
+                        ToolTip="把标签版式导出成 PDF（300dpi）——虚拟 PDF 打印机不认 TSPL/ZPL，看效果/存档用这个"/>
                 <Button Content="保存" Width="110" Height="40" Margin="12,0,0,0"
                         Style="{StaticResource GhostButton}" Click="BtnSave_Click"
                         ToolTip="保存设计（machine.json），工位 4 打印按此出标签"/>

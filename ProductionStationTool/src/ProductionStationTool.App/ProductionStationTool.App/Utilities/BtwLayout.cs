@@ -63,53 +63,97 @@ public static class BtwLayout
         double aspect = (x1 - x0 + 1.0) / (y1 - y0 + 1.0);
         double scale = labelWidthMm / (x1 - x0 + 1.0);
 
-        // 墨迹行带
-        var bands = new List<(int y0, int y1)>();
-        int bandStart = -1;
+        // 连通域提取（逐字符/QR 模块），再按邻近合并成元素盒——
+        // 行投影会把竖向重叠的 QR 与右侧文字粘成一个大盒，导致摆放重叠，故不用
+        var labels = new int[w * h];
+        var comps = new List<(int x0, int y0, int x1, int y1)>();
+        var stack = new Stack<(int x, int y)>();
         for (int y = y0; y <= y1; y++)
         {
-            bool any = false;
-            for (int x = x0; x <= x1 && !any; x++)
-                any = Ink(x, y);
-            if (any && bandStart < 0)
-                bandStart = y;
-            if (!any && bandStart >= 0)
+            for (int x = x0; x <= x1; x++)
             {
-                bands.Add((bandStart, y - 1));
-                bandStart = -1;
+                int idx = y * w + x;
+                if (labels[idx] != 0 || !Ink(x, y))
+                    continue;
+                int id = comps.Count + 1;
+                int cx0 = x, cx1 = x, cy0 = y, cy1 = y, area = 0;
+                stack.Push((x, y));
+                labels[idx] = id;
+                while (stack.Count > 0)
+                {
+                    var (fx, fy) = stack.Pop();
+                    area++;
+                    if (fx < cx0) cx0 = fx;
+                    if (fx > cx1) cx1 = fx;
+                    if (fy < cy0) cy0 = fy;
+                    if (fy > cy1) cy1 = fy;
+                    for (int dy = -1; dy <= 1; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int nx = fx + dx, ny = fy + dy;
+                            if (nx < x0 || nx > x1 || ny < y0 || ny > y1)
+                                continue;
+                            int nidx = ny * w + nx;
+                            if (labels[nidx] == 0 && Ink(nx, ny))
+                            {
+                                labels[nidx] = id;
+                                stack.Push((nx, ny));
+                            }
+                        }
+                }
+                if (area >= 6)                              // 滤碎点
+                    comps.Add((cx0, cy0, cx1, cy1));
+                else
+                    for (int yy = cy0; yy <= cy1; yy++)
+                        for (int xx = cx0; xx <= cx1; xx++)
+                            if (labels[yy * w + xx] == id)
+                                labels[yy * w + xx] = -1;
             }
         }
-        if (bandStart >= 0)
-            bands.Add((bandStart, y1));
-        if (bands.Count == 0)
-            return (new List<BtwPlacement>(), aspect);
 
-        // 行带内列盒（白隙 ≥4px 分割）
-        var boxes = new List<(int x0, int y0, int x1, int y1)>();
-        foreach (var (by0, by1) in bands)
-        {
-            int runStart = -1;
-            for (int x = x0; x <= x1 + 1; x++)
+        // 合并阈值：0.35×文字高（字母间隙 2~4px、词间隙 ~10px、QR 模块间隙 ~10px 均并；
+        // 元素行间隙 >50px 不并）
+        int textH = comps.Count > 0
+            ? comps.Select(c => c.y1 - c.y0 + 1).OrderBy(v => v).ElementAt(comps.Count * 4 / 5)
+            : 30;
+        int mergeGap = Math.Max(6, (int)(textH * 0.35));
+
+        int n = comps.Count;
+        var parent = Enumerable.Range(0, n).ToArray();
+        int Find(int a) => parent[a] == a ? a : parent[a] = Find(parent[a]);
+        for (int i = 0; i < n; i++)
+            for (int j = i + 1; j < n; j++)
             {
-                bool any = false;
-                if (x <= x1)
-                    for (int y = by0; y <= by1 && !any; y++)
-                        any = Ink(x, y);
-                if (any && runStart < 0)
-                    runStart = x;
-                if (!any && runStart >= 0)
+                var A = comps[i]; var B = comps[j];
+                int gx = Math.Max(0, Math.Max(A.x0 - B.x1, B.x0 - A.x1));
+                int gy = Math.Max(0, Math.Max(A.y0 - B.y1, B.y0 - A.y1));
+                bool near = gx <= mergeGap && gy <= 2;
+                if (near)
                 {
-                    boxes.Add((runStart, by0, x - 1, by1));
-                    runStart = -1;
+                    int ra = Find(i), rb = Find(j);
+                    if (ra != rb)
+                        parent[ra] = rb;
                 }
             }
+
+        var boxes = new List<(int x0, int y0, int x1, int y1)>();
+        var groups = new Dictionary<int, (int x0, int y0, int x1, int y1)>();
+        for (int i = 0; i < n; i++)
+        {
+            int r = Find(i);
+            var c = comps[i];
+            if (groups.TryGetValue(r, out var g))
+                groups[r] = (Math.Min(g.x0, c.x0), Math.Min(g.y0, c.y0), Math.Max(g.x1, c.x1), Math.Max(g.y1, c.y1));
+            else
+                groups[r] = c;
         }
+        boxes.AddRange(groups.Values);
         if (boxes.Count == 0)
             return (new List<BtwPlacement>(), aspect);
 
-        // 文字行带高（用于字号）：取多数带高
-        var textBands = bands.Select(b => b.y1 - b.y0 + 1).OrderBy(v => v).ToList();
-        int typicalBandH = textBands[textBands.Count / 2];
+        // 文字行高（用于字号）：取盒高的中位数（QR 大盒会被拉高，取中位数稳）
+        var heights = boxes.Select(b => b.y1 - b.y0 + 1).OrderBy(v => v).ToList();
+        int typicalBandH = heights[heights.Count / 2];
 
         // 条码盒 = 高度显著大于文字带且接近方形的盒
         var barcode = boxes.Where(b => b.y1 - b.y0 + 1 > typicalBandH * 2).ToList();
