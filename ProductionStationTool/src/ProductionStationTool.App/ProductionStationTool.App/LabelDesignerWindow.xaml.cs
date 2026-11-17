@@ -1,5 +1,8 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
+using Microsoft.Win32;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -207,6 +210,79 @@ public partial class LabelDesignerWindow : Window
 
     private void BtnRefreshPrinters_Click(object sender, RoutedEventArgs e) => RefreshPrinters();
 
+    private void BtnBrowseBtw_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "BarTender 模板 (*.btw)|*.btw|所有文件 (*.*)|*.*",
+            CheckFileExists = true,
+        };
+        if (dlg.ShowDialog(this) == true)
+            BoxBtwPath.Text = dlg.FileName;
+    }
+
+    /// <summary>从 .btw 提取预览图/文本行/打印机，填入当前设计（坐标需在效果预览里手动摆位）。</summary>
+    private void BtnImportBtw_Click(object sender, RoutedEventArgs e)
+    {
+        var path = BoxBtwPath.Text.Trim();
+        if (path.Length == 0 || !File.Exists(path))
+        {
+            TxtImportNote.Text = "请先选择 .btw 文件";
+            return;
+        }
+        var r = BtwImport.Extract(path);
+
+        // 内嵌预览图
+        if (r.PreviewPng is not null)
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.StreamSource = new MemoryStream(r.PreviewPng);
+                bmp.EndInit();
+                bmp.Freeze();
+                ImgBtwPreview.Source = bmp;
+            }
+            catch { ImgBtwPreview.Source = null; }
+        }
+        else
+        {
+            ImgBtwPreview.Source = null;
+        }
+
+        // 文本行 → 文字排版表格（保留用户已有行？导入即替换，行为可预期）
+        int i = 0;
+        var rows = new List<DesignRow>();
+        foreach (var (content, font) in r.Texts)
+        {
+            i++;
+            rows.Add(new DesignRow
+            {
+                Name = $"Text{i}",
+                Content = content,
+                FontName = font,
+                FontSizePt = "12",
+                XMm = "5",
+                YMm = (5 + (i - 1) * 6).ToString(),
+            });
+        }
+        if (rows.Count > 0)
+            GridObjects.ItemsSource = rows;
+
+        // 打印机 + 指令语言推断
+        if (!string.IsNullOrEmpty(r.PrinterName))
+        {
+            ComboPrinter.Text = r.PrinterName;
+            RefreshPrinters();
+            ComboScript.SelectedIndex = BtwImport.GuessScript(r.PrinterName) == "zpl" ? 1 : 0;
+        }
+
+        TxtImportNote.Text = r.Note;
+        ScheduleRedraw();
+    }
+
     private LabelDesign Collect()
     {
         var d = new LabelDesign
@@ -282,7 +358,8 @@ public partial class LabelDesignerWindow : Window
 
     private async void BtnTestPrint_Click(object sender, RoutedEventArgs e)
     {
-        var (ok, detail) = await Task.Run(() => new DirectLabelPrinter(Collect()).Print("TEST0001"));
+        var design = Collect();      // 必须在 UI 线程收集（后台线程访问控件会抛 InvalidOperationException）
+        var (ok, detail) = await Task.Run(() => new DirectLabelPrinter(design).Print("TEST0001"));
         TxtResult.Text = detail;
         TxtResult.Foreground = ok
             ? System.Windows.Media.Brushes.Green

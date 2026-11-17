@@ -9,6 +9,40 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
         <StackPanel Margin="16">
 
+            <!-- 从 .btw 导入参考（预览图 + 文本/打印机，无需 BarTender） -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="从 .btw 导入参考" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="选一个 BarTender 模板（.btw）可提取：内嵌标签预览图、文本对象内容与字体、目标打印机（顺带推断指令语言）。坐标/字号是二进制暂不可解析，导入后在效果预览里摆位即可。"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,10,0,12"/>
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="BoxBtwPath" Grid.Column="0" Style="{StaticResource FieldBox}"
+                                 Margin="0,0,8,0"/>
+                        <Button Grid.Column="1" Content="浏览…" Width="90" Height="36"
+                                Style="{StaticResource GhostButton}" Click="BtnBrowseBtw_Click"/>
+                        <Button Grid.Column="2" Content="导入" Width="90" Height="36" Margin="8,0,0,0"
+                                Style="{StaticResource PrimaryButton}" Click="BtnImportBtw_Click"
+                                ToolTip="提取预览图/文本行/打印机到当前设计"/>
+                    </Grid>
+                    <Border Background="#F8FAFC" BorderBrush="{StaticResource CardBorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="12">
+                        <StackPanel>
+                            <Image x:Name="ImgBtwPreview" Stretch="Uniform" MaxHeight="240"
+                                   HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="TxtImportNote" FontSize="11"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
             <!-- 标签尺寸 -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                 <StackPanel>
