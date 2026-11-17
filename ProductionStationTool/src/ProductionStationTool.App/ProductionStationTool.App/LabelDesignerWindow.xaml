@@ -173,6 +173,23 @@
                 </StackPanel>
             </Border>
 
+            <!-- 效果预览（按当前设置渲染版式） -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="效果预览" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="按当前设置实时渲染标签版式（坐标/字号/条码比例），{SN} 代入 TEST0001——与直驱指令同源，所见即所打。"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,10,0,10"/>
+                    <Border Background="#F8FAFC" BorderBrush="{StaticResource CardBorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="16"
+                            Height="320">
+                        <Canvas x:Name="PreviewCanvas" ClipToBounds="True"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                SizeChanged="PreviewCanvas_SizeChanged"/>
+                    </Border>
+                </StackPanel>
+            </Border>
+
             <!-- 打印与保存 -->
             <StackPanel Orientation="Horizontal">
                 <Button Content="试打印一张" Width="130" Height="40"

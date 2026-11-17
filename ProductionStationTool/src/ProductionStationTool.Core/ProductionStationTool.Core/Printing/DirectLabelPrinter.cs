@@ -229,9 +229,9 @@ public static class RawPrinterHelper
     [StructLayout(LayoutKind.Sequential)]
     private struct DOCINFOA
     {
-        public string pDocName;
-        public string pOutputFile;
-        public string pDatatype;
+        public string? pDocName;
+        public string? pOutputFile;
+        public string? pDatatype;
     }
 
     [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
