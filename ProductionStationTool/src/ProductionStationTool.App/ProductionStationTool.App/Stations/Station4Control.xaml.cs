@@ -49,12 +49,21 @@ public partial class Station4Control : UserControl, IStationPage
     public Station4Control()
     {
         InitializeComponent();
-        // 打印机：「打印机设置 → SN 码预设」配置了模板即走 BarTender COM；
-        // 未配置/本机无 BarTender 时占位放行（不误标「已打印出库」）
-        var (snPreset, _) = MachineConfig.LoadPrintPresets();
-        _printer = !string.IsNullOrWhiteSpace(snPreset.TemplatePath) && Core.Printing.BarTenderLabelPrinter.Available()
-            ? new Core.Printing.BarTenderLabelPrinter(snPreset)
-            : new NullSnPrinter();
+        // 打印机：「打印机设置 → SN 码预设」保存的设计按打印方式路由——
+        // 直驱（默认）= TSPL/ZPL 指令直发打印机（无需 BarTender/授权）；
+        // BarTender = 模板填值 COM 打印；未配置时占位放行（不误标「已打印出库」）
+        var design = MachineConfig.LoadLabelDesign();
+        if (design.PrintMode == "direct")
+        {
+            _printer = new Core.Printing.DirectLabelPrinter(design);
+        }
+        else
+        {
+            var (snPreset, _) = MachineConfig.LoadPrintPresets();
+            _printer = !string.IsNullOrWhiteSpace(snPreset.TemplatePath) && Core.Printing.BarTenderLabelPrinter.Available()
+                ? new Core.Printing.BarTenderLabelPrinter(snPreset)
+                : new NullSnPrinter();
+        }
         ConnPanel.ShowPowerZ = false;   // 本工位只用 CAN（读 SN/版本），不需要 PowerZ
         FlowPanel.SetSteps(
             "连接设备（串口/CAN 自动检测）",
@@ -172,7 +181,7 @@ public partial class Station4Control : UserControl, IStationPage
             RaiseAvailability();
             return;
         }
-        if (_printer is ProductionStationTool.Core.Printing.BarTenderLabelPrinter)
+        if (_printer is not NullSnPrinter)
         {
             // 真实打印成功 → 标记「已打印出库」（占位打印不标，避免误报）
             _store.MarkPrinted(sn);

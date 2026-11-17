@@ -106,7 +106,78 @@
                     </StackPanel>
                     <TextBlock Text="份数 = 一次任务出几张相同标签；速度 = 走纸/打印快慢档位（越大越快）；浓度 = 打印黑度（越大越黑）。速度/浓度填 0 表示用打印机默认——这两项是驱动相关参数，部分打印机不支持从软件设置，生成时会提示「未支持」。"
                                FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
-                               TextWrapping="Wrap" Margin="0,10,0,0"/>
+                               TextWrapping="Wrap" Margin="0,10,0,10"/>
+
+                    <!-- 打印方式：直驱（TSPL/ZPL，无需 BarTender）/ BarTender -->
+                    <UniformGrid Columns="4">
+                        <StackPanel Margin="0,0,8,0"
+                                    ToolTip="直驱 = 按 TSPL/ZPL 指令直接发打印机，不需要 BarTender/授权；BarTender = 走模板生成与 COM 打印">
+                            <TextBlock Text="打印方式" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox x:Name="ComboPrintMode" Height="36" Style="{StaticResource FieldCombo}">
+                                <ComboBoxItem Content="直驱（无需 BarTender）" IsSelected="True"/>
+                                <ComboBoxItem Content="BarTender"/>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,0"
+                                    ToolTip="直驱指令语言：TSPL = TSC 及兼容机（中文 TTF 友好）；ZPL = Zebra（中文需亚洲字库）">
+                            <TextBlock Text="指令语言" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox x:Name="ComboScript" Height="36" Style="{StaticResource FieldCombo}">
+                                <ComboBoxItem Content="TSPL（TSC 兼容）" IsSelected="True"/>
+                                <ComboBoxItem Content="ZPL（Zebra）"/>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,0" ToolTip="打印机分辨率（dpi），203 最常见，300 用于高密度标签">
+                            <TextBlock Text="分辨率" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox x:Name="ComboDpi" Height="36" Style="{StaticResource FieldCombo}">
+                                <ComboBoxItem Content="203 dpi" IsSelected="True"/>
+                                <ComboBoxItem Content="300 dpi"/>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel ToolTip="标签间隙（mm）：标签纸相邻两张之间的空隙；0 = 连续纸">
+                            <TextBlock Text="间距 (mm)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxGapMm" Style="{StaticResource FieldBox}" Text="2"/>
+                        </StackPanel>
+                    </UniformGrid>
+                </StackPanel>
+            </Border>
+
+            <!-- 条码设置 -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="条码（Code128）" Style="{StaticResource SectionTitle}"/>
+                    <CheckBox x:Name="ChkBarcode" Content="启用条码" IsChecked="True"
+                              FontSize="13" Margin="0,10,0,10"/>
+                    <UniformGrid Columns="4">
+                        <StackPanel Margin="0,0,8,0" ToolTip="条码内容，支持 {SN} 占位（打印时替换为实际 SN）">
+                            <TextBlock Text="内容" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxBcContent" Style="{StaticResource FieldBox}" Text="{}{SN}"/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,0" ToolTip="条码高度（mm）">
+                            <TextBlock Text="高度 (mm)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxBcHeight" Style="{StaticResource FieldBox}" Text="8"/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,0" ToolTip="条码模块（窄条）宽度（mm），越小越密">
+                            <TextBlock Text="模块宽 (mm)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxBcModule" Style="{StaticResource FieldBox}" Text="0.4"/>
+                        </StackPanel>
+                        <StackPanel ToolTip="条码下方是否显示可读字符">
+                            <TextBlock Text="人读字符" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox x:Name="ComboBcHuman" Height="36" Style="{StaticResource FieldCombo}">
+                                <ComboBoxItem Content="显示" IsSelected="True"/>
+                                <ComboBoxItem Content="不显示"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </UniformGrid>
+                    <UniformGrid Columns="2" Margin="0,10,0,0">
+                        <StackPanel Margin="0,0,8,0" ToolTip="条码左上角 X 坐标（mm）">
+                            <TextBlock Text="X (mm)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxBcX" Style="{StaticResource FieldBox}" Text="5"/>
+                        </StackPanel>
+                        <StackPanel ToolTip="条码左上角 Y 坐标（mm）">
+                            <TextBlock Text="Y (mm)" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxBcY" Style="{StaticResource FieldBox}" Text="15"/>
+                        </StackPanel>
+                    </UniformGrid>
                 </StackPanel>
             </Border>
 
@@ -121,6 +192,12 @@
                         <Button Content="从画布读取对象" Width="150" Height="36"
                                 Style="{StaticResource GhostButton}" Click="BtnReadObjects_Click"
                                 ToolTip="经 BarTender 读取画布内对象的名称/字体/字号/坐标（需本机装 BarTender）"/>
+                        <Button Content="添加行" Width="90" Height="36" Margin="8,0,0,0"
+                                Style="{StaticResource GhostButton}" Click="BtnAddRow_Click"
+                                ToolTip="直驱模式下手动添加一行文字（无需画布）"/>
+                        <Button Content="删除行" Width="90" Height="36" Margin="8,0,0,0"
+                                Style="{StaticResource GhostButton}" Click="BtnDelRow_Click"
+                                ToolTip="删除选中行"/>
                         <TextBlock x:Name="TxtObjStatus" VerticalAlignment="Center"
                                    Margin="12,0,0,0" FontSize="12"
                                    Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -144,18 +221,25 @@
 
             <!-- 生成与打印 -->
             <StackPanel Orientation="Horizontal">
-                <Button Content="生成 .btw" Width="130" Height="40"
-                        Style="{StaticResource PrimaryButton}" Click="BtnGenerate_Click"
-                        ToolTip="把全部参数应用到画布副本并保存为输出模板"/>
-                <Button Content="试打印一张" Width="120" Height="40" Margin="12,0,0,0"
-                        Style="{StaticResource GhostButton}" Click="BtnTestPrint_Click"
-                        ToolTip="先生成，再以 {SN}=TEST0001 试打一张"/>
+                <Button Content="试打印一张" Width="130" Height="40"
+                        Style="{StaticResource PrimaryButton}" Click="BtnTestPrint_Click"
+                        ToolTip="直驱：直接出一张；BarTender：生成模板后以 {SN}=TEST0001 试打"/>
+                <Button Content="查看打印指令" Width="130" Height="40" Margin="12,0,0,0"
+                        Style="{StaticResource GhostButton}" Click="BtnShowScript_Click"
+                        ToolTip="显示直驱模式将下发的 TSPL/ZPL 指令（便于核对，不需要打印机）"/>
+                <Button Content="生成 .btw" Width="120" Height="40" Margin="12,0,0,0"
+                        Style="{StaticResource GhostButton}" Click="BtnGenerate_Click"
+                        ToolTip="BarTender 模式：把参数应用到画布副本并保存为输出模板"/>
                 <Button Content="保存并应用" Width="130" Height="40" Margin="12,0,0,0"
                         Style="{StaticResource GhostButton}" Click="BtnSave_Click"
-                        ToolTip="生成 + 保存设计与打印预设（machine.json），工位4 打印按此出标签"/>
+                        ToolTip="保存设计（machine.json），工位 4 打印按此出标签"/>
             </StackPanel>
             <TextBlock x:Name="TxtResult" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0"
                        Foreground="{StaticResource TextSecondaryBrush}"/>
+            <TextBox x:Name="BoxScript" Style="{StaticResource FieldBox}" Height="140"
+                     Margin="0,10,0,0" IsReadOnly="True" AcceptsReturn="True"
+                     VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11"
+                     Visibility="Collapsed"/>
         </StackPanel>
     </ScrollViewer>
 </Window>

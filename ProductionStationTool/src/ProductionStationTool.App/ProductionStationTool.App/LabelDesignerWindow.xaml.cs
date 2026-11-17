@@ -46,6 +46,17 @@ public partial class LabelDesignerWindow : Window
         BoxCopies.Text = Math.Max(1, d.Copies).ToString();
         BoxSpeed.Text = d.PrintSpeed.ToString("0.##");
         BoxDarkness.Text = d.PrintDarkness.ToString("0.##");
+        ComboPrintMode.SelectedIndex = string.Equals(d.PrintMode, "bartender", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        ComboScript.SelectedIndex = string.Equals(d.Script, "zpl", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        ComboDpi.SelectedIndex = d.Dpi == 300 ? 1 : 0;
+        BoxGapMm.Text = d.GapMm.ToString("0.##");
+        ChkBarcode.IsChecked = d.Barcode.Enabled;
+        BoxBcContent.Text = d.Barcode.Content;
+        BoxBcHeight.Text = d.Barcode.HeightMm.ToString("0.##");
+        BoxBcModule.Text = d.Barcode.ModuleMm.ToString("0.##");
+        ComboBcHuman.SelectedIndex = d.Barcode.HumanReadable ? 0 : 1;
+        BoxBcX.Text = d.Barcode.XMm.ToString("0.##");
+        BoxBcY.Text = d.Barcode.YMm.ToString("0.##");
         GridObjects.ItemsSource = d.Objects.Select(ToRow).ToList();
         RefreshPrinters();
         LoadPreview();
@@ -194,6 +205,20 @@ public partial class LabelDesignerWindow : Window
             Copies = (int)Math.Max(1, ParseD(BoxCopies.Text, 1)),
             PrintSpeed = ParseD(BoxSpeed.Text, 0),
             PrintDarkness = ParseD(BoxDarkness.Text, 0),
+            PrintMode = ComboPrintMode.SelectedIndex == 1 ? "bartender" : "direct",
+            Script = ComboScript.SelectedIndex == 1 ? "zpl" : "tspl",
+            Dpi = ComboDpi.SelectedIndex == 1 ? 300 : 203,
+            GapMm = ParseD(BoxGapMm.Text, 2),
+            Barcode = new LabelBarcodeDesign
+            {
+                Enabled = ChkBarcode.IsChecked == true,
+                Content = BoxBcContent.Text.Trim(),
+                HeightMm = ParseD(BoxBcHeight.Text, 8),
+                ModuleMm = ParseD(BoxBcModule.Text, 0.4),
+                HumanReadable = ComboBcHuman.SelectedIndex != 1,
+                XMm = ParseD(BoxBcX.Text, 5),
+                YMm = ParseD(BoxBcY.Text, 15),
+            },
             Objects = new List<LabelObjectDesign>(),
         };
         foreach (var r in GridObjects.Items.OfType<DesignRow>())
@@ -216,6 +241,33 @@ public partial class LabelDesignerWindow : Window
 
     private static double ParseD(string? text, double fallback)
         => double.TryParse(text?.Trim(), out var v) ? v : fallback;
+
+    private void BtnAddRow_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = GridObjects.Items.OfType<DesignRow>().ToList();
+        rows.Add(new DesignRow { Name = $"Text{rows.Count + 1}", FontName = "SimSun", FontSizePt = "12", XMm = "5", YMm = "5" });
+        GridObjects.ItemsSource = rows;
+    }
+
+    private void BtnDelRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (GridObjects.SelectedItem is not DesignRow row)
+            return;
+        var rows = GridObjects.Items.OfType<DesignRow>().ToList();
+        rows.Remove(row);
+        GridObjects.ItemsSource = rows;
+    }
+
+    private void BtnShowScript_Click(object sender, RoutedEventArgs e)
+    {
+        var d = Collect();
+        string script = string.Equals(d.Script, "zpl", StringComparison.OrdinalIgnoreCase)
+            ? DirectLabelScript.BuildZpl(d, "TEST0001")
+            : DirectLabelScript.BuildTspl(d, "TEST0001");
+        BoxScript.Text = script;
+        BoxScript.Visibility = Visibility.Visible;
+        TxtResult.Text = $"直驱打印指令（{(d.Script == "zpl" ? "ZPL" : "TSPL")}，SN 代入 TEST0001）如下——不需要打印机即可核对：";
+    }
 
     /// <summary>设计 → 打印预设（输出模板 + {SN} 命名数据源映射）。</summary>
     private static LabelPreset ToPreset(LabelDesign d)
@@ -254,6 +306,20 @@ public partial class LabelDesignerWindow : Window
 
     private async void BtnTestPrint_Click(object sender, RoutedEventArgs e)
     {
+        var design = Collect();
+
+        // 直驱：TSPL/ZPL 指令直接发打印机，无需 BarTender
+        if (design.PrintMode == "direct")
+        {
+            var (printOk, printDetail) = await Task.Run(() => new DirectLabelPrinter(design).Print("TEST0001"));
+            TxtResult.Text = printDetail;
+            TxtResult.Foreground = printOk
+                ? System.Windows.Media.Brushes.Green
+                : System.Windows.Media.Brushes.Firebrick;
+            return;
+        }
+
+        // BarTender：生成模板后填值打印
         var (ok, detail) = Generate();
         if (!ok)
         {
@@ -261,7 +327,6 @@ public partial class LabelDesignerWindow : Window
             TxtResult.Foreground = System.Windows.Media.Brushes.Firebrick;
             return;
         }
-        var design = Collect();
         try
         {
             using var printer = new BarTenderLabelPrinter(ToPreset(design));
@@ -281,16 +346,28 @@ public partial class LabelDesignerWindow : Window
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         var design = Collect();
-        var (ok, detail) = BarTenderLabelPrinter.Available()
-            ? BarTenderTemplateBuilder.Generate(design)
-            : (true, "本机未装 BarTender：仅保存设计参数（生成 .btw / 打印需在装了 BarTender 的机器上）");
+        bool ok = true;
+        string detail;
+
+        if (design.PrintMode == "direct")
+        {
+            // 直驱：只存设计（打印时现场生成指令，无需模板/BarTender）
+            detail = "直驱模式：打印时按 TSPL/ZPL 指令直发打印机（无需 BarTender / 授权）";
+        }
+        else
+        {
+            (ok, detail) = BarTenderLabelPrinter.Available()
+                ? BarTenderTemplateBuilder.Generate(design)
+                : (true, "本机未装 BarTender：仅保存设计参数（生成 .btw / 打印需在装了 BarTender 的机器上）");
+        }
+
         if (ok)
         {
             MachineConfig.SaveLabelDesign(design);
             var (_, box) = MachineConfig.LoadPrintPresets();
             MachineConfig.SavePrintPresets(ToPreset(design), box);
         }
-        TxtResult.Text = detail + (ok ? "\n已保存设计与打印预设（machine.json），工位 4 按此出标签。" : "");
+        TxtResult.Text = detail + (ok ? "\n已保存设计（machine.json），工位 4 按此出标签。" : "");
         TxtResult.Foreground = ok
             ? System.Windows.Media.Brushes.Green
             : System.Windows.Media.Brushes.Firebrick;
