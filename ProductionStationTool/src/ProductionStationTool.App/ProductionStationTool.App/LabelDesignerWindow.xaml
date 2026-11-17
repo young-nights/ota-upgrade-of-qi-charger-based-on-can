@@ -1,8 +1,10 @@
 <Window x:Class="ProductionStationTool.App.LabelDesignerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="打印机设置 — SN 码标签设计" Height="780" Width="780"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Title="打印机设置 — SN 码标签设计" Height="860" Width="880"
+        MinWidth="720" MinHeight="600"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        WindowState="Maximized"
         Background="{StaticResource BgBrush}">
     <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
         <StackPanel Margin="16">
@@ -59,28 +61,33 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,8,0">
                             <TextBlock Text="打印机" Style="{StaticResource FieldLabel}"/>
-                            <ComboBox x:Name="ComboPrinter" Height="36" Style="{StaticResource FieldCombo}"
+                            <ComboBox x:Name="ComboPrinter" Height="36" Style="{StaticResource FieldComboEditable}"
                                       IsEditable="True"
-                                      ToolTip="目标打印机（本机打印机列表可点「刷新」枚举）"/>
+                                      ToolTip="目标打印机（本机打印机列表可点「刷新」枚举，也可直接手填打印机名）"/>
                         </StackPanel>
                         <Button Grid.Column="1" Content="刷新" Width="80" Height="36" VerticalAlignment="Bottom"
                                 Style="{StaticResource GhostButton}" Click="BtnRefreshPrinters_Click"/>
-                        <StackPanel Grid.Column="3" ToolTip="打印份数（≥1）">
+                        <StackPanel Grid.Column="3"
+                                    ToolTip="份数：一次打印任务里连续出几张相同的标签（1 = 出一张）">
                             <TextBlock Text="份数" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="BoxCopies" Style="{StaticResource FieldBox}" Text="1"/>
                         </StackPanel>
-                        <StackPanel Grid.Column="5" ToolTip="打印速度；0 = 打印机默认（需驱动支持）">
+                        <StackPanel Grid.Column="5"
+                                    ToolTip="速度：打印机走纸/打印速度档位（数值越大越快）；0 = 用打印机当前默认，部分驱动不支持从软件设置">
                             <TextBlock Text="速度" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="BoxSpeed" Style="{StaticResource FieldBox}" Text="0"/>
                         </StackPanel>
                     </Grid>
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                         <StackPanel Width="110" Margin="0,0,8,0"
-                                    ToolTip="打印浓度；0 = 打印机默认（需驱动支持）">
+                                    ToolTip="浓度：打印黑度/深浅（数值越大越黑，条码对比度更高）；0 = 用打印机当前默认，部分驱动不支持从软件设置">
                             <TextBlock Text="浓度" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="BoxDarkness" Style="{StaticResource FieldBox}" Text="0"/>
                         </StackPanel>
                     </StackPanel>
+                    <TextBlock Text="份数 = 一次任务出几张相同标签；速度 = 走纸/打印快慢档位（越大越快）；浓度 = 打印黑度（越大越黑）。速度/浓度填 0 表示用打印机默认——这两项是驱动相关参数，部分打印机不支持从软件设置，生成时会提示「未支持」。"
+                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,10,0,0"/>
                 </StackPanel>
             </Border>
 
