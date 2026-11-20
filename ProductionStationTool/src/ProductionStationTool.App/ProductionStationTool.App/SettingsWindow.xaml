@@ -114,31 +114,43 @@
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
                             <TextBlock Text="步骤 5 双线圈检测参数" Style="{StaticResource SectionTitle}"/>
-                            <TextBlock Text="A 线圈：采集窗口内均值电流 ≥ A 阈值即正常；A 通过后实时监测跌落（低于 B 阈值或 A 均值一半），跌落状态持续「跌落确认」时长才算有效换线圈（不判失败）；B 线圈：电流恢复到 B 阈值以上并持续规定时长即正常；整体超时（A 采集 + 换线圈 + B 判定）判 FAIL。保存后下次测试生效。"
+                            <TextBlock Text="A 线圈：采集窗口内均值电流落在 [A 下限, A 上限] 区间内即正常（低于下限=低流、高于上限=过流，均异常）；A 通过后实时监测跌落（低于 B 下限或 A 均值一半），跌落状态持续「跌落确认」时长才算有效换线圈（不判失败）；B 线圈：电流恢复进入 [B 下限, B 上限] 区间并持续规定时长即正常；整体超时（A 采集 + 换线圈 + B 判定）判 FAIL。保存后下次测试生效（存 machine.json，重启自动沿用）。"
                                        FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,10,0,12"/>
 
                             <UniformGrid Columns="3">
-                                <StackPanel Margin="0,0,8,0">
-                                    <TextBlock Text="A 阈值 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxAThreshold" Style="{StaticResource FieldBox}" Text="1.0"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,8,0">
-                                    <TextBlock Text="B 阈值 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxBThreshold" Style="{StaticResource FieldBox}" Text="1.0"/>
+                                <StackPanel Margin="0,0,8,0"
+                                            ToolTip="A 下限：A 线圈均值电流低于此值判低流异常（默认 1.0A）">
+                                    <TextBlock Text="A 下限 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxALower" Style="{StaticResource FieldBox}" Text="1.0"/>
                                 </StackPanel>
                                 <StackPanel Margin="0,0,8,0"
-                                            ToolTip="A 窗口：A 线圈固定采集时长（秒）。窗口内电流均值 ≥ A 阈值即判 A 通过（默认 10s）">
+                                            ToolTip="A 上限：A 线圈均值电流高于此值判过流异常（默认 2.0A）">
+                                    <TextBlock Text="A 上限 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxAUpper" Style="{StaticResource FieldBox}" Text="2.0"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,8,0"
+                                            ToolTip="B 下限：B 线圈恢复判定区间下沿（默认 1.0A）">
+                                    <TextBlock Text="B 下限 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxBLower" Style="{StaticResource FieldBox}" Text="1.0"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,8,0"
+                                            ToolTip="B 上限：B 线圈恢复判定区间上沿（默认 2.0A）">
+                                    <TextBlock Text="B 上限 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxBUpper" Style="{StaticResource FieldBox}" Text="2.0"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,8,0"
+                                            ToolTip="A 窗口：A 线圈固定采集时长（秒）。窗口内电流均值落在 A 上下限区间内即判 A 通过（默认 10s）">
                                     <TextBlock Text="A 窗口 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxAWindowSec" Style="{StaticResource FieldBox}" Text="10"/>
                                 </StackPanel>
                                 <StackPanel Margin="0,0,8,0"
-                                            ToolTip="B 持续：B 线圈电流恢复到 B 阈值后，须连续保持达标该时长（秒）才判 B 通过（默认 3s）">
+                                            ToolTip="B 持续：B 线圈电流恢复进 B 上下限区间后，须连续保持在区间内该时长（秒）才判 B 通过（默认 3s）">
                                     <TextBlock Text="B 持续 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxBSustainSec" Style="{StaticResource FieldBox}" Text="3"/>
                                 </StackPanel>
                                 <StackPanel Margin="0,0,8,0"
-                                            ToolTip="跌落确认：A 通过后电流处于跌落状态（低于 B 阈值或 A 均值一半）须持续该时长（秒）才算有效换线圈，抗毛刺干扰（默认 2s）">
+                                            ToolTip="跌落确认：A 通过后电流处于跌落状态（低于 B 下限或 A 均值一半）须持续该时长（秒）才算有效换线圈，抗毛刺干扰（默认 2s）">
                                     <TextBlock Text="跌落确认 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxTransitionSec" Style="{StaticResource FieldBox}" Text="2"/>
                                 </StackPanel>

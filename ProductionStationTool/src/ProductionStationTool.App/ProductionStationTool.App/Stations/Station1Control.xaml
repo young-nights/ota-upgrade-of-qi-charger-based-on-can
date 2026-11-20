@@ -95,7 +95,7 @@
 
                     <!-- 检测参数只读提示（修改入口在「设置」页） -->
                     <TextBlock Grid.Row="3"
-                               Text="检测参数（A/B 阈值、窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
+                               Text="检测参数（A/B 上下限、窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
                                FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                Margin="0,0,0,4"/>
 

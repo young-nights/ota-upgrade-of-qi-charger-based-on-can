@@ -38,6 +38,8 @@ public partial class Station3Control : UserControl, IStationPage
 
     private void RaiseAvailability() => AvailabilityChanged?.Invoke();
 
+    private static string Fmt(string v) => v.Length == 0 ? "(空)" : v;
+
     private void LogSafe(string msg) => _log.Append(msg);
 
     public Station3Control(StationIdentity identity)
@@ -45,6 +47,10 @@ public partial class Station3Control : UserControl, IStationPage
         InitializeComponent();
         _identity = identity;
         _log.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
+        var coil0 = MachineConfig.LoadCoilOptions();
+        var vp0 = MachineConfig.LoadVersionPresets();
+        _log.Append($"已载入保存参数（machine.json，重启自动沿用）：A {coil0.CoilALowerA:F2}~{coil0.CoilAUpperA:F2}A / B {coil0.CoilBLowerA:F2}~{coil0.CoilBUpperA:F2}A；" +
+                    $"版本预设 SW={Fmt(vp0.Sw)} HW={Fmt(vp0.Hw)}");
         FlowPanel.SetSteps(
             ("1", "连接设备（串口/CAN 自动检测）"),
             ("2", "读取 SN 并关联数据库"),

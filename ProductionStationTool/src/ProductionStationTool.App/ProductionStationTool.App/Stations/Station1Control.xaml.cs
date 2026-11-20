@@ -53,6 +53,8 @@ public partial class Station1Control : UserControl, IStationPage
 
     private void RaiseAvailability() => AvailabilityChanged?.Invoke();
 
+    private static string Fmt(string v) => v.Length == 0 ? "(空)" : v;
+
     private void LogSafe(string msg)
         => _log.Append(msg);
 
@@ -64,6 +66,10 @@ public partial class Station1Control : UserControl, IStationPage
             snAllocate: ct => _snClient.NextAsync(_serverHost, identity.StationNo, identity.MachineId, ct),
             snRelease: (sn, ct) => _snClient.ReleaseAsync(_serverHost, sn, ct));
         _log.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
+        var coil0 = MachineConfig.LoadCoilOptions();
+        var vp0 = MachineConfig.LoadVersionPresets();
+        _log.Append($"已载入保存参数（machine.json，重启自动沿用）：A {coil0.CoilALowerA:F2}~{coil0.CoilAUpperA:F2}A / B {coil0.CoilBLowerA:F2}~{coil0.CoilBUpperA:F2}A；" +
+                    $"版本预设 SW={Fmt(vp0.Sw)} HW={Fmt(vp0.Hw)}");
         _log.Append($"SN 联机取号：汇总机 {_serverHost}:5000（防撞号；超 9999 回收弃用号）");
         FlowPanel.SetSteps(
             ("1", "连接设备（串口/CAN 自动检测）"),

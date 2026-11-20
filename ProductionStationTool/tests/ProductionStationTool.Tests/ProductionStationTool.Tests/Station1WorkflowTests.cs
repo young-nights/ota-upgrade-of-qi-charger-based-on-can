@@ -91,10 +91,12 @@ public class Station1WorkflowTests
     private static CoilTestOptions FastOpts => new()
     {
         CoilACollectMs = 300,
-        CoilAThresholdA = 1.0,
+        CoilALowerA = 1.0,
+        CoilAUpperA = 2.0,
         TransitionMs = 100,
         CoilBSustainMs = 200,
-        CoilBThresholdA = 1.0,
+        CoilBLowerA = 1.0,
+        CoilBUpperA = 2.0,
         OverallTimeoutMs = 3000,
     };
 
@@ -186,6 +188,23 @@ public class Station1WorkflowTests
     }
 
     [Fact]
+    public async Task CoilA_OverUpper_FailWithOverCurrentItem()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await EmitAsync(pz, 5.0, 2.5, 400);   // A 窗口均值 2.5A 高于上限 2.0A
+        var r = await run;
+
+        Assert.False(r.Passed);
+        Assert.False(r.Coil!.CoilAPassed);
+        Assert.Contains("高于上限", r.AbnormalItems[0]);   // 过流异常项
+    }
+
+    [Fact]
     public async Task CoilA_LowMean_FailAndStored()
     {
         var store = new FakeStore();
@@ -194,7 +213,7 @@ public class Station1WorkflowTests
 
         var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
             () => Task.CompletedTask, pz, FastOpts);
-        await EmitAsync(pz, 5.0, 0.5, 400);   // A 窗口均值 0.5A < 1.0A
+        await EmitAsync(pz, 5.0, 0.5, 400);   // A 窗口均值 0.5A 低于下限 1.0A
         var r = await run;
 
         Assert.False(r.Passed);
@@ -213,10 +232,12 @@ public class Station1WorkflowTests
         var opts = new CoilTestOptions
         {
             CoilACollectMs = 300,
-            CoilAThresholdA = 1.0,
+            CoilALowerA = 1.0,
+        CoilAUpperA = 2.0,
             TransitionMs = 100,
             CoilBSustainMs = 200,
-            CoilBThresholdA = 1.0,
+            CoilBLowerA = 1.0,
+        CoilBUpperA = 2.0,
             OverallTimeoutMs = 1200,          // 整体限时
         };
 
@@ -244,10 +265,12 @@ public class Station1WorkflowTests
         var opts = new CoilTestOptions
         {
             CoilACollectMs = 300,
-            CoilAThresholdA = 1.0,
+            CoilALowerA = 1.0,
+        CoilAUpperA = 2.0,
             TransitionMs = 100,
             CoilBSustainMs = 200,
-            CoilBThresholdA = 1.0,
+            CoilBLowerA = 1.0,
+        CoilBUpperA = 2.0,
             OverallTimeoutMs = 1200,
         };
 

@@ -271,8 +271,10 @@ public partial class SettingsWindow : Window
 
     private void FillCoilFields(CoilTestOptions o)
     {
-        BoxAThreshold.Text = o.CoilAThresholdA.ToString("0.##");
-        BoxBThreshold.Text = o.CoilBThresholdA.ToString("0.##");
+        BoxALower.Text = o.CoilALowerA.ToString("0.##");
+        BoxAUpper.Text = o.CoilAUpperA.ToString("0.##");
+        BoxBLower.Text = o.CoilBLowerA.ToString("0.##");
+        BoxBUpper.Text = o.CoilBUpperA.ToString("0.##");
         BoxAWindowSec.Text = (o.CoilACollectMs / 1000.0).ToString("0.##");
         BoxBSustainSec.Text = (o.CoilBSustainMs / 1000.0).ToString("0.##");
         BoxTransitionSec.Text = (o.TransitionMs / 1000.0).ToString("0.##");
@@ -293,15 +295,17 @@ public partial class SettingsWindow : Window
             => double.TryParse(box.Text.Trim(), out var v) ? v : fallback;
 
         var d = new CoilTestOptions();
-        var aThr = ParseD(BoxAThreshold, d.CoilAThresholdA);
-        var bThr = ParseD(BoxBThreshold, d.CoilBThresholdA);
+        var aLow = ParseD(BoxALower, d.CoilALowerA);
+        var aHigh = ParseD(BoxAUpper, d.CoilAUpperA);
+        var bLow = ParseD(BoxBLower, d.CoilBLowerA);
+        var bHigh = ParseD(BoxBUpper, d.CoilBUpperA);
         var aWin = ParseD(BoxAWindowSec, d.CoilACollectMs / 1000.0);
         var bSus = ParseD(BoxBSustainSec, d.CoilBSustainMs / 1000.0);
         var trans = ParseD(BoxTransitionSec, d.TransitionMs / 1000.0);
         var samp = ParseD(BoxSampleIntervalMs, d.SampleIntervalMs);
         var tOut = ParseD(BoxTimeoutSec, d.OverallTimeoutMs / 1000.0);
 
-        var err = MachineConfig.ValidateCoil(aThr, bThr, aWin, bSus, tOut, trans, samp);
+        var err = MachineConfig.ValidateCoil(aLow, aHigh, bLow, bHigh, aWin, bSus, tOut, trans, samp);
         if (err is not null)
         {
             TxtCoilSaveResult.Text = err;
@@ -311,8 +315,10 @@ public partial class SettingsWindow : Window
 
         var options = new CoilTestOptions
         {
-            CoilAThresholdA = aThr,
-            CoilBThresholdA = bThr,
+            CoilALowerA = aLow,
+            CoilAUpperA = aHigh,
+            CoilBLowerA = bLow,
+            CoilBUpperA = bHigh,
             CoilACollectMs = (int)(aWin * 1000),
             CoilBSustainMs = (int)(bSus * 1000),
             TransitionMs = (int)(trans * 1000),
