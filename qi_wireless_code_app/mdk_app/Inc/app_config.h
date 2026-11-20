@@ -57,9 +57,12 @@
 /**
  * @brief  空闲低功耗开关（SIT1145 Sleep）
  * @note   =1 空闲 CAN_LP_IDLE_TIMEOUT_MS 后进 Sleep（生产语义）
- *         =0 空闲停机整段不编译，CAN 常在线
+ *         =0 空闲停机整段不编译，CAN 常在线——**全程醒着**（2026-11-21 调试定）：
+ *         睡眠进入（SIT1145 Sleep/WUF 配置、E0~E3 快照、SLEEP 生命周期）整段
+ *         屏蔽；唤醒转换（WUF→can_lp_enter_normal）随 g_can_awake 恒 1 永不
+ *         触发，仅上电时的 CAN 拉起（g_lp_need_online→enter_normal）保留。
  */
-#define CAN_LP_SLEEP_ENABLE         1
+#define CAN_LP_SLEEP_ENABLE         0
 
 /**
  * @brief  CAN 空闲多久进 Sleep（ms），CAN_LP_SLEEP_ENABLE=1 时生效

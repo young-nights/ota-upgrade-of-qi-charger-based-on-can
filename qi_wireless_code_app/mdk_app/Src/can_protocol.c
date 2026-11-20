@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.84";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.85";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2829,7 +2829,11 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
       g_qi_device_present = 0U;
     }
 
-    /* protection/fault bits */
+    /* protection/fault bits —— 全量跟随本帧 Qi 上报（2026-11-21）：
+     * 异常标识实时镜像 Qi 芯片动态上传——异常置位、恢复即清零，
+     * 无额外保持/清除逻辑。 */
+    g_qi_fod_status = 0x00U;
+    g_qi_fault_code = 0x00U;
     if ((status_byte & QI_STATUS_FOD) != 0U)
     {
       g_qi_fod_status = 0x02U;  /* confirmed */
@@ -2890,14 +2894,9 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
       g_qi_voltage_raw = frame->data[7];
       g_qi_current_raw = frame->data[8];
       g_qi_pcb_temp = frame->data[9];
-      if (frame->data[10] != 0x00U)
-      {
-        g_qi_fod_status = frame->data[10];
-      }
-      if (frame->data[12] != 0x00U)
-      {
-        g_qi_fault_code = frame->data[12];
-      }
+      /* FOD/fault 全量镜像（含 0 清零）：Qi 芯片动态上报什么就报什么 */
+      g_qi_fod_status = frame->data[10];
+      g_qi_fault_code = frame->data[12];
       g_qi_thermal_derate = frame->data[13];
     }
 
