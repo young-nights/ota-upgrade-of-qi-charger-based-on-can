@@ -395,6 +395,10 @@ public sealed class IsoTpClient
     /// </summary>
     public void DrainStale()
     {
+        // 传输层积压（非阻塞）：迟到 NRC 藏在 ZqwlSerialTransport._rxQueue 时，
+        // 只清本地 _rxq 会在下一请求等待期被 Pump() 泵入错配（上一请求的
+        // 7F 2E 22 窜进下一请求窗口误报 0x22）——穿透清到底层。
+        while (_tp.TryReceive(out _, 0)) { }
         while (_rxq.TryDequeue(out _)) { }
         _ffBuf = null;
         _cfBuf.Clear();
