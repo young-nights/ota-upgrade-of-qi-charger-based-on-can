@@ -30,11 +30,11 @@ public sealed class ZqwlSerialTransport : ICanTransport
 
     private const int BusSilentAfterMs = 800;     // 总线静默判定：无 CAN 回流超 0.8s
     private const int SilentFrameGapMs = 250;     // 静默/拥塞时最小帧间隔（同唤醒 burst 节奏）
-    private const int WriteStallAbortMs = 2000;   // 写阻塞达此值进入静默排水阶段
-    private const int WriteDrainMs = 8000;        // 静默排水：停止灌入、等盒子队列自然排空
+    private const int WriteStallAbortMs = 1200;   // 写阻塞达此值进入静默排水阶段
+    private const int WriteDrainMs = 1200;        // 静默排水：停止灌入、等盒子队列自然排空
     private const int WriteAbortStreakLimit = 3;  // 连续 purge 中止次数达此值才升级杀口+自愈
     private const int WriteBackpressureMs = 300;  // 写耗时超此值视背压，冷却防队列打满
-    private const int CongestedPaceMs = 3000;     // 写挂起/慢写后的拥塞退避时长
+    private const int CongestedPaceMs = 8000;     // 写挂起/慢写后的拥塞退避时长
 
     /// <summary>
     /// 调试日志：只报 CAN 数据帧。盒子心跳(5A FF/FE)、配置应答(49 3B) 一律不上报。
@@ -195,7 +195,7 @@ public sealed class ZqwlSerialTransport : ICanTransport
                 {
                     port.Write(buf, 0, buf.Length);   // 重发本帧（新通道，ApplyBoxConfig 已证明可写）
                     Volatile.Write(ref _lastSendTickMs, Environment.TickCount64);
-                    OnRawLog?.Invoke("[自愈] 写挂起已杀口重连并重发本帧，操作继续");
+                    OnRawLog?.Invoke("[自愈] 写挂起已恢复（杀口重连+重发本帧），操作继续");
                     return;
                 }
                 catch (Exception rex)
@@ -236,7 +236,6 @@ public sealed class ZqwlSerialTransport : ICanTransport
                 _rxQueue.Clear();
                 _bufLen = 0;
             }
-            OnRawLog?.Invoke("[自愈] 写通道挂起已杀口并自动重连、重配盒子");
             return true;
         }
         catch
