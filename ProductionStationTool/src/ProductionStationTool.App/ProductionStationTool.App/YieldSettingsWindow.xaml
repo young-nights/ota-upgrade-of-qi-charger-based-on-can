@@ -5,27 +5,29 @@
         Background="{StaticResource BgBrush}"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <Border Style="{StaticResource Card}" Margin="16">
-        <StackPanel>
-            <TextBlock Text="良率统计口径" Style="{StaticResource SectionTitle}"/>
-            <TextBlock Text="良率 = PASS 数 ÷ 参与统计的记录数 × 100%（按机位聚合显示在汇总机卡片上）。弃用记录指工位1 失败弃用/被新 SN 取代的记录——默认不计入良率，避免失败重拉污染口径。"
-                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                       TextWrapping="Wrap" Margin="0,10,0,12"/>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="良率统计口径" Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="良率 = PASS 数 ÷ 参与统计的记录数 × 100%（按机位聚合显示在汇总机卡片上）。弃用记录指工位1 失败弃用/被新 SN 取代的记录——默认不计入良率，避免失败重拉污染口径。"
+                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                           TextWrapping="Wrap" Margin="0,10,0,12"/>
 
-            <CheckBox x:Name="ChkYieldExclude" Content="弃用记录不计入良率（推荐）"
-                      FontSize="13" Margin="0,0,0,12"/>
+                <CheckBox x:Name="ChkYieldExclude" Content="弃用记录不计入良率（推荐）"
+                          FontSize="13" Margin="0,0,0,12"/>
 
-            <TextBlock x:Name="TxtYieldSummary" FontSize="12" TextWrapping="Wrap"
-                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,12"/>
+                <TextBlock x:Name="TxtYieldSummary" FontSize="12" TextWrapping="Wrap"
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,12"/>
 
-            <StackPanel Orientation="Horizontal">
-                <Button Content="保存口径" Width="150" Height="40"
-                        Style="{StaticResource PrimaryButton}" Click="BtnSaveYield_Click"/>
-                <Button Content="刷新统计" Width="110" Height="40" Margin="12,0,0,0"
-                        Style="{StaticResource GhostButton}" Click="BtnRefreshYield_Click"/>
-                <TextBlock x:Name="TxtYieldResult" VerticalAlignment="Center"
-                           Margin="12,0,0,0" FontSize="12"
-                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="保存口径" Width="150" Height="40"
+                            Style="{StaticResource PrimaryButton}" Click="BtnSaveYield_Click"/>
+                    <Button Content="刷新统计" Width="110" Height="40" Margin="12,0,0,0"
+                            Style="{StaticResource GhostButton}" Click="BtnRefreshYield_Click"/>
+                    <TextBlock x:Name="TxtYieldResult" VerticalAlignment="Center"
+                               Margin="12,0,0,0" FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
             </StackPanel>
-        </StackPanel>
+        </ScrollViewer>
     </Border>
 </Window>

@@ -16,7 +16,7 @@ public partial class AdminPasswordWindow : Window
     public AdminPasswordWindow(string purpose)
     {
         InitializeComponent();
-        TxtPurpose.Text = $"进入「{purpose}」需要再次输入汇总机管理密码。";
+        TxtPurpose.Text = $"进入「{purpose}」需要输入汇总机管理密码进行验证。";
         Loaded += (_, _) => TxtPassword.Focus();
     }
 
