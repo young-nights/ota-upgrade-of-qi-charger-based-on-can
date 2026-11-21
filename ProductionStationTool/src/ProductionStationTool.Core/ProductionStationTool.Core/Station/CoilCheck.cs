@@ -129,8 +129,8 @@ public static class CoilCheck
                 {
                     lastReport = elapsed;
                     string hint = aHitT < 0
-                        ? $"A 等待达到下限 {Math.Max(0, aWindowEnd - elapsed) / 1000.0:F0}s · {lastI:F2}A"
-                        : $"A 采集中 {Math.Max(0, aWindowEnd - elapsed) / 1000.0:F0}s · {lastI:F2}A";
+                        ? $"A 等电流升到下限 {Math.Max(0, aWindowEnd - elapsed) / 1000.0:F0}s · {lastI:F2}A"
+                        : $"A 线圈检测中 {Math.Max(0, aWindowEnd - elapsed) / 1000.0:F0}s · {lastI:F2}A";
                     onProgress(new CoilProgress(hint, false, false, 0));
                 }
                 await Task.Delay(50, ct);
@@ -152,24 +152,25 @@ public static class CoilCheck
             if (winA.Count == 0)
             {
                 log?.Invoke("A 线圈：窗口内无采样");
-                onProgress?.Invoke(new CoilProgress("A 窗口无有效采样", false, false, 0));
-                return new CoilJudgement(0, 0, 0, false, false, true, new[] { "PowerZ 无有效采样" });
+                onProgress?.Invoke(new CoilProgress("没有读到 PowerZ 电流", false, false, 0));
+                return new CoilJudgement(0, 0, 0, false, false, true,
+                    new[] { "没有读到 PowerZ 电流数据（无有效采样），请检查 PowerZ 连接后重测" });
             }
 
             if (aHitT < 0)
             {
-                string why = $"A 线圈在 {opt.DetectionWindowMs / 1000.0:F1}s 检测窗口内未达到下限 {opt.CoilALowerA:F2}A";
+                string why = $"A 线圈未达到下限 {opt.CoilALowerA:F2}A（检测窗口 {opt.DetectionWindowMs / 1000.0:F1} 秒内电流没升上来），请检查 A 线圈是否放好";
                 log?.Invoke(why);
-                onProgress?.Invoke(new CoilProgress("A 未达到下限", true, false, 0));
+                onProgress?.Invoke(new CoilProgress("A 线圈电流没升到下限", true, false, 0));
                 return new CoilJudgement(0, 0, 0, false, false, false, new[] { why });
             }
 
             var winAEffective = winA.Where(s => s.T >= aHitT).ToList();
             if (winAEffective.Count == 0)
             {
-                string why = "A 线圈达到下限后窗口内无有效采样";
+                string why = "A 线圈达到下限后没有采到电流数据（无有效采样），请检查 PowerZ 连接后重测";
                 log?.Invoke(why);
-                onProgress?.Invoke(new CoilProgress("A 有效采样为空", true, false, 0));
+                onProgress?.Invoke(new CoilProgress("A 线圈没采到电流", true, false, 0));
                 return new CoilJudgement(0, 0, 0, false, false, false, new[] { why });
             }
 
@@ -181,7 +182,7 @@ public static class CoilCheck
 
             if (aEffectiveMs < opt.MinEffectiveMs)
             {
-                string why = $"A 线圈有效检测时间 {aEffectiveMs}ms < {opt.MinEffectiveMs}ms（达到下限过晚），判定无效";
+                string why = $"A 线圈电流到得太晚，有效检测时间只有 {aEffectiveMs}ms（至少需要 {opt.MinEffectiveMs}ms），请把 A 线圈放正后重测";
                 log?.Invoke(why);
                 onProgress?.Invoke(new CoilProgress(why, true, false, avgI));
                 return new CoilJudgement(avgV, avgI, 0, false, false, false, new[] { why });
@@ -189,14 +190,14 @@ public static class CoilCheck
 
             bool aPass = avgI >= opt.CoilALowerA && avgI <= opt.CoilAUpperA;
             onProgress?.Invoke(new CoilProgress(
-                aPass ? "A 通过，请换接 B 线圈" : "A 未通过",
+                aPass ? "A 通过，请换 B 线圈" : "A 未通过",
                 true, aPass, avgI));
 
             if (!aPass)
             {
                 string aWhy = avgI < opt.CoilALowerA
-                    ? $"A 线圈均值电流 {avgI:F3}A 低于下限 {opt.CoilALowerA:F2}A"
-                    : $"A 线圈均值电流 {avgI:F3}A 高于上限 {opt.CoilAUpperA:F2}A";
+                    ? $"A 线圈平均电流低于下限（实测 {avgI:F2}A，要求不低于 {opt.CoilALowerA:F2}A），请检查 A 线圈位置"
+                    : $"A 线圈平均电流高于上限（实测 {avgI:F2}A，要求不高于 {opt.CoilAUpperA:F2}A），请检查 A 线圈是否过流";
                 return new CoilJudgement(avgV, avgI, 0, false, false, false, new[] { aWhy });
             }
 
@@ -240,8 +241,8 @@ public static class CoilCheck
                     lastBReport = now;
                     double overallRemain = Math.Max(0, opt.OverallTimeoutMs - now) / 1000.0;
                     string hint = sawBelowB
-                        ? $"等待 B 达到下限（整体剩余 {overallRemain:F0}s）· {lastI:F2}A"
-                        : $"请换接 B 线圈（整体剩余 {overallRemain:F0}s）· {lastI:F2}A";
+                        ? $"等 B 线圈电流升到下限（整体剩余 {overallRemain:F0}s）· {lastI:F2}A"
+                        : $"请换 B 线圈（整体剩余 {overallRemain:F0}s）· {lastI:F2}A";
                     onProgress(new CoilProgress(hint, true, true, avgI));
                 }
                 await Task.Delay(50, ct);
@@ -255,10 +256,10 @@ public static class CoilCheck
                                      .Select(s => s.I)
                                      .DefaultIfEmpty(0)
                                      .Average();
-                string why = $"B 线圈未接入/未达到下限 {opt.CoilBLowerA:F2}A（尾段均值 {tailAvg:F3}A），" +
-                             $"整体超时 {sw.ElapsedMilliseconds / 1000.0:F1}s";
+                string why = $"B 线圈未接入或电流没达到下限 {opt.CoilBLowerA:F2}A（尾段均值 {tailAvg:F2}A），" +
+                             $"整体超时；请换接 B 线圈后重测";
                 log?.Invoke(why);
-                onProgress?.Invoke(new CoilProgress("B 未接入，整体超时", true, true, avgI));
+                onProgress?.Invoke(new CoilProgress("没检测到 B 线圈，已超时", true, true, avgI));
                 return new CoilJudgement(avgV, avgI, tailAvg, true, false, false, new[] { why });
             }
 
@@ -272,8 +273,8 @@ public static class CoilCheck
                                         .Select(s => s.I)
                                         .DefaultIfEmpty(0)
                                         .Average();
-                string why = $"B 线圈有效检测时间 {bEffectiveMs}ms < {opt.MinEffectiveMs}ms（接入过晚），" +
-                             $"判定无效（已采均值 {partialAvg:F3}A）";
+                string why = $"B 线圈接入太晚，有效检测时间只有 {bEffectiveMs}ms" +
+                             $"（至少需要 {opt.MinEffectiveMs}ms，已采均值 {partialAvg:F2}A），请换好 B 线圈后重测";
                 log?.Invoke(why);
                 onProgress?.Invoke(new CoilProgress(why, true, true, avgI));
                 return new CoilJudgement(avgV, avgI, partialAvg, true, false, false, new[] { why });
@@ -290,7 +291,7 @@ public static class CoilCheck
                     lock (gate) lastI = samples.Count > 0 ? samples[^1].I : 0;
                     double overallRemain = Math.Max(0, opt.OverallTimeoutMs - now) / 1000.0;
                     onProgress(new CoilProgress(
-                        $"B 采集中 {Math.Max(0, bWindowEnd - now) / 1000.0:F0}s（整体剩余 {overallRemain:F0}s）· {lastI:F2}A",
+                        $"B 线圈检测中 {Math.Max(0, bWindowEnd - now) / 1000.0:F0}s（整体剩余 {overallRemain:F0}s）· {lastI:F2}A",
                         true, true, avgI));
                 }
                 await Task.Delay(50, ct);
@@ -302,7 +303,7 @@ public static class CoilCheck
 
             if (winB.Count == 0)
             {
-                string why = "B 线圈窗口内无有效采样";
+                string why = "B 线圈没有采到电流数据（无有效采样），请检查 B 线圈和 PowerZ 连接后重测";
                 log?.Invoke(why);
                 return new CoilJudgement(avgV, avgI, 0, true, false, false, new[] { why });
             }
@@ -314,8 +315,8 @@ public static class CoilCheck
             if (!bPass)
             {
                 string bWhy = bAvg < opt.CoilBLowerA
-                    ? $"B 线圈均值电流 {bAvg:F3}A 低于下限 {opt.CoilBLowerA:F2}A"
-                    : $"B 线圈均值电流 {bAvg:F3}A 高于上限 {opt.CoilBUpperA:F2}A";
+                    ? $"B 线圈平均电流低于下限（实测 {bAvg:F2}A，要求不低于 {opt.CoilBLowerA:F2}A），请检查 B 线圈位置"
+                    : $"B 线圈平均电流高于上限（实测 {bAvg:F2}A，要求不高于 {opt.CoilBUpperA:F2}A），请检查 B 线圈是否过流";
                 return new CoilJudgement(avgV, avgI, bAvg, true, false, false, new[] { bWhy });
             }
 

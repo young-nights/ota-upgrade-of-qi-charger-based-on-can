@@ -121,7 +121,7 @@ public partial class Station4Control : UserControl, IStationPage
         _log.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
         if (!await _can.WaitReadyAsync(ct))
         {
-            FailEarly(0, "设备 8s 内无应答——请检查供电后重试");
+            FailEarly(0, "设备没有响应，请检查设备是否上电、CAN 线是否接好");
             return;
         }
         FlowPanel.Mark(0, StepStatus.Passed);
@@ -132,7 +132,7 @@ public partial class Station4Control : UserControl, IStationPage
         var sn = await _can.TryReadSnAsync(ct);
         if (string.IsNullOrEmpty(sn))
         {
-            FailEarly(1, "SN 读取失败（设备未写 SN？）");
+            FailEarly(1, "没有读到设备 SN，请确认设备已写入 SN 后再测");
             return;
         }
         TxtSn.Text = sn;
@@ -145,11 +145,11 @@ public partial class Station4Control : UserControl, IStationPage
         var gateOk = ShowGate(history, sn);
         if (!gateOk)
         {
-            FlowPanel.Mark(2, StepStatus.Failed, "存在 Fail/未测工位，禁止放行");
-            FlowPanel.Mark(3, StepStatus.Waiting, "未执行（门禁未过）");
-            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（门禁未过）");
+            FlowPanel.Mark(2, StepStatus.Failed, "前面工序没全部通过，不能出货");
+            FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前面工序没通过）");
+            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前面工序没通过）");
             SetResultBadge(false);
-            _log.Append("步骤 3：门禁未通过——存在 Fail 或未测工位，停止后续流程（不打印、不比对）");
+            _log.Append("步骤 3：前面工序没全部通过，停止后续流程（不打印、不比对）");
             _running = false;
             RaiseAvailability();
             return;
@@ -165,7 +165,7 @@ public partial class Station4Control : UserControl, IStationPage
         FlowPanel.Mark(3, printOk ? StepStatus.Passed : StepStatus.Failed, printOk ? null : printDetail);
         if (!printOk)
         {
-            ListAbnormal.Items.Add($"SN 打印失败：{printDetail}");
+            ListAbnormal.Items.Add($"标签打印失败：{printDetail}");
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             SetResultBadge(false);
             _running = false;
@@ -202,17 +202,17 @@ public partial class Station4Control : UserControl, IStationPage
                     $" → {(hwOk ? "匹配" : "不匹配")}");
         var versionOk = mcu1Ok && mcu2Ok && bootOk && hwOk;
         FlowPanel.Mark(4, versionOk ? StepStatus.Passed : StepStatus.Failed,
-            versionOk ? null : "四项版本与预设不匹配");
+            versionOk ? null : "软件/硬件版本和预设不一致");
         if (!versionOk)
         {
             if (!mcu1Ok)
-                ListAbnormal.Items.Add($"MCU1 APP 版本不匹配：读取 {Show(vs.Mcu1App)} / 预设 {Show(vp.Mcu1App)}");
+                ListAbnormal.Items.Add($"MCU1 软件版本不对：设备是 {Show(vs.Mcu1App)}，要求是 {Show(vp.Mcu1App)}，请升级软件或换板");
             if (!mcu2Ok)
-                ListAbnormal.Items.Add($"MCU2 Qi 版本不匹配：读取 {Show(vs.Mcu2Qi)} / 预设 {Show(vp.Mcu2Qi)}");
+                ListAbnormal.Items.Add($"Qi 芯片版本不对：设备是 {Show(vs.Mcu2Qi)}，要求是 {Show(vp.Mcu2Qi)}，请升级 Qi 固件");
             if (!bootOk)
-                ListAbnormal.Items.Add($"Bootloader 版本不匹配：读取 {Show(vs.Bootloader)} / 预设 {Show(vp.Bootloader)}");
+                ListAbnormal.Items.Add($"Bootloader 版本不对：设备是 {Show(vs.Bootloader)}，要求是 {Show(vp.Bootloader)}，请先升级 Bootloader");
             if (!hwOk)
-                ListAbnormal.Items.Add($"硬件版本不匹配：读取 {Show(vs.Hardware)} / 预设 {Show(vp.Hardware)}");
+                ListAbnormal.Items.Add($"硬件版本不对：设备是 {Show(vs.Hardware)}，要求是 {Show(vp.Hardware)}，请确认板子型号");
         }
 
         SetResultBadge(versionOk);
@@ -255,13 +255,19 @@ public partial class Station4Control : UserControl, IStationPage
                 ? "无记录"
                 : $"{rec.Result} {rec.TestTime:MM-dd HH:mm}";
             cards[i].SetState(state, detail);
-            summary.Add($"工位{stationNo} {(state == CoilState.Untested ? "未测" : rec!.Result)}");
+            var stateText = state switch
+            {
+                CoilState.Passed => "通过",
+                CoilState.Failed => "未通过",
+                _ => "未测",
+            };
+            summary.Add($"工位{stationNo} {stateText}");
             if (state != CoilState.Passed)
                 allPass = false;
         }
         if (!allPass)
         {
-            ListAbnormal.Items.Add($"数据库门禁未通过（SN {sn}）：{string.Join(" · ", summary)}");
+            ListAbnormal.Items.Add($"前面工序还没全部通过（SN {sn}）：{string.Join(" · ", summary)}；请先完成前面工位再出货");
             _log.Append($"门禁检查：{string.Join(" · ", summary)}");
         }
         return allPass;

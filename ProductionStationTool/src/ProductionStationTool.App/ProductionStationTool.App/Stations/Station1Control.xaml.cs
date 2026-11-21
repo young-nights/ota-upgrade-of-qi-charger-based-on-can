@@ -30,8 +30,10 @@ public partial class Station1Control : UserControl, IStationPage
     private readonly LogBuffer _log = new();
     private LogWindow? _logWin;
     private readonly Station1Workflow _workflow;
-    /// <summary>SN 联机取号客户端（汇总机统一发号，防多机位撞号）。</summary>
+    /// <summary>SN 联机取号客户端（优先汇总机统一发号，防多机位撞号）。</summary>
     private readonly SnAllocationClient _snClient = new();
+    /// <summary>本机应急取号产生的 SN：回收时不发汇总机（服务端本来就没有发过）。</summary>
+    private readonly HashSet<string> _offlineSns = new(StringComparer.Ordinal);
     private readonly string _serverHost;
 
     private CanUdsDevice? _can;
@@ -63,14 +65,16 @@ public partial class Station1Control : UserControl, IStationPage
         InitializeComponent();
         _serverHost = MachineConfig.LoadServerHost();
         _workflow = new Station1Workflow(_store, identity: identity,
-            snAllocate: ct => _snClient.NextAsync(_serverHost, identity.StationNo, identity.MachineId, ct),
-            snRelease: (sn, ct) => _snClient.ReleaseAsync(_serverHost, sn, ct));
+            snAllocate: ct => AllocateSnAsync(identity, ct),
+            snRelease: (sn, ct) => _offlineSns.Contains(sn)
+                ? Task.CompletedTask
+                : _snClient.ReleaseAsync(_serverHost, sn, ct));
         _log.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
         var coil0 = MachineConfig.LoadCoilOptions();
         var vp0 = MachineConfig.LoadVersionPresets();
         _log.Append($"已载入保存参数（machine.json，重启自动沿用）：A {coil0.CoilALowerA:F2}~{coil0.CoilAUpperA:F2}A / B {coil0.CoilBLowerA:F2}~{coil0.CoilBUpperA:F2}A；" +
                     $"版本预设 MCU1={Fmt(vp0.Mcu1App)} QI={Fmt(vp0.Mcu2Qi)} BL={Fmt(vp0.Bootloader)} HW={Fmt(vp0.Hardware)}");
-        _log.Append($"SN 联机取号：汇总机 {_serverHost}:5000（防撞号；超 9999 回收弃用号）");
+        _log.Append($"SN 取号：优先汇总机 {_serverHost}:5000；连不上时自动用本机应急号（每机位每天最多 25 个）");
         FlowPanel.SetSteps(
             ("1", "连接设备（串口/CAN 自动检测）"),
             ("2", "生成 SN 码"),
@@ -85,6 +89,30 @@ public partial class Station1Control : UserControl, IStationPage
 
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
+    }
+
+    /// <summary>
+    /// 优先向汇总机取号；只有“网络不可达”才降级本机应急号。
+    /// 汇总机明确返回 CAP_REACHED 等业务错误时不降级（避免绕过服务器上限）。
+    /// </summary>
+    private async Task<SnAllocResult> AllocateSnAsync(StationIdentity identity, CancellationToken ct)
+    {
+        var online = await _snClient.NextAsync(_serverHost, identity.StationNo, identity.MachineId, ct);
+        if (online.Ok || online.Error != "NETWORK")
+            return online;
+
+        _log.Append($"汇总机取号失败：{online.Message}");
+        var local = LocalSnFallback.Next(identity, DateTime.Now);
+        if (local.Ok && local.Sn is not null)
+        {
+            _offlineSns.Add(local.Sn);
+            _log.Append($"已改用本机应急号：{local.Sn}（离线号段，每机位每天最多 25 个；联网后请以汇总机为准）");
+        }
+        else
+        {
+            _log.Append(local.Message);
+        }
+        return local;
     }
 
     private async void OnConnectRequested(string can, string pz)
@@ -176,9 +204,9 @@ public partial class Station1Control : UserControl, IStationPage
         if (!ready)
         {
             FlowPanel.Mark(0, StepStatus.Failed);
-            ListAbnormal.Items.Add("步骤 1「连接设备」失败：设备无应答（未上电？）");
+            ListAbnormal.Items.Add("设备没有响应：请检查设备是否上电、CAN 线是否接好");
             SetResultBadge(false);
-            _log.Append("设备 8s 内无应答——请检查供电后重试");
+            _log.Append("设备 8s 内无应答——请检查供电和 CAN 连接后重试");
             _running = false;
             RaiseAvailability();
             return;
@@ -256,9 +284,10 @@ public partial class Station1Control : UserControl, IStationPage
                     var (ok, detail) = await _can.EnableChargingAsync(ct);
                     _log.Append(ok ? $"步骤 4：{detail}" : $"步骤 4：开启充电失败 {detail}");
                     chargeOk = ok;
-                    FlowPanel.Mark(3, ok ? StepStatus.Passed : StepStatus.Failed);      // ④ 完成定格
+                    FlowPanel.Mark(3, ok ? StepStatus.Passed : StepStatus.Failed,
+                        ok ? null : "开启充电失败，请检查设备后重试");      // ④ 完成定格
                     if (!ok)
-                        throw new InvalidOperationException(detail);
+                        throw new InvalidOperationException("开启充电失败，请检查设备放置和充电功能后重试");
                     FlowPanel.Mark(4, StepStatus.Running);     // ⑤ 采样：开始（充电完成才到）
                     _log.Append("步骤 5：打开 PowerZ HID 采样…");
                     try
@@ -280,7 +309,7 @@ public partial class Station1Control : UserControl, IStationPage
         catch (Exception ex)
         {
             _log.Append($"流程异常：{ex.Message}");
-            ListAbnormal.Items.Add($"流程异常：{ex.Message}");
+            ListAbnormal.Items.Add($"测试过程中出错：{ex.Message}");
         }
         finally
         {
@@ -316,7 +345,7 @@ public partial class Station1Control : UserControl, IStationPage
                 var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
                 _log.Append(offOk ? $"步骤 6：停止充电（{offDetail}）" : $"步骤 6：停止充电失败 {offDetail}");
                 if (!offOk)
-                    ListAbnormal.Items.Add("停止充电指令失败");
+                    ListAbnormal.Items.Add("关闭充电失败：请检查设备连接后重试");
                 FlowPanel.Mark(7, offOk ? StepStatus.Passed : StepStatus.Failed);
                 _log.Append(c.IsNormal
                     ? "步骤 6：已入库（PASS）"

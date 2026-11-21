@@ -50,8 +50,8 @@
                         <RowDefinition Height="*" MinHeight="105"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <!-- 异常项列表：压缩高度（36），空间让给上方四卡片 -->
-                        <RowDefinition Height="36"/>
+                        <!-- 异常项列表：至少 80，保证失败原因完整显示 -->
+                        <RowDefinition Height="80"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
@@ -104,7 +104,14 @@
                                Margin="0,0,0,4"/>
                     <ListBox x:Name="ListAbnormal" Grid.Row="5" FontSize="14"
                              Background="{StaticResource FieldBgBrush}"
-                             BorderBrush="{StaticResource CardBorderBrush}"/>
+                             BorderBrush="{StaticResource CardBorderBrush}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
             </Border>
         </Grid>

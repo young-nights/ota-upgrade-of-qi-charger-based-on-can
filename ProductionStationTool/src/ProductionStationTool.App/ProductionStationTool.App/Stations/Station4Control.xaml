@@ -49,7 +49,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*" MinHeight="80"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
@@ -113,16 +113,15 @@
                     <Grid Grid.Row="5" Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="10"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
 
-                        <Border x:Name="CardMcu1" Grid.Row="0" Grid.Column="0"
+                        <Border x:Name="CardMcu1" Grid.Column="0"
                                 Background="{StaticResource FieldBgBrush}" CornerRadius="8" Padding="14">
                             <StackPanel>
                                 <TextBlock Text="MCU1 APP 版本（0xF195）" Style="{StaticResource FieldLabel}"/>
@@ -137,7 +136,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border x:Name="CardMcu2" Grid.Row="0" Grid.Column="2"
+                        <Border x:Name="CardMcu2" Grid.Column="2"
                                 Background="{StaticResource FieldBgBrush}" CornerRadius="8" Padding="14">
                             <StackPanel>
                                 <TextBlock Text="MCU2 Qi 版本（0x2133）" Style="{StaticResource FieldLabel}"/>
@@ -152,7 +151,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border x:Name="CardBoot" Grid.Row="2" Grid.Column="0"
+                        <Border x:Name="CardBoot" Grid.Column="4"
                                 Background="{StaticResource FieldBgBrush}" CornerRadius="8" Padding="14">
                             <StackPanel>
                                 <TextBlock Text="Bootloader 版本（0xF180）" Style="{StaticResource FieldLabel}"/>
@@ -167,7 +166,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border x:Name="CardHw" Grid.Row="2" Grid.Column="2"
+                        <Border x:Name="CardHw" Grid.Column="6"
                                 Background="{StaticResource FieldBgBrush}" CornerRadius="8" Padding="14">
                             <StackPanel>
                                 <TextBlock Text="硬件版本（0xF193）" Style="{StaticResource FieldLabel}"/>
@@ -188,7 +187,14 @@
                                Margin="0,0,0,8"/>
                     <ListBox x:Name="ListAbnormal" Grid.Row="7" FontSize="14"
                              Background="{StaticResource FieldBgBrush}"
-                             BorderBrush="{StaticResource CardBorderBrush}"/>
+                             BorderBrush="{StaticResource CardBorderBrush}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
             </Border>
         </Grid>

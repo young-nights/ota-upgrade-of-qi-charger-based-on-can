@@ -91,7 +91,7 @@ public sealed class Station1Workflow
         {
             await ReleaseSnAsync(sn, ct);
             return new Station1Result(sn, false, null,
-                new[] { "SN 写入失败（本号已弃用回收）" });
+                new[] { "SN 写入设备失败，这个 SN 已作废，请检查设备连接后重试" });
         }
 
         var readBack = await snReadAsync();
@@ -99,7 +99,7 @@ public sealed class Station1Workflow
         {
             await ReleaseSnAsync(sn, ct);
             return new Station1Result(sn, false, null,
-                new[] { $"SN 回读不一致：写入 {sn}，读回 {readBack ?? "(空)"}（本号已弃用回收）" });
+                new[] { $"写进去的 SN 和设备读回来的对不上（写入 {sn}，读回 {readBack ?? "(空)"}），这个 SN 已作废，请重试" });
         }
 
         // 3. 开充电 + PowerZ 双线圈检测
@@ -112,7 +112,7 @@ public sealed class Station1Workflow
         {
             await ReleaseSnAsync(sn, ct);
             return new Station1Result(sn, false, coil,
-                new[] { "PowerZ 无有效采样（本号已弃用回收）" });
+                new[] { "没有读到 PowerZ 电流数据（无有效采样），测试未完成，请检查 PowerZ 连接后重试" });
         }
 
         // 5. 入库（SN 写入成功 + 有采样才走到这里；线圈判 FAIL 也入库为 FAIL 记录）

@@ -18,7 +18,8 @@ public sealed record SnAllocResult(bool Ok, string? Sn, int Seq, string? Error, 
 /// </summary>
 public sealed class SnAllocationClient : IDisposable
 {
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    // 联网取号最多等 3 秒；超时后工位1 会降级本机应急号，避免测试员干等
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(3) };
 
     /// <summary>向汇总机申请当日新 SN（防撞号：服务端统一发号）。</summary>
     public async Task<SnAllocResult> NextAsync(string serverHost, int station, string machine,
@@ -43,9 +44,9 @@ public sealed class SnAllocationClient : IDisposable
             string msg = root.TryGetProperty("message", out var m) ? m.GetString() ?? "" : "";
             return SnAllocResult.Fail(error, string.IsNullOrEmpty(msg) ? "SN 取号失败" : msg);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return SnAllocResult.Fail("NETWORK", $"SN 取号失败：汇总机不可达（{serverHost}:5000）——{ex.Message}");
+            return SnAllocResult.Fail("NETWORK", $"连不上汇总机（{serverHost}:5000），请检查网线和汇总机电源");
         }
     }
 

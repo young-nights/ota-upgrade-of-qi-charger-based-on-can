@@ -147,7 +147,7 @@ public partial class Station3Control : UserControl, IStationPage
         _log.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
         if (!await _can.WaitReadyAsync(ct))
         {
-            await FailEarly(0, "设备 8s 内无应答——请检查供电后重试");
+            await FailEarly(0, "设备没有响应，请检查设备是否上电、CAN 线是否接好");
             return;
         }
         FlowPanel.Mark(0, StepStatus.Passed);
@@ -159,7 +159,7 @@ public partial class Station3Control : UserControl, IStationPage
         var sn = await _can.TryReadSnAsync(ct);
         if (string.IsNullOrEmpty(sn))
         {
-            await FailEarly(1, "SN 读取失败（设备未写 SN？），无法关联数据库");
+            await FailEarly(1, "没有读到设备 SN，无法关联数据库，请先确认设备已写入 SN");
             return;
         }
         TxtSn.Text = sn;
@@ -180,11 +180,12 @@ public partial class Station3Control : UserControl, IStationPage
         _log.Append(chargeOk ? $"步骤 3：{chargeDetail}" : $"步骤 3：开启充电失败 {chargeDetail}");
         if (!chargeOk)
         {
-            FlowPanel.Mark(2, StepStatus.Failed);
+            FlowPanel.Mark(2, StepStatus.Failed, "开启充电失败，请检查设备后重试");
             FlowPanel.Mark(3, StepStatus.None);
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
+            ListAbnormal.Items.Add("开启充电失败：请检查设备放置和充电功能后重试");
             SetResultBadge(false);
             _running = false;
             RaiseAvailability();
@@ -222,7 +223,7 @@ public partial class Station3Control : UserControl, IStationPage
             FlowPanel.Mark(4, StepStatus.Failed);
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（无有效采样）");
             FlowPanel.Mark(6, StepStatus.Waiting, "未执行（无有效采样），不入库");
-            ListAbnormal.Items.Add("PowerZ 无有效采样");
+            ListAbnormal.Items.Add("没有读到 PowerZ 电流数据，请检查 PowerZ 连接后重试");
             await SafeStopChargingAsync(ct);
             SetResultBadge(false);
             _log.Append("步骤 5：未执行（无有效采样），不入库");
@@ -247,7 +248,7 @@ public partial class Station3Control : UserControl, IStationPage
         var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
         _log.Append(offOk ? $"步骤 5：停止充电（{offDetail}）" : $"步骤 5：停止充电失败 {offDetail}");
         if (!offOk)
-            ListAbnormal.Items.Add("停止充电指令失败");
+            ListAbnormal.Items.Add("关闭充电失败：请检查设备连接后重试");
 
         var passed = coil.IsNormal && offOk;
         _store.Add(new TestRecord
