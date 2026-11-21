@@ -607,21 +607,67 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            UdsResult r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
-                new byte[] { 0x02 }, expectSub: 0x02), ct);
-            if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
-            var signer = RequireSigner();
-            if (!await SecurityAccess.UnlockAsync(uds, signer, m => AppendLog("[SA] " + m), ct))
+            // 确定性门禁顺序（同 OTA 门禁 e31961b 定序定案）：
+            // 10 01 复位默认 → SA 解锁（27 无会话门禁）→ 10 02 → 立即 2E F18C。
+            // 长 SA 交换不得夹在进会话与写之间（S3 误杀/复位后写必撞 0x22）；
+            // 0x22/0x33 = 会话/解锁被清 → 整套重来（3 次梯子），逐次打点。
+            async Task<(bool Ok, byte Nrc)> TrySnGateAsync(int attempt)
             {
-                await FailAsync("写 SN", "SA 解锁失败");
-                return false;
+                var d0 = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
+                    new byte[] { 0x01 }, expectSub: 0x01), ct);
+                if (!d0.Ok)
+                {
+                    AppendLog($"[10 01] 第 {attempt} 次失败: {d0.Error}");
+                    return (false, d0.Nrc);
+                }
+                if (!await SecurityAccess.UnlockAsync(uds, RequireSigner(),
+                        m => AppendLog("[SA] " + m), ct))
+                {
+                    AppendLog($"[SA] 第 {attempt} 次解锁未完成");
+                    return (false, (byte)0);
+                }
+                var dsc = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
+                    new byte[] { 0x02 }, expectSub: 0x02), ct);
+                if (!dsc.Ok)
+                {
+                    AppendLog($"[10 02] 第 {attempt} 次失败: {dsc.Error}");
+                    return (false, dsc.Nrc);
+                }
+                AppendLog($"[10 02] 第 {attempt} 次进入编程会话");
+                var w = await Task.Run(() => uds.TryRequest(ProtoIds.SidWdbi,
+                    BuildSnPayload(sn), timeoutMs: 5000, expectSub: 0xF1), ct);
+                if (!w.Ok)
+                {
+                    AppendLog($"[2E F18C] 第 {attempt} 次失败: {w.Error}");
+                    return (false, w.Nrc);
+                }
+                return (true, (byte)0);
             }
 
-            r = await Task.Run(() =>
-                uds.TryRequest(ProtoIds.SidWdbi, BuildSnPayload(sn), timeoutMs: 5000,
-                    expectSub: 0xF1), ct);
-            if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
-            r = await Task.Run(() =>
+            bool snOk = false;
+            byte snNrc = 0;
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                (snOk, snNrc) = await TrySnGateAsync(attempt);
+                if (snOk)
+                    break;
+                if (snNrc is 0x22 or 0x33)
+                {
+                    AppendLog($"[恢复] 第 {attempt} 次门禁 NRC 0x{snNrc:X2}（会话/解锁被清），整套重来…");
+                    continue;
+                }
+                break;   // 无应答/其他 NRC：重试无益
+            }
+            if (!snOk)
+            {
+                await FailAsync("写 SN", snNrc != 0
+                    ? $"2E F18C: NRC 0x{snNrc:X2}（重试后仍失败）"
+                    : "门禁失败（10 02 / SA）");
+                return false;
+            }
+            AppendLog("2E F18C 写入完成");
+
+            UdsResult r = await Task.Run(() =>
                 uds.TryRequest(ProtoIds.SidRdbi, new byte[] { 0xF1, 0x8C }, timeoutMs: 4000), ct);
             if (!Must(r)) { await FailAsync("写 SN", r.Error); return false; }
             var readBack = DecodeSn(r.Data);

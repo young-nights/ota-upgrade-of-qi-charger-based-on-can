@@ -3,7 +3,7 @@ using QiChargerStationTool.Core.Protocol;
 namespace QiChargerStationTool.Core.Station.Steps;
 
 /// <summary>
-/// OTA upgrade: 10 02 → SA → 2E 20 10 01 → 31 erase → 34/36/37.
+/// OTA upgrade: 10 01 → SA → 10 02 → 2E 20 10 01 → 31 erase → 34/36/37.
 /// SA unlock uses 27 03 chunks + 27 02; seed signing via <see cref="Security.SeedSigner"/>.
 /// </summary>
 public sealed class OtaUpgradeStep : ITestStep
@@ -23,21 +23,39 @@ public sealed class OtaUpgradeStep : ITestStep
             var image = Imaging.XatoImage.Load(fw);
             ctx.Log($"镜像 {image.PayloadLength + Imaging.XatoImage.HeaderSize}B ver={image.ExtractSwVersion()}");
 
-            // 10 02 programming
-            ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }, expectSub: 0x02);
-            ctx.Log("进入编程会话");
-
-            // SA — requires signer
+            // 确定性门禁顺序（同 MainWindow RunUpgradeAsync e31961b 定序定案）：
+            //   10 01 复位默认 → SA 解锁 → 10 02 切编程 → 立即 2E 20 10。
+            // 长 SA 交换不得夹在进会话与写之间（S3 误杀/复位致会话被清→0x22）；
+            // 0x22/0x33 = 会话/解锁被清 → 整套重来（最多 3 次）。
             var signer = Security.SeedSigner.FromDefaultKey();
             if (signer is null)
                 return new TestStepResult { Name = Name, Status = TestStepStatus.Failed, Message = "缺少 docs/keys/private.pem，无法 SA 解锁" };
 
-            if (!await Security.SecurityAccess.UnlockAsync(ctx.Uds, signer, ctx.Log, ct))
-                return new TestStepResult { Name = Name, Status = TestStepStatus.Failed, Message = "SA 解锁失败" };
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x01 }, expectSub: 0x01);
+                    ctx.Log("10 01 复位默认会话");
 
-            // 2E 20 10 01 MCU1
-            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x20, 0x10, 0x01 }, expectSub: 0x20, expectDid: ProtoIds.DidFwType);
-            ctx.Log("目标 MCU1");
+                    if (!await Security.SecurityAccess.UnlockAsync(ctx.Uds, signer, ctx.Log, ct))
+                        return new TestStepResult { Name = Name, Status = TestStepStatus.Failed, Message = "SA 解锁失败" };
+
+                    ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x02 }, expectSub: 0x02);
+                    ctx.Log("进入编程会话");
+
+                    // 2E 20 10 01 MCU1（10 02 后立即写）
+                    ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x20, 0x10, 0x01 }, expectSub: 0x20, expectDid: ProtoIds.DidFwType);
+                    ctx.Log("目标 MCU1");
+                    break;
+                }
+                catch (UdsException ex) when (ex.Nrc is 0x22 or 0x33)
+                {
+                    if (attempt >= 3)
+                        throw;
+                    ctx.Log($"OTA 门禁第 {attempt} 次 NRC 0x{ex.Nrc:X2}（会话/解锁被清），整套重来…");
+                }
+            }
 
             // 31 erase backup
             ctx.Uds.Request(ProtoIds.SidRc, new byte[] { 0x01, 0xFF, 0x00 }, timeoutMs: 15_000, waitPendingMs: 90_000);
