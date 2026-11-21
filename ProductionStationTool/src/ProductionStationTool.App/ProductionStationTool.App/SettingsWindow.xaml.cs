@@ -14,7 +14,7 @@ namespace ProductionStationTool.App;
 ///    服务器连通检测、跳转系统网络设置改 IP（应用内不直改）；
 ///  「检测参数」——步骤 5 双线圈检测参数（上下限/检测窗口/超时），保存后下次测试生效；
 ///  「版本预设」——工位 4 四项版本（MCU1/Qi/Boot/HW），四项全匹配才 PASS；
-///  「数据管理」——记录级手动修正（进入需再次输入汇总机管理密码；良率口径在汇总机设置）。
+///  「数据管理」——记录级手动修正（进入需再次输入汇总机管理密码；良率显示修正在汇总机设置）。
 /// 各页保存均写本机 machine.json，重启后自动沿用。
 /// </summary>
 public partial class SettingsWindow : Window

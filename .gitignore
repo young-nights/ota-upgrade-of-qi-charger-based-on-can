@@ -91,3 +91,6 @@ python_tools/burn bin/
 *.user
 *.suo
 publish/
+
+# WPF / MSBuild temporary project files (generated during XAML build)
+*_wpftmp.*

@@ -1,33 +1,55 @@
 <Window x:Class="ProductionStationTool.App.YieldSettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="良率统计设置" Height="430" Width="560"
+        Title="良率统计设置" Height="540" Width="800"
         Background="{StaticResource BgBrush}"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <Border Style="{StaticResource Card}" Margin="16">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel>
-                <TextBlock Text="良率统计口径" Style="{StaticResource SectionTitle}"/>
-                <TextBlock Text="良率 = PASS 数 ÷ 参与统计的记录数 × 100%（按机位聚合显示在汇总机卡片上）。弃用记录指工位1 失败弃用/被新 SN 取代的记录——默认不计入良率，避免失败重拉污染口径。"
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top">
+                <TextBlock Text="良率统计设置" Style="{StaticResource SectionTitle}"/>
+                <TextBlock Text="弃用记录固定不计入良率。需要覆盖汇总机卡片显示时，填写修正良率并勾选「应用」；取消勾选恢复实际统计。修正只改卡片显示，不修改 test_records。保存后写入本机 machine.json，重启沿用。"
                            FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                           TextWrapping="Wrap" Margin="0,10,0,12"/>
-
-                <CheckBox x:Name="ChkYieldExclude" Content="弃用记录不计入良率（推荐）"
-                          FontSize="13" Margin="0,0,0,12"/>
-
-                <TextBlock x:Name="TxtYieldSummary" FontSize="12" TextWrapping="Wrap"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,12"/>
-
-                <StackPanel Orientation="Horizontal">
-                    <Button Content="保存口径" Width="150" Height="40"
-                            Style="{StaticResource PrimaryButton}" Click="BtnSaveYield_Click"/>
-                    <Button Content="刷新统计" Width="110" Height="40" Margin="12,0,0,0"
-                            Style="{StaticResource GhostButton}" Click="BtnRefreshYield_Click"/>
-                    <TextBlock x:Name="TxtYieldResult" VerticalAlignment="Center"
-                               Margin="12,0,0,0" FontSize="12"
-                               Foreground="{StaticResource TextSecondaryBrush}"/>
-                </StackPanel>
+                           TextWrapping="Wrap" Margin="0,8,0,10"/>
             </StackPanel>
-        </ScrollViewer>
+
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
+                <Button Content="保存修正" Width="150" Height="40"
+                        Style="{StaticResource PrimaryButton}" Click="BtnSaveYield_Click"/>
+                <Button Content="刷新统计" Width="110" Height="40" Margin="12,0,0,0"
+                        Style="{StaticResource GhostButton}" Click="BtnRefreshYield_Click"/>
+                <TextBlock x:Name="TxtYieldResult" VerticalAlignment="Center"
+                           Margin="12,0,0,0" FontSize="12"
+                           Foreground="{StaticResource TextSecondaryBrush}"/>
+            </StackPanel>
+
+            <TextBlock x:Name="TxtYieldSummary" DockPanel.Dock="Top" FontSize="12"
+                       TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}"
+                       Margin="0,0,0,8"/>
+
+            <DataGrid x:Name="GridYield" AutoGenerateColumns="False"
+                      SelectionMode="Single" SelectionUnit="FullRow"
+                      CanUserAddRows="False" CanUserDeleteRows="False"
+                      CanUserSortColumns="False" HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal" RowHeight="32"
+                      ColumnHeaderHeight="32" FontSize="12"
+                      Background="{StaticResource FieldBgBrush}"
+                      BorderBrush="{StaticResource CardBorderBrush}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="机位" Binding="{Binding Display}"
+                                        Width="*" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="实际统计" Binding="{Binding ActualText}"
+                                        Width="210" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="实际良率" Binding="{Binding ActualYieldText}"
+                                        Width="90" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="修正良率 (%)"
+                                        Binding="{Binding OverrideText, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="120"/>
+                    <DataGridCheckBoxColumn Header="应用"
+                                            Binding="{Binding Apply, UpdateSourceTrigger=PropertyChanged}"
+                                            Width="60"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
     </Border>
 </Window>

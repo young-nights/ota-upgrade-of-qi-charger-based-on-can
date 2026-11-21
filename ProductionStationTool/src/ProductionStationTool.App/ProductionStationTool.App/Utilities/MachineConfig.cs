@@ -12,7 +12,7 @@ namespace ProductionStationTool.App.Utilities;
 ///   { "stationNo": 1, "machineId": "1", "serverHost": "192.168.10.10",
 ///     "coilALowerA": 1.0, "coilAUpperA": 2.0, "coilBLowerA": 1.0,
 ///     "coilBUpperA": 2.0, "detectionWindowMs": 10000, "overallTimeoutMs": 60000 }
-/// 另含工位 4 四项版本预设、良率口径、标签设计、汇总机密码哈希等。
+/// 另含工位 4 四项版本预设、汇总机良率显示修正、标签设计、汇总机密码哈希等。
 /// 保存任一类都保留其余配置；变更写 machine_change.log 留痕。
 /// </summary>
 public static class MachineConfig
@@ -235,20 +235,42 @@ public static class MachineConfig
             $" 对象 {design.Objects.Count} 个  ({Environment.MachineName})\n");
     }
 
-    /// <summary>良率统计口径（汇总机「设置 → 良率统计设置」）：弃用记录是否计入良率。</summary>
-    public static bool LoadYieldExcludeAbandoned()
-        => ReadCfgOrDefault().YieldExcludeAbandoned;
-
-    /// <summary>保存良率统计口径；变更时写 machine_change.log 留痕。</summary>
-    public static void SaveYieldExcludeAbandoned(bool excludeAbandoned)
+    /// <summary>
+    /// 汇总机工位卡片良率手动修正（按机位编码）。只覆盖卡片显示，
+    /// 不修改 test_records；Enabled=false 时卡片显示实际统计。
+    /// </summary>
+    public static IReadOnlyList<YieldOverride> LoadYieldOverrides()
     {
         var cfg = ReadCfgOrDefault();
-        if (cfg.YieldExcludeAbandoned == excludeAbandoned)
-            return;
-        cfg.YieldExcludeAbandoned = excludeAbandoned;
+        return (cfg.YieldOverrides ?? new List<YieldOverride>())
+            .Where(o => !string.IsNullOrWhiteSpace(o.Code))
+            .Select(o => new YieldOverride(o.Code.Trim(), o.Enabled, o.Percent))
+            .ToList();
+    }
+
+    /// <summary>保存良率手动修正；变更时写 machine_change.log 留痕。</summary>
+    public static void SaveYieldOverrides(IEnumerable<YieldOverride> overrides)
+    {
+        var cfg = ReadCfgOrDefault();
+        var before = LoadYieldOverrides();
+        var after = overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.Code))
+            .GroupBy(o => o.Code.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var last = g.Last();
+                return new YieldOverride(g.Key, last.Enabled, last.Percent);
+            })
+            .ToList();
+        cfg.YieldOverrides = after;
         WriteCfg(cfg);
+
+        if (before.SequenceEqual(after))
+            return;
         File.AppendAllText(ChangeLogPath,
-            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  良率口径 弃用记录{(excludeAbandoned ? "不计入" : "计入")}良率  ({Environment.MachineName})\n");
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  良率显示修正" +
+            $" {before.Count(o => o.Enabled)}→{after.Count(o => o.Enabled)} 项启用" +
+            $"  ({Environment.MachineName})\n");
     }
 
     private static string ShowOrDash(string s) => string.IsNullOrEmpty(s) ? "(空)" : s;
@@ -346,8 +368,8 @@ public static class MachineConfig
         public string? PresetSwVersion { get; set; }
         public string? PresetHwVersion { get; set; }
 
-        // 良率统计口径（汇总机「设置 → 良率统计设置」）：true = 弃用记录不计入良率（默认）
-        public bool YieldExcludeAbandoned { get; set; } = true;
+        // 汇总机工位卡片良率手动修正（按机位编码；只覆盖显示，不改记录）
+        public List<YieldOverride>? YieldOverrides { get; set; } = new();
 
         // 标签设计器规格（「打印机设置」页）
         public LabelDesign SnLabelDesign { get; set; } = new();
@@ -362,3 +384,6 @@ public sealed record MachineSettings(int StationNo, string MachineId, string Ser
 
 /// <summary>工位 4 四项版本预设；空字符串 = 该项未预设。</summary>
 public sealed record VersionPresets(string Mcu1App, string Mcu2Qi, string Bootloader, string Hardware);
+
+/// <summary>汇总机工位卡片良率手动修正；Code=ST-01-1，Enabled=false 显示实际统计。</summary>
+public sealed record YieldOverride(string Code, bool Enabled, double Percent);

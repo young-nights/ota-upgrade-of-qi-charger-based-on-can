@@ -18,7 +18,7 @@ namespace ProductionStationTool.App;
 /// 本页监听端口按连接远端 IP 自动登记（station_access.json），检测到接入自动生成
 /// 状态卡片（在线/离线、最近接入、测试概况、允许/禁止接入），无需手动录入。
 /// 「数据库表格」按时间/工位/机位/结果筛选 test_records，结果绿 PASS 红 FAIL。
-/// 「设置 → 良率统计设置」维护弃用记录是否计入良率，进入需再次验证管理密码。
+/// 「设置 → 良率统计设置」按机位维护卡片良率显示修正，进入需再次验证管理密码。
 /// </summary>
 public partial class SummaryMachinePage : UserControl
 {
@@ -155,10 +155,14 @@ public partial class SummaryMachinePage : UserControl
         var statsByCode = new Dictionary<string, MachineTestStats>(StringComparer.OrdinalIgnoreCase);
         using (var store = new SqliteTestRecordStore())
         {
-            // 良率口径：汇总机「设置 → 良率统计设置」可调（弃用记录是否计入）
-            foreach (var s in store.StatsByMachine(MachineConfig.LoadYieldExcludeAbandoned()))
+            // 弃用记录固定不计入良率；卡片百分比可由「设置 → 良率统计设置」手动覆盖
+            foreach (var s in store.StatsByMachine(excludeAbandoned: true))
                 statsByCode[CodeOf(s.StationNo, s.MachineId)] = s;
         }
+        var yieldOverrides = MachineConfig.LoadYieldOverrides()
+            .Where(o => o.Enabled)
+            .GroupBy(o => o.Code, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Last().Percent, StringComparer.OrdinalIgnoreCase);
 
         var codes = new SortedSet<string>(
             registry.Select(r => r.Code).Concat(statsByCode.Keys), StringComparer.OrdinalIgnoreCase);
@@ -172,6 +176,13 @@ public partial class SummaryMachinePage : UserControl
             var online = entry?.LastSeen is { } t && now - t < OnlineWindow;
             var total = st?.Total ?? 0;
             var pass = st?.Pass ?? 0;
+            var statsText = total == 0
+                ? "无测试记录"
+                : $"测试 {total} · PASS {pass} · FAIL {st!.Fail}";
+            if (yieldOverrides.TryGetValue(code, out var manualYield))
+                statsText += $" · 良率 {manualYield:F1}%（修正）";
+            else if (total > 0)
+                statsText += $" · 良率 {pass * 100.0 / total:F1}%";
             vms.Add(new MachineCardVm
             {
                 Code = code,
@@ -184,9 +195,7 @@ public partial class SummaryMachinePage : UserControl
                     : online
                         ? $"{Math.Max(0, (int)(now - last).TotalSeconds)} 秒前"
                         : $"最近 {last:MM-dd HH:mm}",
-                StatsText = total == 0
-                    ? "无测试记录"
-                    : $"测试 {total} · PASS {pass} · FAIL {st!.Fail} · 良率 {pass * 100.0 / total:F1}%",
+                StatsText = statsText,
                 Allowed = entry?.Allowed ?? false,
             });
         }
@@ -401,11 +410,13 @@ public partial class SummaryMachinePage : UserControl
             }
             GridRecords.ItemsSource = rows;
 
-            var pass = rows.Count(r => r.Result == "PASS");
+            var counted = rows.Where(r => !r.Abandoned).ToList();
+            var pass = counted.Count(r => r.Result == "PASS");
             var printed = rows.Count(r => r.Printed);
-            double yield = rows.Count == 0 ? 0 : pass * 100.0 / rows.Count;
+            var yieldText = counted.Count == 0 ? "—" : $"{pass * 100.0 / counted.Count:F1}%";
             TxtDbStats.Text =
-                $"筛选结果 {rows.Count} 条：PASS {pass} · FAIL {rows.Count - pass} · 良率 {yield:F1}% · 已打印 {printed}（单次上限 {RecordLoadLimit} 条）"
+                $"筛选结果 {rows.Count} 条 · 参与良率 {counted.Count}（弃用 {rows.Count - counted.Count}）" +
+                $"：PASS {pass} · FAIL {counted.Count - pass} · 良率 {yieldText} · 已打印 {printed}（单次上限 {RecordLoadLimit} 条）"
                 + (FilterActive(filter) ? "　|　已按筛选条件查询" : "")
                 + (_dateInputBad ? "　|　日期无效（如 2 月 30 日），该项已忽略" : "");
             TxtDbStats.Foreground = MutedBrush;
@@ -435,7 +446,7 @@ public partial class SummaryMachinePage : UserControl
         public double Current { get; init; }
         public string AbnormalItems { get; init; } = "";
         public DateTime TestTime { get; init; }
-        /// <summary>弃用标记（不流入打印；良率口径可排除）。</summary>
+        /// <summary>弃用标记（不流入打印；良率统计固定排除）。</summary>
         public bool Abandoned { get; init; }
         /// <summary>已打印出库。</summary>
         public bool Printed { get; init; }
