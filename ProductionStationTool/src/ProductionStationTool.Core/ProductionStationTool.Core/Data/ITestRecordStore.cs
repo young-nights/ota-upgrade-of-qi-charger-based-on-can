@@ -76,6 +76,6 @@ public interface ITestRecordStore
     IReadOnlyList<(int StationNo, string MachineId)> DistinctSources();
 
     /// <summary>按机位聚合的测试统计（总数/PASS/FAIL/最近测试时间）；
-    /// excludeAbandoned=true 时弃用记录不计入（良率口径）。</summary>
+    /// excludeAbandoned=true 时弃用记录不计入（汇总机良率统计固定用它排除弃用记录）。</summary>
     IReadOnlyList<MachineTestStats> StatsByMachine(bool excludeAbandoned = false);
 }

@@ -244,7 +244,7 @@ public static class MachineConfig
         var cfg = ReadCfgOrDefault();
         return (cfg.YieldOverrides ?? new List<YieldOverride>())
             .Where(o => !string.IsNullOrWhiteSpace(o.Code))
-            .Select(o => new YieldOverride(o.Code.Trim(), o.Enabled, o.Percent))
+            .Select(o => new YieldOverride(o.Code.Trim(), o.Enabled, SafePercent(o.Percent)))
             .ToList();
     }
 
@@ -259,7 +259,7 @@ public static class MachineConfig
             .Select(g =>
             {
                 var last = g.Last();
-                return new YieldOverride(g.Key, last.Enabled, last.Percent);
+                return new YieldOverride(g.Key, last.Enabled, SafePercent(last.Percent));
             })
             .ToList();
         cfg.YieldOverrides = after;
@@ -274,6 +274,10 @@ public static class MachineConfig
     }
 
     private static string ShowOrDash(string s) => string.IsNullOrEmpty(s) ? "(空)" : s;
+
+    /// <summary>修正良率只接受 0~100 的有限值；坏配置回落 0，避免卡片显示 NaN/负数。</summary>
+    private static double SafePercent(double percent)
+        => double.IsFinite(percent) ? Math.Clamp(percent, 0, 100) : 0;
 
     /// <summary>SHA-256 十六进制（小写）——汇总机管理密码存哈希不存明文。</summary>
     public static string Sha256Hex(string text)
