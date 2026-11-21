@@ -199,7 +199,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.87**（故障只透传不门禁开充——治欠压后再开充 0x22） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.88**（can_protocol 注释按当前行为重排） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -209,6 +209,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-11-21 | **docs(can): can_protocol.c 注释全量按当前行为重排（fw 1.1.88）**。删除/压缩历史叙事注释（round-2/3 台账、日期根因、旧行为对比、过时行号、错误 Doxygen `generate_random_seed`），只保留仍约束当前实现的 WHY（门禁顺序、SF 直发原因、睡醒守卫、故障只透传等）。逻辑零改动，仅注释+`SW_VERSION_STR` 1.1.87→**1.1.88**；同步 `can_protocol.h` Sleep 注释。 |
 | 2026-11-21 | **fix(can): 故障只透传不门禁开充——欠压后再开充不再卡 NRC 0x22（fw 1.1.87）**。场景：开充→欠压（Qi 上报 UVP，`g_qi_fault_code=0x05`）→关充→再开充回 `0x22 条件不满足`。用户定调：出现故障**只上报状态**即可，避免 0x22 等卡死充电操作，**不需要其他操作逻辑**，Qi 故障状态只透传给上位机/CCU。修复：删除 `DID_CHARGER_ENABLE` 写 0x01 时的 `g_qi_fault_code!=0 → NRC 0x22` 门禁（及 1.1.86 关充清缓存逻辑）——开/关充只看会话+SA+取值范围；故障仍由 Qi 状态帧全量镜像到 `g_qi_fault_code`/`g_qi_fod_status`/`g_qi_status_raw` 等，经 DID 0x210B/0x2109/0x2111 只读透传。`SW_VERSION_STR` 1.1.86→**1.1.87** |
 | 2026-11-21 | **fix(can): 关充清故障缓存——欠压后再开充不再卡 NRC 0x22（fw 1.1.86，已被 1.1.87 取代）**。场景：开充→欠压→关充→再开充回 0x22。根因：`2E 2101 01` 门禁查 `g_qi_fault_code!=0` 拒绝使能，关充后 PB2 断电、Qi 不再发帧，故障码永久粘住。1.1.86 曾在关充时清缓存；**1.1.87 按用户要求改为直接去掉故障门禁、故障只透传**。`SW_VERSION_STR` 1.1.85→1.1.86 |
 | 2026-11-12 | **fix(can/tool): ping 独立显示——设备放置指示不抢占磁铁/充电状态（fw 1.1.84）**。用户二订：ping（状态字节 b0）= 设备放置标识（1=已放置/0=未放置），单独显示，不参与磁铁/充电状态轮转。固件：DID 0x2117 派生去掉 ping 分支（0x01 不再产出；放置指示由 0x2111 b0 直读），五态=失能→充满→磁铁存在→充电中→未充电。上位机：磁铁大字五态轮转（紫色 ping 态移除）；仪表卡新增「设备放置」指示灯（绿=已放置/灰=未放置，独立于状态大字）；`DevicePlaced()` 编解码 + `DeriveDisplayState` 同步去 ping 分支；色例/ToolTip 更新。单测 22/22。SW_VERSION_STR=1.1.84 |

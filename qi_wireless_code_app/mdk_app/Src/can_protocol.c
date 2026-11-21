@@ -48,14 +48,11 @@
 /*  Version string constants (UTF-8, max 16 bytes including null terminator)  */
 /*                                                                            */
 /*  SW_VERSION_STR 是运行软件版本的【唯一真相源】：UDS DID 0xF195 应答直接  */
-/*  取此 APP 编译时常量，不读 OTA metadata / XATO 镜像头（2026-09-18 起：   */
-/*  镜像头 version 区打包固定 0x00，不携带版本号；metadata 无软件版本字段）。 */
-/*  改版本号只改本常量 + docs 文档，无打包脚本联动环节。                     */
+/*  取此 APP 编译时常量，不读 OTA metadata / XATO 镜像头（镜像头 version 区 */
+/*  打包固定 0x00；metadata 无软件版本字段）。改版本只改本常量 + docs。      */
 /* ========================================================================== */
 
-/* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
-/* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.87";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.88";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -152,7 +149,7 @@ static uint8_t  g_qi_ver_q_state    = 0U;   /*!< 0=idle, 1=waiting Qi 回复 */
 static uint8_t  g_qi_ver_refresh_pending = 0U;  /*!< IAP 后版本刷新待处理（主循环轮询） */
 static uint32_t g_qi_ver_q_start_ms = 0U;
 
-/* SA_VERIFY_ENFORCE 定义已移至 app_config.h（编译期开关集中管理） */
+/* SA_VERIFY_ENFORCE 见 app_config.h */
 
 /* ========================================================================== */
 /*  Qi charging state variables                                              */
@@ -195,46 +192,33 @@ static uint8_t  g_lp_last_wake_src = 0;
 static uint16_t g_lp_last_sleep_sec = 0;
 /** sticky：can_lp_enter_sleep 两次 standby_mode_set 失败置 1（DID 0x2119 flags bit2） */
 static uint8_t  g_lp_sleep_fail = 0;
-/** Sleep-entry abort guard: any UDS frame arriving during the sleep-entry
- *  sequence sets this; the entry checks it and cancels the sleep instead of
- *  dropping the request (2026-11-10 host-at-sleep-entry no-response fix).
+/** Sleep-entry abort guard: any UDS RX during sleep entry sets this;
+ *  entry paths call can_lp_abort_sleep() instead of dropping the request.
  *  Cleared at can_lp_go_sleep() entry. */
 static volatile uint8_t g_lp_rx_seen = 0;
-/** 上电（trial/非 trial 同路径）推迟到 __enable_irq() 之后再 enter_normal：
- *  harvest/wait_cts 依赖 SysTick；init 统一置 1 */
+/** 上电 enter_normal 推迟到 __enable_irq() 之后（harvest/wait_cts 依赖
+ *  SysTick）；init 统一置 1 */
 static uint8_t  g_lp_need_online = 0;
-/* ---- Round-3 anti-phantom-wake diagnostics (DID 0x211A) ------------------
- * Bench TC-S002 2026-10-01, 1.1.4 firmware (round-2 fix 9f4cf24), 6 rounds:
- * 3 PASS / 3 FAIL; every FAIL is WK 01 41 57 4B at SB+124~141ms (inhibit
- * expiry, first wake poll), src=1 (PA11/RXD low), ZERO frames on the bus,
- * and the 0x211A wake snapshot shows ev63 CW=0x01 (r4 stat=0x81: PA11 high
- * at pre-check then low inside wakeup_pending; r6 stat=0x83: CAN flag set at
- * the first pin-low pre-check). CW set with no frame on the bus = PHANTOM
- * latch: round-2's skip-clear-on-flag rule and wakeup_pending()'s PA11-first
- * shortcut both waved it through (r6 took the flag path, r4 the pin path).
- * 4B SF cap (0x2119 already fills the 7B single-frame payload) forces a
- * stat-bit repack; per-phase fields below let ONE bench run separate
- * pre-wipe latch / wipe-stuck / post-wipe relatch / clear+release outcomes.
- * Bit positions 0x01/0x02/0x08/0x10/0x20/0x80 keep round-2 meanings;
- * 0x04 (was STUCK) and 0x40 (was RELEASED) are repurposed. Reset per
- * Sleep entry.
+/* ---- Anti-phantom-wake diagnostics (DID 0x211A) --------------------------
+ * 4B SF payload (0x2119 already fills 7B). Bits record wake-decision phases
+ * so one Sleep entry can separate pre-wipe latch / wipe-stuck / post-wipe
+ * relatch / clear+release outcomes. Reset per Sleep entry.
  * ------------------------------------------------------------------------ */
 #define WIPE_STAT_VALID        0x01U  /* a diagnostic record exists */
-#define WIPE_STAT_FLAG_PRESENT 0x02U  /* CAN flag at a pin-low check (round-3 always clears it, never skip-clears) */
-#define WIPE_STAT_PREW_FLAG    0x04U  /* CAN flag already set at the unconditional inhibit-expiry wipe (latched during entry/inhibit; was round-2 STUCK) */
+#define WIPE_STAT_FLAG_PRESENT 0x02U  /* CAN flag set at a pin-low check */
+#define WIPE_STAT_PREW_FLAG    0x04U  /* CAN flag already set at inhibit-expiry wipe (latched during entry/inhibit) */
 #define WIPE_STAT_SPI_FF       0x08U  /* SPI read back 0xFF during a check */
-#define WIPE_STAT_FLAG_IN_WAIT 0x10U  /* flag 0->1 AFTER a clear = real host frame retry caught */
-#define WIPE_STAT_BLOCKED      0x20U  /* wake blocked at least once (RXD stayed low, no proven-new event) */
-#define WIPE_STAT_POST_STICK   0x40U  /* flag STILL set right after a clear (wipe ineffective or instant re-latch; set by both the pre-wipe and pin-low clears; was round-2 RELEASED) */
+#define WIPE_STAT_FLAG_IN_WAIT 0x10U  /* flag 0->1 AFTER a clear = host frame retry */
+#define WIPE_STAT_BLOCKED      0x20U  /* wake blocked (RXD stayed low, no proven-new event) */
+#define WIPE_STAT_POST_STICK   0x40U  /* flag still set right after a clear (wipe ineffective or instant re-latch) */
 #define WIPE_STAT_WAKE_SNAP    0x80U  /* [ev24/ev63] overwritten at wake decision */
 static uint8_t  g_lp_wipe_ev24 = 0xFFU;   /* 0x24 TRANSCEIVER_EVENT snapshot */
 static uint8_t  g_lp_wipe_ev63 = 0xFFU;   /* 0x63 TRX_EVENT_STATUS snapshot */
 static uint8_t  g_lp_wipe_stat = 0U;      /* WIPE_STAT_* bit set */
 static uint8_t  g_lp_wipe_attempts = 0U;  /* clear+wait attempts this sleep entry (sat., includes one-shot wipe) */
 static uint32_t g_lp_wipe_last_ms = 0U;   /* tick of last clear attempt (throttle) */
-/** round-3: one-shot unconditional event wipe (0x24/0x63/0x64/0x61) runs on
- *  the first poll at inhibit expiry; armed by can_lp_enter_sleep() on every
- *  Sleep entry, consumed in can_protocol_poll() */
+/** One-shot unconditional event wipe (0x24/0x63/0x64/0x61) on first poll at
+ *  inhibit expiry; armed by can_lp_enter_sleep(), consumed in can_protocol_poll() */
 static uint8_t  g_lp_pre_wipe_due = 0U;
 
 
@@ -266,14 +250,9 @@ static void proto_flush_pending_tx(void);
 
 /**
  * @brief  send one lifecycle frame on 0x18FF260D（[0]=state，[1..7]=0）
- * @note   Completion is confirmed by handle (can_driver_wait_tx_frame),
- *         not by can_driver_wait_tx_idle: right after enqueue the
- *         controller may not have picked the frame up yet, so tstat still
- *         reads IDLE/TRANSMITTED from the previous frame and wait_tx_idle
- *         returns instantly. The caller then takes the CAN offline before
- *         the frame ever reaches the bus (root cause of the missing SB
- *         marker on Sleep entry). 仅 SLEEP 专径使用（WAKEUP/OPERATIONAL
- *         走 lifecycle_post 的 pending FIFO）。
+ * @note   用 handle 确认完成，不用 wait_tx_idle：刚入队时控制器可能尚未
+ *         取帧，wait_tx_idle 会立刻返回，随后 offline 会把帧丢在邮箱里。
+ *         仅 SLEEP 专径使用（WAKEUP/OPERATIONAL 走 lifecycle pending FIFO）。
  * @retval 1 = frame enqueued and confirmed transmitted, 0 = send rejected
  *         or completion wait failed/aborted
  */
@@ -311,8 +290,7 @@ static void can_lp_send_ident(void)
   uint8_t uds[8];
   uint8_t i;
 
-  /* 多帧 UDS 期间整帧跳过：UDS 应答 ID 上的 03 01 41 00 / 07 01 41 …
-   * 会被主机当成诊断应答串台（实测 10 02 收到 01 41 57 4B）。 */
+  /* 多帧 UDS 期间整帧跳过：UDS 应答 ID 上的 ident 帧会被主机误当诊断应答。 */
   if (uds_mf_busy() != 0U)
   {
     return;
@@ -444,20 +422,16 @@ static void can_lp_enter_normal(void)
  * =1（含未定义，生产语义）：空闲超时进 Sleep（sit1145_sleep_config+commit）；
  * =0：空闲停机整段不编译，唤醒/恢复路径不受影响。
  *
- * Sleep 模式（唯一，2026-10-16 起 Standby 路径已移除）：
+ * Sleep 模式（唯一；无 Standby）：
  * SPI 断开，CAN 唤醒（CWE），PA11 电平检测唤醒。 */
 #if !defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)
-/** Cancel a sleep entry because host traffic arrived mid-sequence (2026-11-10:
- *  a command landing in the SLEEP-marker..commit window used to be dropped and
- *  the host saw "no response"). Restores the awake baseline unconditionally:
- *  by the time the deep guard fires, sit1145_sleep_config has already
- *  programmed WUF/PN registers (PNCOK|CPNC locked, CWE armed), so
- *  can_lp_enter_normal's assumption that CAN_CONTROL holds the init value no
- *  longer holds - rewash the whole chain here: pins -> Normal mode -> clear
- *  wake events -> CAN_CONTROL back to init (PNCOK=0/CPNC=0/CMC=active) ->
- *  CAN online. Shallow guard sites (SIT1145 untouched) pay a few redundant
- *  SPI writes - simpler than depth tracking. Not a config failure:
- *  g_lp_sleep_fail stays untouched ("有人来访不睡" is normal). */
+/** Cancel sleep entry because host traffic arrived mid-sequence.
+ *  Restores the awake baseline unconditionally: after sit1145_sleep_config
+ *  has programmed WUF/PN (PNCOK|CPNC locked, CWE armed), CAN_CONTROL no
+ *  longer holds the init value — rewash pins → Normal → clear wake events →
+ *  CAN_CONTROL init (PNCOK=0/CPNC=0/CMC=active) → CAN online.
+ *  Shallow-guard sites (SIT untouched) pay a few redundant SPI writes.
+ *  Not a config failure: g_lp_sleep_fail stays untouched. */
 static void can_lp_abort_sleep(void)
 {
   can_driver_pins_active();
@@ -509,11 +483,9 @@ static void can_lp_enter_sleep(void)
   }
 
 #if !defined(CAN_LP_EFRAME_ENABLE) || (CAN_LP_EFRAME_ENABLE != 0U)
-  /* ---- 诊断帧：进低功耗前把 SIT1145 寄存器快照发到总线 ----
-   * 1.1.63 起在 sit1145_sleep_config 之后发送 = 「配置后」真值快照：
-   * 旧版发在配置前，冷插拔 PN 写丢失（WUF ID 错位）被掩盖——E0 看着
-   * 健康、实际配置残缺，睡死后无从定位（2026-11-05 实证）。
-   * CAN ID 0x18FF270D，8B payload（1.1.63 起为配置后真值）:
+  /* ---- 诊断帧：sit1145_sleep_config 之后发寄存器配置后快照 ----
+   * 必须在配置之后发送，否则读到的是配置前残留值。
+   * CAN ID 0x18FF270D，8B payload:
    *   [0] 0xE0 标记
    *   [1] MODE_CONTROL (0x01)     配置后仍 0x07 Normal（commit 在快照后）
    *   [2] TRANSCEIVER_EVENT_EN(0x23) 期望 bit0=1 (CWE)
@@ -525,9 +497,8 @@ static void can_lp_enter_sleep(void)
    * 发送用 handle 确认（同 can_lp_tx_marker），防止 wait_tx_idle
    * 提前返回导致帧丢在邮箱被 offline 截断。
    * 配置段在 CAN offline 下完成，此处短暂上线发帧，发完立刻离线进睡。 */
-  /* fw 1.1.77 节流：10s 内最多一组快照（判断只需 E2 真值 + E0 fl 结果位，
-   * 同一入睡风暴里反复重试的配置值冗余重复）。配合入睡失败 1s 退避，
-   * 根治「E0~E3 连发十几组」刷屏（2026-11-10 实测）。 */
+  /* 节流：10s 内最多一组 E0~E3 快照（入睡失败重试时配置值冗余）。
+   * 配合下方入睡失败 1s 退避，避免诊断帧刷屏。 */
   {
     static uint32_t s_eframe_last_ms = 0U;
     uint32_t efn = timer_get_tick();
@@ -564,7 +535,7 @@ static void can_lp_enter_sleep(void)
     }
   }
 
-  /* ---- WUF 配置诊断帧（E1/E2/E3，E0~E3 连续序列 2026-10-28）----
+  /* ---- WUF 配置诊断帧 E1/E2/E3 ----
    * E1: [0]=0xE1 [1]=wuf_ok [2]=frame_ctrl [3]=MASK0 [4]=MASK1 [5]=MASK2 [6]=MASK3 [7]=0xA5
    *      frame_ctrl 期望 0xC8(IDE|PNDM|DLC=8)
    * E2: [0]=0xE2 [1]=ID0 [2]=ID1 [3]=ID2 [4]=ID3 [5]=DM0 [6]=DM1 [7]=0xA5
@@ -573,7 +544,7 @@ static void can_lp_enter_sleep(void)
     uint8_t wuf_diag[8];
     uint8_t handle;
 
-    /* E1: 帧控/MASK 寄存器回读（1.1.63 起=配置后真值：wuf_ok 时 fc=0xC8、MASK 全 0） */
+    /* E1: 帧控/MASK 回读（配置后真值：wuf_ok 时 fc=0xC8、MASK 全 0） */
     wuf_diag[0] = 0xE1U;
     wuf_diag[1] = 0U;  /* wuf_ok 在 sit1145_sleep_config 内确定，此处预设 0 */
     wuf_diag[2] = sit1145_read_reg(SIT1145_REG_FRAME_CTRL);
@@ -631,12 +602,8 @@ static void can_lp_enter_sleep(void)
 #endif /* CAN_LP_EFRAME_ENABLE（E0~E3 诊断帧，app_config.h 宏屏蔽） */
 
   /* ---- Sleep-entry abort guard (deep): RX harvest before commit ----
-   * Frames can only reach us while the controller is online; the E-frame
-   * window above parked some in the SW FIFO (offline does not clear it) and
-   * the host's CAN-layer retransmits of frames lost during the offline
-   * config stretch may land here too. Briefly go online and pump
-   * can_driver_poll - any dispatched request cancels the sleep (and is
-   * answered on the spot). Mirrors the wake-side CAN_LP_RX_HARVEST_MS. */
+   * 短暂 online 泵 can_driver_poll：E 帧窗口/离线配置期间积压的帧或
+   * 主机重发若在此到达，取消入睡并当场应答。与唤醒侧 harvest 对称。 */
   {
     uint32_t ht = timer_get_tick();
     can_driver_online();
@@ -669,7 +636,7 @@ static void can_lp_enter_sleep(void)
   g_can_awake = 0U;
   g_sleep_since_ms = timer_get_tick();
   g_lp_ever_sleep = 1U;
-  /* reset round-3 wipe diagnostics for this Sleep entry */
+  /* reset wipe diagnostics for this Sleep entry */
   g_lp_wipe_ev24 = 0xFFU;
   g_lp_wipe_ev63 = 0xFFU;
   g_lp_wipe_stat = 0U;
@@ -699,10 +666,8 @@ static void can_lp_go_sleep(void)
       can_driver_poll();
     }
 
-    /* Sleep-entry abort guard (shallow): the wait loop above is live RX - a
-     * request arriving there has been (or is being) dispatched and answered.
-     * Cancel before the SLEEP marker so the host never sees "SLEEP" and no
-     * request is dropped (2026-11-10 host-at-sleep-entry no-response fix). */
+    /* Sleep-entry abort guard (shallow): the wait loop above is live RX.
+     * Cancel before the SLEEP marker so no request is dropped. */
     if (g_lp_rx_seen != 0U)
     {
       can_lp_abort_sleep();
@@ -751,12 +716,10 @@ static void proto_flush_pending_tx(void)
   {
     return;
   }
-  /* Only clear on success a few times: unlimited retry of a stuck multi-frame
-   * (isotp_wait_cts 1s timeout each) starves can_driver_poll and delays FC
-   * for the next host multi-frame request by 1~3s.
-   * fw 1.1.78: 预算 3→10——3 次即 drop 会把应答静默扔掉（STB 楔子下
-   * 0x34 的 74 发送 3 连败被 drop，主机只见「无应答」，2026-11-10 实测）。
-   * 10 次仍失败才丢（此时主机已超时重发，旧应答本就该让位）。 */
+  /* Bounded retry: each fail is isotp_tx_send (can block ~1s). Unlimited
+   * retry starves can_driver_poll; dropping too early silently discards a
+   * real response. Budget=10: still failing means host already timed out
+   * and will retransmit — old response should yield. */
   if (isotp_tx_send(CAN_PROTO_UDS_RESPONSE, g_tx_pend, n) == 0)
   {
     g_tx_pend_len = 0U;
@@ -780,9 +743,9 @@ static void proto_send_response(uint8_t *data, uint16_t len)
   {
     return;
   }
-  /* SF: 直发（带 20 次忙重试），不再走 isotp_tx_send——其 isotp_can_send
-   * 有 wait_tx_idle(50ms) 预等 + 500ms 重试环，邮箱写锁竞态时 SF 应答会被
-   * 拖到 1.5~2s（升级每块慢 ~2s 的根因层）。失败仍落 g_tx_pend 延迟冲刷。
+  /* SF: direct send with busy-retry. Do NOT call isotp_tx_send here —
+   * it can block on wait_tx_idle/retry and stall the main loop.
+   * Failures fall through to g_tx_pend deferred flush.
    * MF: always defer (isotp_wait_cts would block can_driver_poll callback). */
   if (len <= 7U)
   {
@@ -799,12 +762,9 @@ static void proto_send_response(uint8_t *data, uint16_t len)
     {
       frame[i] = 0xCCU;
     }
-    /* 1ms 间隔重试：isotp_message_received 刚发完 AA55 标记帧，CAN 邮箱
-     * 被占用 ~0.5ms（250kbps 一帧）。此前 20 次微秒级紧循环根本等不到
-     * 邮箱释放——每个 SF 应答都落 g_tx_pend 单槽，且后写覆盖前写：
-     * 唤醒 burst 的迟到 7E 00 会盖掉 10 02 的 50 02、22 21 33 的应答
-     * 亦然（主机侧表现为「UDS 无应答」）。正常 1~2 次（约 1ms）即发出，
-     * 30ms 预算兜底连续占用。 */
+    /* 1ms 间隔重试：AA55 标记帧刚发出时邮箱可能仍占用约一帧时间。
+     * 紧循环会抢不到邮箱，SF 只好落单槽且后写盖前写 → 主机无应答。
+     * 正常 1~2 次发出；30ms 预算兜底。 */
     for (t = 0; t < 30U; t++)
     {
       uint8_t h_before = 0U;
@@ -812,10 +772,8 @@ static void proto_send_response(uint8_t *data, uint16_t len)
       uint8_t have_prev = (can_driver_last_tx_handle(&h_before) == 0) ? 1U : 0U;
       if (can_driver_send(CAN_PROTO_UDS_RESPONSE, frame, 8U) == 0)
       {
-        /* 入队 ≠ 上总线：帧可被触发丢弃（PTB 孤儿）或总线竞争 ABORT，
-         * 发后不管会让 76/7F 静默消失（2026-11-04 块 345 无应答根因）。
-         * 按 handle 确认上总线：终态失败（-2）立即重发；确认超时视作
-         * 在途不重发（STB poll 补触发兜底送达，重发会造重复应答错配）。 */
+        /* 入队 ≠ 上总线。按 handle 确认：终态失败(-2)立即重发；
+         * 确认超时(-1)视作在途不重发（STB 补触发兜底，防重复应答）。 */
         if ((can_driver_last_tx_handle(&h_after) == 0) &&
             ((have_prev == 0U) || (h_after != h_before)))
         {
@@ -832,7 +790,7 @@ static void proto_send_response(uint8_t *data, uint16_t len)
         }
         else
         {
-          return;  /* handle 不可取证，维持旧语义 */
+          return;  /* handle unknown: keep current send result */
         }
       }
       t0 = timer_get_tick();
@@ -846,8 +804,8 @@ static void proto_send_response(uint8_t *data, uint16_t len)
     {
       return;
     }
-    /* 20 次都被拒（邮箱持续满/写锁）：落 g_tx_pend 由 poll 冲刷。
-     * 注意存原始 UDS 载荷（非组帧后 8B）——flush 会再过 isotp_tx_send 组帧。 */
+    /* 重试预算耗尽（邮箱持续满/写锁）：落 g_tx_pend 由 poll 冲刷。
+     * 存原始 UDS 载荷（非组帧后 8B）——flush 再组帧。 */
     memcpy(g_tx_pend, data, len);
     g_tx_pend_len = len;
     g_tx_pend_retries = 0U;
@@ -1008,13 +966,9 @@ static void proto_can_busoff_recover(void)
       }
     }
   }
-  /* 恢复失败时禁止走 can_driver_init()：那是上电初始化路径，会清掉
-   * rx_callback/busoff_recovery_cb 并把 CAN 停在 software reset 等待
-   * can_driver_online()——0x31 擦槽循环中一旦触发，本函数后续泵出的
-   * 0x78 与尾部 0x71 正响应全部黑洞；返回主循环后 RX 回调已丢，
-   * 设备 UDS 永久失聪，只有断电才能恢复（06:52 擦除 55s 全静默根因）。
-   * offline→online 只复位 CAN 外设+清 pending+重挂 RX/ERR 中断，
-   * rx_callback/busoff_recovery_cb 保持不变，长操作路径可自愈。 */
+  /* 禁止改走 can_driver_init()：会清 rx_callback/busoff_recovery_cb 并
+   * 停在等 online 的复位态，长操作期间 UDS 会永久失聪。
+   * offline→online 只复位外设+清 pending+重挂中断，回调保持，可自愈。 */
   can_driver_offline();
   can_driver_online();
 }
@@ -1128,10 +1082,8 @@ uint8_t can_proto_qi_iap_state(void)
 
 /**
  * @brief  重置 Qi IAP 状态机为 IDLE
- * @note   MCU2 升级完成后必须调用：否则 g_qi_iap_state 停留在
- *         IN_PROGRESS/SUCCESS，DID 0x2013 版本查询被 NRC 0x22 拒绝
- *         （line 1377 的 g_qi_iap_state != QI_IAP_IDLE 条件），brood
- *         verify 阶段读版本失败。
+ * @note   MCU2 升级完成后必须调用：否则 state 停在 IN_PROGRESS/SUCCESS，
+ *         依赖 IAP_IDLE 的版本查询等路径会被 NRC 0x22 拒绝。
  */
 void can_proto_qi_iap_reset(void)
 {
@@ -1148,9 +1100,8 @@ void can_proto_qi_iap_reset(void)
  * @brief  撤销在途的延迟 UDS 应答（仅 0x36 的 76 类）
  * @note   重复 0x36（主机超时重发）走幂等路径立即回 76 时，首包挂起的
  *         延迟应答（等 Qi ACK 后由 qi_iap_ack_poll 回 76）必须撤掉——
- *         否则 ACK 到达后再回一个 76，双 76 会错配后续块的应答窗
- *         （2026-11-05 实测重试 10ms 即回的路径即命中此场景）。
- *         Qi 侧状态机不动（sent 计数照常走 ACK 记账）。
+ *         否则 ACK 到达后再回一个 76 会错配后续块。Qi 侧状态机不动
+ *         （sent 计数照常走 ACK 记账）。
  */
 void can_proto_qi_iap_resp_cancel(void)
 {
@@ -1164,8 +1115,7 @@ void can_proto_qi_iap_resp_cancel(void)
 /**
  * @brief  Qi 版本缓存持久化（RAM → Flash，仅变化时写）
  * @note   升级完成/上电探测/问询回复拿到真实版本后调用。
- *         断电重启后 probe 凭 Flash 缓存兜底，避免读回旧版本
- *         （SIT1145 Sleep = AT32 整板断电，RAM 缓存必然丢失）。
+ *         Sleep 后整板断电 RAM 丢失，probe 用 Flash 缓存兜底。
  */
 static void qi_ver_persist_if_changed(void)
 {
@@ -1200,11 +1150,9 @@ void can_proto_qi_version_refresh(void)
 
 /**
  * @brief  Qi 升级前清空 Qi 版本缓存（RAM + NVM 兜底）
- * @note   版本号冲突治理（2026-11-12）：升级失败 Qi 变砖时，若缓存不清，
- *         未断电读回旧版本（如 1.2.3）、断电后 Flash 兜底又回读旧版本——
- *         与变砖实态冲突。每次 MCU2 升级开始前调用：RAM 缓存清零/失效，
- *         NVM（device_info）置「未获取」（0xFF），此后版本查询回 NRC 0x22
- *         （上层显示 0.0.0/未知），升级成功后由 refresh 路径重新采集落盘。
+ * @note   MCU2 升级开始前调用：RAM 缓存清零/失效，NVM 置「未获取」(0xFF)。
+ *         此后版本查询回 NRC 0x22（上层显示未知），升级成功后由 refresh
+ *         重新采集落盘——避免升级失败后仍报旧版本。
  */
 void can_proto_qi_version_cache_clear(void)
 {
@@ -1238,7 +1186,6 @@ void can_proto_qi_version_refresh_blocking(uint16_t timeout_ms)
     qi_protocol_poll();
     if (g_qi_fw_version_valid != 0U)
     {
-      /* 升级后新版本持久化：断电/休眠重启不得读回旧版本 */
       qi_ver_persist_if_changed();
       return;  /* 自动上报已到达，缓存已刷新 */
     }
@@ -1270,7 +1217,6 @@ static void qi_ver_refresh_poll(void)
   {
     g_qi_ver_refresh_pending = 0U;
     refresh_start_ms = 0U;
-    /* 升级后新版本持久化：断电/休眠重启不得读回旧版本 */
     qi_ver_persist_if_changed();
     /* 若 DID 0x2013 正在等延迟应答，现在回复 */
     if (g_qi_ver_q_state == 1U)
@@ -1313,8 +1259,7 @@ void can_proto_qi_iap_prepare_async(uint16_t fw_size, uint16_t max_block_len)
 
   /* PB2 上电 + 保持：IAP 全程供电，board_charge_poll 不得拉低 */
   board_iap_hold_power(1U);
-  /* Qi 芯片上电启动时间：200ms 确保芯片完全就绪再发 IAP 命令。
-   * 50ms 实测不足（0xCC 0x01 无 ACK），加长至 200ms。 */
+  /* Qi 芯片上电启动等待：就绪前发 IAP 命令会无 ACK。 */
   t0 = timer_get_tick();
   while ((timer_get_tick() - t0) < 200U)
   {
@@ -1402,10 +1347,8 @@ static void session_switch(uint8_t new_session)
 
 
 /**
- * @brief  copy string into response buffer (including null terminator)
- * @param  dst: destination buffer
- * @param  src: source string
- * @retval number of bytes written (including null terminator)
+ * @brief  generate next 32-bit seed word (LFSR mixed with system tick)
+ * @retval random-ish 32-bit value for SecurityAccess seed
  */
 static uint32_t generate_random_seed(void)
 {
@@ -1512,11 +1455,9 @@ static void qi_apply_power_cfg(void)
 
 /**
  * @brief  Qi 供电状态跟踪（can_protocol_poll 每轮调用）
- * @note   PB2 断电清零重发标志与计划；上电后延时 QI_PWR_CFG_DELAY_MS
- *         等芯片稳定再下发功率配置——Qi 芯片定制出厂默认 15W 且启动期
- *         收不到 UART 命令，上电瞬间就发会丢（芯片上报默认 15W 的
- *         根因）。开启充电（DID 0x2101=1）会显式重置标志并排 100ms
- *         计划，确保每次开充都补发 NVM 档位（如 5W）。
+ * @note   PB2 断电清重发标志与计划；上电后延时 QI_PWR_CFG_DELAY_MS
+ *         等芯片稳定再下发（启动期收不到 UART，立即发会丢）。
+ *         开充（0x2101=1）重置标志并排 100ms 计划，每次开充补发 NVM 档位。
  */
 static void qi_power_cfg_poll(void)
 {
@@ -1687,15 +1628,15 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 1U;
       return 0;
     case DID_QI_DISPLAY_STATE:
-      /* 充电显示态（派生，单一真相源）——用户定义（2026-11-12 二订）：
+      /* 充电显示态（派生，单一真相源）：
        *   0x02 磁铁不存在·充电中（状态字节 b1）
        *   0x03 磁铁不存在·未充电
        *   0x04 磁铁存在·未充电（hall=0）
        *   0x05 充电失能
        *   0x06 电已充满（b2）
-       * 优先级：失能→充满→磁铁存在→充电中→未充电（满电不被充电中遮蔽）。
-       * ping（状态字节 b0）= 设备放置标识（1=已放置/0=未放置），**独立显示**，
-       * 不参与本状态轮转（0x01 不再产出；放置指示由 0x2111 b0 直读）。 */
+       * 优先级：失能→充满→磁铁存在→充电中→未充电。
+       * ping（b0）= 设备放置标识，独立由 0x2111 b0 直读，不进本状态轮转
+       * （本 DID 不产出 0x01）。 */
       {
         uint8_t hall = (gpio_input_data_bit_read(GPIOA, GPIO_PINS_0) != RESET) ? 0x01U : 0x00U;
         uint8_t s    = g_qi_status_raw;
@@ -1736,27 +1677,16 @@ static int8_t fill_did_payload(uint16_t did, uint8_t *out, uint8_t *olen)
       *olen = 4U;
       return 0;
     case DID_SIT1145_LP_WIPE_DIAG:
-      /* Round-3 anti-phantom-wake diagnostics (bench TC-S002 2026-10-01,
-       * 1.1.4 fw, 6 rounds 3PASS/3FAIL, FAIL@SB+124~141ms src=1
-       * ev63=0x01 zero frames; 0x211A r4=0x81 r6=0x83). Kept SF-safe at 4B
-       * because 0x2119 already fills the 7-byte single-frame payload and an
-       * appended byte would force ISO-TP multi-frame (current bench reader
-       * sends no Flow Control). [0]/[1] semantics:
-       * [0] 0x24 TRANSCEIVER_EVENT snapshot - pre-wipe readback, then last
-       *     pin-low/clear-wait check, or the wake decision if [2] bit7 set
-       * [1] 0x63 TRX_EVENT_STATUS   snapshot (same source as [0])
-       * [2] stat bits (WIPE_STAT_* in can_protocol.c):
-       *     bit0 record valid | bit1 CAN flag at a pin-low check
-       *     bit2 (0x04) flag already set at the unconditional inhibit-expiry
-       *         wipe = latched during entry/inhibit (was round-2 STUCK)
-       *     bit3 SPI read 0xFF | bit4 flag 0->1 after a clear = real retry
-       *     bit5 wake blocked at least once
-       *     bit6 flag still set after the wipe = wipe ineffective/re-latch
-       *         (was round-2 RELEASED) | bit7 snapshot at wake decision
-       *     PA11 itself: flags are read first, PA11 second (round-3), so no
-       *     stat bit implies PA11 low; PA11 at wake time = WK src byte
-       * [3] clear+wait attempt count this Sleep (saturating, includes
-       *     the one-shot unconditional wipe) */
+      /* Anti-phantom-wake diagnostics (4B SF; 0x2119 already fills 7B):
+       * [0] 0x24 TRANSCEIVER_EVENT snapshot
+       * [1] 0x63 TRX_EVENT_STATUS snapshot (same source as [0])
+       * [2] WIPE_STAT_* bits (see can_protocol.c):
+       *     bit0 valid | bit1 CAN flag at pin-low check
+       *     bit2 flag set at inhibit-expiry wipe | bit3 SPI 0xFF
+       *     bit4 flag 0->1 after clear | bit5 wake blocked
+       *     bit6 flag still set after wipe | bit7 snapshot at wake decision
+       *     Flags are read before PA11; no stat bit implies PA11 low.
+       * [3] clear+wait attempt count this Sleep (sat., includes one-shot wipe) */
       out[0] = g_lp_wipe_ev24;
       out[1] = g_lp_wipe_ev63;
       out[2] = g_lp_wipe_stat;
@@ -2067,12 +1997,10 @@ static void handle_read_data_by_id(uint8_t *data, uint16_t len)
 
 /**
  * @brief  WriteDataByIdentifier (0x2E)
- * @note   逐 DID 门禁（本文件 WDBI case 表，同值 NRC 判读以 case 块内
- *         检查顺序为准）：0x2101/0x210D 需 EXTENDED 会话（10 03）；
- *         0x2010/0xF18C/0x2120/0x2141 需 PROGRAMMING 会话
- *         （10 02）；全部可写 DID 均需 SecurityAccess 解锁；其他 DID
- *         回 NRC 0x31。同一 case 内会话检查先于安全检查（NRC 0x22 在
- *         0x33 之前——写步拿 0x33=会话存活证据，拿 0x22 才是会话丢失）。
+ * @note   逐 DID 门禁：0x2101/0x210D 需 EXTENDED（10 03）；
+ *         0x2010/0xF18C/0x2120/0x2141 需 PROGRAMMING（10 02）；
+ *         全部可写 DID 均需 SecurityAccess；其他 DID → NRC 0x31。
+ *         同一 case 内会话检查先于安全检查（0x22=会话丢失，0x33=会话在但未解锁）。
  * @param  data: UDS payload
  * @param  len:  payload length
  * @retval none
@@ -2322,14 +2250,11 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
 
 /**
  * @brief  SecurityAccess (0x27)
- * @note   APP side implements SecurityAccess fully (Boot safe mode does not):
- *         27 01 -> 67 01 + 32-byte seed (g_seed[32], refreshed on every 27 01,
- *         signature buffer cleared with it); unlocked 27 01 -> 67 01 + 32x0x00.
- *         27 03 -> chunked signature transfer (4B/frame x 16, blockSeq 0x01..0x10,
- *         blockSeq 0x01 resets the buffer); 27 02 -> sha256_hash(g_seed, 32U) +
- *         uECC_verify on the accumulated 64-byte signature.
- *         Verify fail: NRC 0x35 (invalidKey, fail_count+1); fail_count >= 3 arms
- *         the ~30s lockout: 27 02 -> NRC 0x36, 27 01 inside lockout -> NRC 0x37.
+ * @note   27 01 → 67 01 + 32B seed（已解锁则回 32×0x00）；
+ *         27 03 → 分片签名 4B×16（blockSeq 0x01 复位缓冲）；
+ *         27 02 → sha256(seed)+uECC_verify(64B 签名)。
+ *         失败：NRC 0x35，fail_count+1；≥3 次锁定 ~30s（27 02→0x36，
+ *         锁定内 27 01→0x37）。Boot 无 UDS/SA。
  * @param  data: UDS payload
  * @param  len:  payload length
  * @retval none
@@ -2526,12 +2451,10 @@ static void handle_security_access(uint8_t *data, uint16_t len)
  *           SecurityAccess（Qi 侧要求，门禁过严会回 NRC 0x22 导致协议不通）；
  *           StartRoutine 执行逻辑暂留空（TODO），正响应 71 01 21 00 00；
  *           StopRoutine/RequestRoutineResults 暂不支持，回 NRC 0x31。
- *         - 其余 rid（含 0xFF00）：原样转 ota_dl_handle_erase()，APP 实现
- *           槽擦写全链（ota_download.c）：0x31 擦除非活跃槽 → 0x34/0x36 下载
- *           编程 → 0x37 验签+commit_backup 后自复位，BOOT 搬运至 App 区；
- *           门禁=PROGRAMMING 会话+SecurityAccess（handler 内逐项检查）。
- *           Boot 仅在复位后按 trial metadata 选槽/回滚/进 safe mode，
- *           不承担下载编程（旧"Boot safe mode only"架构已废弃）。
+ *         - 其余 rid（含 0xFF00）：转 ota_dl_handle_erase()（ota_download.c）：
+ *           擦备份区 → 0x34/0x36 下载 → 0x37 验签+commit 后自复位，
+ *           BOOT 搬运到 App 区；门禁=PROGRAMMING+SA（在 erase handler 内）。
+ *           Boot 只负责复位后搬运/回滚/safe mode，不做 UDS 下载。
  */
 static void handle_routine_control(uint8_t *data, uint16_t len)
 {
@@ -2553,17 +2476,16 @@ static void handle_routine_control(uint8_t *data, uint16_t len)
 
   if (rid == ROUTINE_CLEAR_FAULTS)
   {
-    /* Clear Faults 分支：仅支持 StartRoutine(0x01)。
-     * suppressPosResp 只抑制正响应，NRC 仍须发送（ISO 14229-1）。
-     * 本分支刻意不检查 Programming 会话/SecurityAccess：
-     * 默认会话必须可执行，否则又回 0x22，协议不通。 */
+    /* Clear Faults：仅 StartRoutine(0x01)。suppress 只抑正响应，NRC 仍发。
+     * 不检查会话/SA——默认会话必须可执行。 */
     if (sub_func != 0x01U)
     {
       proto_send_nrc(UDS_SID_ROUTINE_CONTROL, UDS_NRC_REQUEST_OUT_OF_RANGE);
       return;
     }
 
-    /* TODO: 待定义 Qi 侧故障标志/寄存器清除动作（Qi 侧故障标志清单待确认） */
+    /* 执行体暂空：仅回 71 01 21 00 00。故障状态由 Qi 状态帧镜像透传，
+     * 不在此处主动清除。 */
 
     if (!suppress)
     {
@@ -2577,8 +2499,7 @@ static void handle_routine_control(uint8_t *data, uint16_t len)
     return;
   }
 
-  /* 其余 rid（含 0xFF00 erase）：保持原行为，data/len 原样转发，
-   * 门禁逻辑一字不改，仍在 ota_dl_handle_erase 内逐项检查 */
+  /* 其余 rid（含 0xFF00）：data/len 原样转发，门禁在 ota_dl_handle_erase */
   ota_dl_handle_erase(data, len);
 }
 
@@ -2683,14 +2604,8 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
   }
 
   /* ---- Qi IAP ACK ----
-   * 实测（2026-10-09）ACK 格式为：
-   *   55 AA 04 CC [subcmd] [next_addr_hi] [next_addr_lo] CS
-   * next_addr = 芯片期望的下一包写地址（纯地址，不是 status！）。
-   * 例：写完 addr=0x0000 后 ACK `CC 02 00 16` → 下一包 0x0016；
-   *     写完 addr=0x00F2 后 ACK `CC 02 01 08` → 下一包 0x0108。
-   * 旧逻辑把 data[1] 当 status，地址一进 0x01xx 就把 addr_hi=0x01
-   * 误判为失败 → NRC 0x72，sent 卡死在 242。正确语义：subcmd
-   * 0x01/0x02 回显即 ACK 成功；data[1..2] 仅为 next_addr。
+   * 格式：55 AA 04 CC [subcmd] [next_addr_hi] [next_addr_lo] CS
+   * data[1..2]=下一包写地址（不是 status）。subcmd 0x01/0x02 回显即成功。
    * 短 ACK `55 AA 02 CC 01 CS`（无地址）同判成功。 */
   if (frame->cmd == QI_CMD_IAP)
   {
@@ -2727,9 +2642,8 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
    * 兼容：Qi 侧用通用 ACK(0x00) 携带版本（仅在 IAP 空闲时采纳，避免误吞
    * IAP ACK）。按整数稳健化解析（qi_ver_parse_xyz：三字节 major.minor.patch
    * 或小端整数），缓存完整整数值并置有效标志，并回
-   * 62 20 13 + ASCII "QC_JYF_MCU2_FW_1.1.X"（X=十进制数字，变长 23~27B，
-   * proto_send_response 自动走 g_tx_pend 多帧延迟路径，帧回调内安全）；
-   * 超时兜底在 qi_ver_query_poll()。 */
+   * 62 20 13 + ASCII "QC_JYF_MCU2_FW_x.x.x"（变长，走 g_tx_pend 延迟
+   * 多帧路径，帧回调内安全）；超时兜底在 qi_ver_query_poll()。 */
   if (g_qi_ver_q_state == 1U)
   {
     const uint8_t *vsrc = (const uint8_t *)0;
@@ -2825,9 +2739,8 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
       g_qi_device_present = 0U;
     }
 
-    /* protection/fault bits —— 全量跟随本帧 Qi 上报（2026-11-21）：
-     * 异常标识实时镜像 Qi 芯片动态上传——异常置位、恢复即清零，
-     * 无额外保持/清除逻辑。 */
+    /* protection/fault bits：只镜像本帧 Qi 上报——异常置位、恢复即清零。
+     * 不参与 0x2101 开/关充门禁，仅经 0x210B/0x2109 等只读透传。 */
     g_qi_fod_status = 0x00U;
     g_qi_fault_code = 0x00U;
     if ((status_byte & QI_STATUS_FOD) != 0U)
@@ -2873,10 +2786,7 @@ static void qi_iap_frame_cb(const qi_frame_t *frame)
      *   data[10]  = FOD, data[11] = reserved, data[12] = fault
      *   data[13]  = thermal derate
      *
-     * NOTE: 版本从 2 字节 BE 整数改为 3 字节 major.minor.patch（2026-10-16）。
-     * NOTE: 实时功率为 2 字节**大端**（协议表 IAP 大小/地址明写高八位在前，
-     *       版本字段 1.1.20 实测同为大端）；此前按小端拼导致字节颠倒
-     *       （小功率被放大，如 826mW 读成 14851mW）。 */
+     * NOTE: 版本为 3 字节 major.minor.patch；实时功率 2 字节**大端**。 */
     g_qi_output_power_mw = ((uint16_t)frame->data[2] << 8)
                          | (uint16_t)frame->data[3];
     g_qi_ver_major = frame->data[4];
@@ -2994,8 +2904,7 @@ static void isotp_message_received(uint8_t *data, uint16_t len)
   /* 传输层完成标记（0x18FF270D）：AA 55 <len> <sid0> <会话> <安全> <目标> A5
    * —— 组包到达 UDS 层的确认 + 派发瞬间的会话/安全快照（写门 NRC 0x22
    * 排障：mk[4]=current_session mk[5]=security_unlocked mk[6]=fw_type）。
-   * OTA 传输窗口内屏蔽：升级 588 块 = 588 帧诊断噪声，且与 UDS 应答
-   * 抢 TX 邮箱（2026-11-04 用户要求）。 */
+   * OTA 传输窗口内屏蔽：避免块级诊断噪声并减少与 UDS 应答抢邮箱。 */
   if (ota_dl_active() == 0U)
   {
     mk[0] = 0xAAU;
@@ -3009,11 +2918,8 @@ static void isotp_message_received(uint8_t *data, uint16_t len)
     (void)can_driver_send(0x18FF270DU, mk, 8U);
   }
 
-  /* 请求到达即续 S3（ISO 14229）：本帧就是新的 tester 活动。先刷新再进
-   * 派发——旧逻辑在此做超时检查，而 isotp_wait_cts 内联路径不经
-   * can_protocol_rx_handler 的刷新点，迟到帧会把仍存活的会话误杀成
-   * default，后续 2E 写门回 NRC 0x22。空闲期的到期回收由
-   * can_protocol_poll 的 S3 检查负责，此处不再重复判。 */
+  /* 请求到达即续 S3（ISO 14229）：先刷新再派发。空闲期到期回收由
+   * can_protocol_poll 的 S3 检查负责，此处不重复判超时。 */
   last_tester_present_tick = timer_get_tick();
 
   uds_process_message(data, len);
@@ -3046,9 +2952,7 @@ static void can_protocol_rx_handler(uint32_t id, uint8_t *data, uint8_t len)
    * the sleep (checked by can_lp_go_sleep/can_lp_enter_sleep) instead of
    * being dropped on the floor. */
   g_lp_rx_seen = 1U;
-  /* 多帧请求（FF+CF…）发送期间也要刷 S3：0x36 128B 块约 18 CF，
-   * 主机环路 ~2s/请求，5s S3 会在组包中途 session_reset 清 g_active，
-   * complete 后 handler 回 NRC 0x22。 */
+  /* 多帧请求组包期间也要刷 S3，防止组包中途会话被超时清掉。 */
   last_tester_present_tick = timer_get_tick();
   isotp_rx_process(data, len);
   /* FF 路径若 can_driver_send(FC) 失败会置 g_fc_pending；立刻补发，
@@ -3081,12 +2985,9 @@ void can_protocol_init(void)
   /* load persistent Qi config from NVM (nvm_drv_init already called in main) */
   qi_nvm_load_config();
 
-  /* 唤醒启动探测：SIT1145 进 Sleep 后 INH 断电 = AT32 整板断电；CAN 唤醒
-   * （WUF 匹配）→ 重新供电冷启动。SIT1145 自身不断电，唤醒事件位锁存于
-   * 0x24/0x63，sit1145_init 步骤6.5 已快照（wakeup_clear 前）。有残留 =
-   * 本次上电是 CAN 唤醒：预置 g_lp_ever_sleep/g_lp_last_wake_src，enter_normal
-   * 首次执行时 wup_count 0→1、sleep_sec=0（RAM 断电清零，时长不可知），
-   * BOOTUP 标记即以 01 41 57 4B（WK）发出，与冷启动 01 41 00 区分。 */
+  /* 唤醒启动探测：Sleep 后 INH 断电=整板断电；CAN 唤醒再上电。SIT 自身
+   * 不断电，事件位锁存在 0x24/0x63（init 已快照）。有残留=本次为 CAN 唤醒：
+   * 预置 ever_sleep/wake_src，BOOTUP 带 01 41 57 4B（WK）与冷启动 01 41 00 区分。 */
   {
     uint8_t ev24 = sit1145_boot_wake_ev24();
     uint8_t ev63 = sit1145_boot_wake_ev63();
@@ -3102,12 +3003,9 @@ void can_protocol_init(void)
     }
   }
 
-  /* 上电即 Normal，空闲 CAN_LP_IDLE_TIMEOUT_MS（UDS 无收发）后进 Sleep。
-   * trial 与非 trial 同路径置 g_lp_need_online，由首次 can_protocol_poll
-   * 延时 can_lp_enter_normal（SysTick 已就绪；harvest / sit1145_wait_cts /
-   * wait_tx_idle 都看 timer_get_tick）完成 sit1145_normal_mode_set +
-   * can_driver_online。 */
-  /* trial / 非 trial 统一上电 Normal，首次 poll 延时 enter_normal */
+  /* 上电即 Normal，空闲 CAN_LP_IDLE_TIMEOUT_MS 后进 Sleep。
+   * 统一置 g_lp_need_online，首次 can_protocol_poll 延时 can_lp_enter_normal
+   * （SysTick 就绪后）完成 sit1145_normal_mode_set + can_driver_online。 */
   g_lp_need_online = 1U;
 }
 
@@ -3226,11 +3124,8 @@ static void qi_iap_ack_poll(void)
 /**
  * @brief  Qi 版本问询超时兜底（DID 0x2013 延迟应答）
  * @note   Called from can_protocol_poll()。回复到达走帧回调；
- *         此处只处理 500ms 超时：有缓存（g_qi_fw_version_valid）用缓存
- *         整数拼完整版本串 62 20 13 + ASCII "QC_JYF_MCU2_FW_1.1.X"
- *         （变长 23~27B，产线不断流），无缓存回 NRC 0x22
- *         （如需严格问询语义可去掉缓存兜底）。
- *         版本 0 为合法值，有效性以 g_qi_fw_version_valid 为准。
+ *         此处只处理 500ms 超时：有缓存拼完整版本串回复，无缓存回 NRC 0x22。
+ *         版本 0 合法，有效性以 g_qi_fw_version_valid 为准。
  */
 static void qi_ver_query_poll(void)
 {
@@ -3320,46 +3215,19 @@ void can_protocol_poll(void)
       uint8_t can_wake;
       uint8_t rx_low;
 
-      /* Round-3 anti-phantom wake policy (bench TC-S002, 1.1.4 firmware =
-       * round-2 fix 9f4cf24, 6 rounds 3 PASS / 3 FAIL; every FAIL is WK
-       * 01 41 57 4B at SB+124~141ms = inhibit expiry + first wake poll,
-       * src=1, ZERO frames on the bus, and DID 0x211A wake snapshot shows
-       * ev63 CW=0x01 — r4 stat=0x81 (PA11 high at pre-check, low µs later
-       * inside wakeup_pending), r6 stat=0x83 (CAN flag already set at the
-       * first pin-low pre-check). CW set with no frame anywhere = PHANTOM
-       * CAN-wake latch: round-2's "flag set => real wake, skip the clear"
-       * rule walked straight through it (r6) and wakeup_pending()'s
-       * PA11-first shortcut walked through it before flags were even
-       * consulted (r4). Round-3:
-       *   (b) ONE-SHOT UNCONDITIONAL wipe of 0x24/0x63/0x64/0x61 on the
-       *       first poll at inhibit expiry — no flag-state test; pre/post
-       *       readback recorded for 0x211A (PREW_FLAG/POST_STICK). Anything
-       *       latched during entry/settle/0..100ms is erased; only events
-       *       AFTER this wipe can authorize a wake.
-       *   (c) flags are read FIRST, then PA11 (a latch landing between the
-       *       two reads falls into the pin-low branch, never wakes on the
-       *       pin alone):
-       *       - CAN flag set + RXD released => real wake (bench genuine
-       *         wakes: src=3, RXD already released). Wake immediately,
-       *         zero added latency, src computed from these same flags
-       *         (ev24 CW/WUF->2 else ev63 CW->3, byte-identical to
-       *         wakeup_pending's result). TC-S003 path untouched.
-       *       - RXD low (flag or not, healthy SPI) => suspected phantom:
-       *         clear + bounded <=5ms release wait; flag 0->1 AFTER the
-       *         clear = host frame retry (CAN auto-retransmit / 3E burst)
-       *         => real wake, allow (FLAG_IN_WAIT). RXD released and
-       *         silent => phantom consumed, keep sleeping. RXD stuck low
-       *         => block this poll, throttled retry (CAN_LP_WIPE_RETRY_MS).
-       *         A pin-low level alone (WK src=1) can never wake again.
-       *       - SPI 0xFF => historical fall-through via wakeup_pending (a
-       *         dead SPI must never swallow a bus wake) — the ONLY remaining
-       *         path where the raw pin decides, kept byte-identical to
-       *         round-2 (SPI-dead + pin low => src=1 wake).
-       * Direction (d) raw-RX sniff rejected: in Sleep the SIT1145 RXD
-       * carries wake-event levels, not frame data — sniffing frames requires
-       * the transceiver in Normal, which already means we committed to the
-       * wake; delaying WK by 1-5ms would also eat TC-S003's verified
-       * sub-ms/100ms wake timing. */
+      /* Anti-phantom wake policy (DID 0x211A diagnostics attached):
+       * (b) One-shot unconditional wipe of 0x24/0x63/0x64/0x61 on first
+       *     poll at inhibit expiry — no flag-state test. Events latched
+       *     during entry/settle are erased; only events AFTER this wipe
+       *     can authorize a wake.
+       * (c) Read CAN flags FIRST, then PA11:
+       *     - CAN flag set + RXD released => real wake (src from flags).
+       *     - RXD low (healthy SPI) => suspected phantom: clear + bounded
+       *       <=5ms release wait; flag 0->1 AFTER clear = host retry => wake;
+       *       RXD released and silent => keep sleeping; RXD stuck => block,
+       *       throttle CAN_LP_WIPE_RETRY_MS. Bare pin-low never wakes.
+       *     - SPI 0xFF => fall through to sit1145_wakeup_pending() so a
+       *       dead SPI cannot swallow a bus wake. */
 
       /* (b) one-shot unconditional event wipe at inhibit expiry */
       if (g_lp_pre_wipe_due != 0U)
@@ -3427,9 +3295,8 @@ void can_protocol_poll(void)
 
       if (spi_ok == 0U)
       {
-        /* SPI unhealthy (either read 0xFF): historical fall-through,
-         * unchanged from round-2 — wakeup_pending decides (PA11-first), so
-         * a dead SPI can never swallow a bus wake. */
+        /* SPI unhealthy (0xFF): fall through to wakeup_pending (PA11-first)
+         * so a dead SPI cannot swallow a bus wake. */
         g_lp_wipe_stat |= WIPE_STAT_VALID | WIPE_STAT_SPI_FF;
         g_lp_wipe_ev24  = ev24;
         g_lp_wipe_ev63  = ev63;
@@ -3438,11 +3305,9 @@ void can_protocol_poll(void)
       }
       else if ((can_wake != 0U) && (rx_low == 0U))
       {
-        /* Real-wake signature: CAN flag set AND RXD already released —
-         * every genuine wake on the bench (r5 baseline: ev63=0x01,
-         * src=3). Wake with zero added latency; src from THIS snapshot
-         * (ev24 CW/WUF -> 2 else ev63 CW -> 3) — byte-identical to what
-         * sit1145_wakeup_pending() would return, no pin race possible. */
+        /* Real-wake signature: CAN flag set AND RXD already released.
+         * Wake immediately; src from this snapshot (ev24 CW/WUF→2 else
+         * ev63 CW→3), same as sit1145_wakeup_pending(). */
         g_lp_wipe_stat |= WIPE_STAT_VALID;
         g_lp_wipe_ev24  = ev24;
         g_lp_wipe_ev63  = ev63;
@@ -3454,12 +3319,9 @@ void can_protocol_poll(void)
         uint8_t flag_now = 0U;
         uint8_t src_orig;
 
-        /* RXD low, healthy SPI — phantom suspect (flag set: r6-type) or
-         * round-2 stale pin-low (no flag). Never wake on the level alone.
-         * Throttle rationale unchanged from round-2: while RXD is stuck the
-         * main loop is tight; an unthrottled <=5ms busy-wait would starve
-         * the UART and CAN polls. Throttled polls do cheap flag re-reads
-         * only (already done above) and block. */
+        /* RXD low, healthy SPI — phantom suspect or stale pin-low.
+         * Never wake on the level alone. Throttle: while RXD is stuck the
+         * main loop is tight; unthrottled <=5ms waits starve UART/CAN polls. */
         g_lp_wipe_stat |= WIPE_STAT_VALID;
         g_lp_wipe_ev24  = ev24;
         g_lp_wipe_ev63  = ev63;
@@ -3494,10 +3356,9 @@ void can_protocol_poll(void)
            * (real host retry relatched during the wait) from a flag that
            * never left (wipe ineffective / instant re-latch). The latter
            * must NOT wait and must NOT wake — waiting would busy-loop every
-           * poll (CPU starvation), waking would reopen the round-2 r6 hole.
-           * A real wake recovers anyway: next poll sees flag+RXD-released
-           * (fast path) or the host retransmit relatches within its own
-           * auto-retry cadence. */
+           * poll (CPU starvation) and waking on a stuck flag is unsafe.
+           * A real wake recovers on a later poll (flag+RXD-released or
+           * host retransmit re-latches). */
           ev24 = sit1145_read_reg(SIT1145_REG_TRANSCEIVER_EVENT);
           ev63 = sit1145_read_reg(SIT1145_REG_TRX_EVENT_STATUS);
           g_lp_wipe_ev24 = ev24;
@@ -3612,10 +3473,9 @@ void can_protocol_poll(void)
   if ((g_can_awake != 0U) && (g_need_lifecycle_announce != 0U) &&
       ((int32_t)(now - g_announce_due_ms) >= 0))
   {
-    /* MF 期间由 lifecycle_post 入 pending FIFO 推迟补发，不再丢弃。
-     * 不区分冷启动/唤醒启动（2026-10-28 决策）：统一 01 BOOTUP→02
-     * OPERATIONAL，WAKEUP(0x03) 保留词汇位但固件不发送。
-     * BOOTUP 归 APP 发（Boot 侧 2026-10-28 已回退，0x01 由本块补发）。 */
+    /* MF 期间由 lifecycle_post 入 pending FIFO 推迟补发。
+     * 统一 01 BOOTUP→02 OPERATIONAL；WAKEUP(0x03) 为保留词汇，固件不发。
+     * BOOTUP 由本块（APP）补发。 */
     g_need_lifecycle_announce = 0U;
     lifecycle_post(LIFECYCLE_BOOTUP);
     lifecycle_set_state(LIFECYCLE_OPERATIONAL);
@@ -3652,49 +3512,35 @@ void can_protocol_poll(void)
   }
 
 #if (!defined(CAN_LP_SLEEP_ENABLE) || (CAN_LP_SLEEP_ENABLE != 0U)) && (CAN_LP_IDLE_TIMEOUT_MS > 0U)
-  /* No Sleep while charging: judge straight from the Hall sensor chain
-   * (g_qi_charger_enable from DID 0x2101 + board_hall_open() on PA0) - the
-   * exact condition board_charge_poll() uses to drive the charge switch,
-   * so it never depends on Qi-chip state reporting (g_qi_charge_state via
-   * UART). Refresh-based gate: while charging, g_uds_last_ms is refreshed
-   * every poll; once charging stops the idle counter restarts from zero and
-   * the normal CAN_LP_IDLE_TIMEOUT_MS timeout applies unchanged. */
+  /* No Sleep while charging: use Hall chain (0x2101 enable + PA0) —
+   * same condition as board_charge_poll(), independent of Qi UART state.
+   * While charging, refresh idle timer every poll so charging never sleeps. */
   if ((g_qi_charger_enable != 0U) && (board_hall_open() == 0U))
   {
-    /* Charging gate: ALWAYS refresh idle timer while charging + device
-     * present. No stale timeout — charging must never enter Sleep. */
     g_uds_last_ms = now;
   }
-  /* else: gate released, idle timer counts down naturally */
-  /* 有符号比较（同 g_announce_due_ms 判定风格）：同轮 poll 内 mark_uds（响应发送 /
-   * 唤醒 enter_normal）刷新 g_uds_last_ms 后，过期 now 参与无符号减法会下溢成
-   * 巨大值导致误进 Sleep */
-  /* IAP 进行中把空闲超时放宽到 30s：上位机 8s 等待超时 + 重发节奏贴着 10s
-   * 空闲线，设备先睡 = INH 断电、Qi 芯片中途断写（2026-11-04 块 345 实测
-   * 失败后 10s 即入睡）。30s 上界保证工具真消失后仍会回收休眠。 */
+  /* 有符号比较：同轮 poll 内刷新 g_uds_last_ms 后，无符号 now-tick 会下溢
+   * 误判超时进 Sleep。 */
+  /* IAP 进行时空闲超时放宽到 30s（默认 10s 会与工具重发节奏相撞导致
+   * 中途断电断写）；工具真消失后仍会回收休眠。 */
   {
     int32_t idle_limit = (int32_t)CAN_LP_IDLE_TIMEOUT_MS;
     if (g_qi_iap_state != QI_IAP_IDLE)
     {
       idle_limit = 30000;
     }
-    /* Busy gate (2026-11-10): long ops / response debt must never be
-     * interrupted by Sleep. can_lp_go_sleep() starts with
-     * session_reset_to_default() which wipes g_tx_pend (a stranded 67 02
-     * after SA verify got destroyed this way) and aborts an active OTA
-     * download; also skip while an MF is still assembling or a multi-frame
-     * response is pending. All conditions self-clear (flush budget, 0x37/
-     * error paths), so no permanent no-sleep source. */
+    /* Busy gate: long ops / response debt must not enter Sleep —
+     * go_sleep resets session (wipes g_tx_pend) and aborts OTA.
+     * Also skip while MF assembling or multi-frame response pending.
+     * All conditions self-clear; no permanent no-sleep source. */
     if ((uds_mf_busy() == 0U) &&
         (g_tx_pend_len == 0U) &&
         (g_uds_mf_pending == 0U) &&
         (ota_dl_active() == 0U) &&
         ((int32_t)(now - g_uds_last_ms) >= idle_limit))
     {
-      /* 入睡失败退避（fw 1.1.77）：sit1145_sleep_config 失败时本次不睡，
-       * 旧逻辑 g_uds_last_ms 不刷新 → 下一轮 poll 立刻重试——每轮 SPI
-       * 回读+诊断帧 ~1s，形成「E0~E3 连发十几组」刷屏风暴（2026-11-10
-       * 实测）。失败后 1s 内不重试；成功入睡不返回此处无需退避。 */
+      /* 入睡失败退避：sleep_config/commit 失败后 1s 内不重试，
+       * 避免每轮 poll 立刻重试造成 E0~E3 诊断帧刷屏。 */
       static uint32_t s_sleep_retry_after_ms = 0U;
       if ((int32_t)(now - s_sleep_retry_after_ms) >= 0)
       {
@@ -3705,19 +3551,15 @@ void can_protocol_poll(void)
         }
         return;
       }
-      /* 退避窗口内不重试，继续 poll 其余判定 */
+      /* 退避窗口内不重试 */
     }
   }
 #endif
 
   if (current_session != SESSION_DEFAULT)
   {
-    /* 有符号比较（fw 1.1.79，同上方睡眠判定风格）：proto_flush_pending_tx
-     * 在本检查之前（3505）——MF 应答冲刷可阻塞数秒，期间 isotp_wait_cts
-     * 内联处理的踢帧经 uds_process_message 把 last_tester_present_tick 刷成
-     * now+数秒；回到此处无符号 now-tick 下溢成巨大值 ≥30s → 会话被无条件
-     * 误杀（实测 2E 20 10 回 NRC 0x22 的根因：AA55 标记会话字节 02→01
-     * 恰发生在种子 MF 滴流窗口）。 */
+    /* 有符号比较：flush 可能阻塞数秒，期间 last_tester_present_tick 可能
+     * 被刷成未来值；无符号 now-tick 会下溢误判超时、无条件杀会话。 */
     if ((int32_t)(now - last_tester_present_tick) >= (int32_t)SESSION_TIMEOUT_MS)
     {
       session_reset_to_default();
@@ -3787,10 +3629,8 @@ void can_proto_qi_version_probe(void)
   /* 上电后给 Qi 芯片下发功率配置（NVM 档位，chip 掉电丢失配置须重发） */
   qi_apply_power_cfg();
 
-  /* 被动监听 CMD 0x01 上报（不主动发 CMD 0x03）。
-   * 监听期间 g_qi_fw_version_valid 只由帧回调置 1 = 实时上报到达；
-   * 切勿预先加载 Flash 版本置 valid，否则此循环立即退出，实时
-   * 版本永远收不到、Flash 也不会更新（升级后断电读回旧版本的根因）。 */
+  /* 被动监听 CMD 0x01（不发 CMD 0x03）。valid 只由帧回调置 1；
+   * 勿预先加载 Flash 置 valid，否则循环立即退出、实时版本收不到。 */
   t0 = timer_get_tick();
   while ((timer_get_tick() - t0) < QI_VER_PROBE_LISTEN_MS)
   {

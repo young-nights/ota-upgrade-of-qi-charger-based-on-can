@@ -53,7 +53,7 @@ extern "C" {
 #include "app_config.h"
 
 /**
- * @brief  低功耗模式：Sleep（唯一模式，2026-10-16 起 Standby 路径已移除）
+ * @brief  低功耗模式：Sleep（唯一模式；无 Standby 路径）
  * @note   SIT1145 进 Sleep：SPI 关闭，CAN 唤醒（CWE），PA11/RXD 电平检测唤醒。
  *         唤醒后芯片自动回 Standby（芯片硬件行为），SPI 恢复可用，再切 Normal。
  *         CAN_LP_SLEEP_ENABLE=1 时生效。
