@@ -13,7 +13,7 @@ namespace ProductionStationTool.App;
 /// 本机设置页（按类型分页）：
 ///  「机位与网络」——机位命名（写 machine.json + 留痕）、查看本机 IP、
 ///    服务器连通检测、跳转系统网络设置改 IP（应用内不直改）；
-///  「检测参数」——步骤 5 双线圈检测参数（电流阈值/窗口/超时），保存后下次测试生效。
+///  「检测参数」——步骤 5 双线圈检测参数（上下限/检测窗口/超时），保存后下次测试生效。
 /// </summary>
 public partial class SettingsWindow : Window
 {
@@ -275,9 +275,7 @@ public partial class SettingsWindow : Window
         BoxAUpper.Text = o.CoilAUpperA.ToString("0.##");
         BoxBLower.Text = o.CoilBLowerA.ToString("0.##");
         BoxBUpper.Text = o.CoilBUpperA.ToString("0.##");
-        BoxAWindowSec.Text = (o.CoilACollectMs / 1000.0).ToString("0.##");
-        BoxBSustainSec.Text = (o.CoilBSustainMs / 1000.0).ToString("0.##");
-        BoxTransitionSec.Text = (o.TransitionMs / 1000.0).ToString("0.##");
+        BoxDetectionWindowSec.Text = (o.DetectionWindowMs / 1000.0).ToString("0.##");
         BoxSampleIntervalMs.Text = o.SampleIntervalMs.ToString("0");
         BoxTimeoutSec.Text = (o.OverallTimeoutMs / 1000.0).ToString("0.##");
     }
@@ -299,13 +297,11 @@ public partial class SettingsWindow : Window
         var aHigh = ParseD(BoxAUpper, d.CoilAUpperA);
         var bLow = ParseD(BoxBLower, d.CoilBLowerA);
         var bHigh = ParseD(BoxBUpper, d.CoilBUpperA);
-        var aWin = ParseD(BoxAWindowSec, d.CoilACollectMs / 1000.0);
-        var bSus = ParseD(BoxBSustainSec, d.CoilBSustainMs / 1000.0);
-        var trans = ParseD(BoxTransitionSec, d.TransitionMs / 1000.0);
+        var detWin = ParseD(BoxDetectionWindowSec, d.DetectionWindowMs / 1000.0);
         var samp = ParseD(BoxSampleIntervalMs, d.SampleIntervalMs);
         var tOut = ParseD(BoxTimeoutSec, d.OverallTimeoutMs / 1000.0);
 
-        var err = MachineConfig.ValidateCoil(aLow, aHigh, bLow, bHigh, aWin, bSus, tOut, trans, samp);
+        var err = MachineConfig.ValidateCoil(aLow, aHigh, bLow, bHigh, detWin, tOut, samp);
         if (err is not null)
         {
             TxtCoilSaveResult.Text = err;
@@ -319,9 +315,7 @@ public partial class SettingsWindow : Window
             CoilAUpperA = aHigh,
             CoilBLowerA = bLow,
             CoilBUpperA = bHigh,
-            CoilACollectMs = (int)(aWin * 1000),
-            CoilBSustainMs = (int)(bSus * 1000),
-            TransitionMs = (int)(trans * 1000),
+            DetectionWindowMs = (int)(detWin * 1000),
             SampleIntervalMs = (int)samp,
             OverallTimeoutMs = (int)(tOut * 1000),
         };

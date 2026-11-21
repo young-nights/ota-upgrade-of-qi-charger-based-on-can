@@ -10,8 +10,8 @@ namespace ProductionStationTool.App.Utilities;
 /// <summary>
 /// 本机配置（程序目录 machine.json）：
 ///   { "stationNo": 1, "machineId": "1", "serverHost": "192.168.10.10",
-///     "coilAThresholdA": 1.0, "coilBThresholdA": 1.0,
-///     "coilACollectMs": 10000, "coilBSustainMs": 3000, "overallTimeoutMs": 60000 }
+///     "coilALowerA": 1.0, "coilAUpperA": 2.0, "coilBLowerA": 1.0,
+///     "coilBUpperA": 2.0, "detectionWindowMs": 10000, "overallTimeoutMs": 60000 }
 /// 分两类：机位身份/服务器地址（「机位与网络」设置页）、步骤 5 双线圈检测参数
 /// （「检测参数」设置页）。保存任一类都保留另一类；变更写 machine_change.log 留痕。
 /// </summary>
@@ -41,15 +41,17 @@ public static class MachineConfig
         // 下限 = 旧阈值，上限 = 旧阈值×2（保持旧「≥阈值」行为不突变）
         double legacyA = cfg.CoilAThresholdA > 0 ? cfg.CoilAThresholdA : 1.0;
         double legacyB = cfg.CoilBThresholdA > 0 ? cfg.CoilBThresholdA : 1.0;
+        // detectionWindowMs 为新键；旧 machine.json 的 coilACollectMs 继续兼容
+        int detectionWindow = cfg.DetectionWindowMs > 0
+            ? cfg.DetectionWindowMs
+            : (cfg.CoilACollectMs > 0 ? cfg.CoilACollectMs : 10_000);
         return new CoilTestOptions
         {
             CoilALowerA = cfg.CoilALowerA > 0 ? cfg.CoilALowerA.Value : legacyA,
             CoilAUpperA = cfg.CoilAUpperA > 0 ? cfg.CoilAUpperA.Value : legacyA * 2,
             CoilBLowerA = cfg.CoilBLowerA > 0 ? cfg.CoilBLowerA.Value : legacyB,
             CoilBUpperA = cfg.CoilBUpperA > 0 ? cfg.CoilBUpperA.Value : legacyB * 2,
-            CoilACollectMs = cfg.CoilACollectMs > 0 ? cfg.CoilACollectMs : 10_000,
-            CoilBSustainMs = cfg.CoilBSustainMs > 0 ? cfg.CoilBSustainMs : 3_000,
-            TransitionMs = cfg.TransitionMs > 0 ? cfg.TransitionMs : 2_000,
+            DetectionWindowMs = detectionWindow,
             SampleIntervalMs = cfg.SampleIntervalMs > 0 ? cfg.SampleIntervalMs : 200,
             OverallTimeoutMs = cfg.OverallTimeoutMs > 0 ? cfg.OverallTimeoutMs : 60_000,
         };
@@ -74,8 +76,7 @@ public static class MachineConfig
     /// <summary>校验检测参数（秒）；返回 null 表示通过。</summary>
     public static string? ValidateCoil(double aLower, double aUpper,
         double bLower, double bUpper,
-        double aWindowSec, double bSustainSec, double timeoutSec, double transitionSec,
-        double sampleIntervalMs)
+        double detectionWindowSec, double timeoutSec, double sampleIntervalMs)
     {
         if (aLower <= 0 || aUpper <= 0 || bLower <= 0 || bUpper <= 0)
             return "电流上下限需大于 0";
@@ -83,16 +84,15 @@ public static class MachineConfig
             return "A 下限需小于 A 上限";
         if (bLower >= bUpper)
             return "B 下限需小于 B 上限";
-        if (aWindowSec <= 0 || bSustainSec <= 0)
-            return "A 窗口 / B 持续需大于 0";
-        if (transitionSec <= 0)
-            return "跌落确认需大于 0";
+        double minEffectiveSec = new CoilTestOptions().MinEffectiveMs / 1000.0;
+        if (detectionWindowSec < minEffectiveSec)
+            return $"检测窗口需至少 {minEffectiveSec:0.#}s（有效检测时间下限）";
         if (sampleIntervalMs < 50 || sampleIntervalMs > 5000)
             return "采样间隔需在 50~5000 ms 之间";
         if (timeoutSec <= 0)
             return "整体超时需大于 0";
-        if (timeoutSec <= aWindowSec)
-            return "整体超时需大于 A 窗口（否则 A 未采完即超时）";
+        if (timeoutSec <= detectionWindowSec)
+            return "整体超时需大于检测窗口（否则 A 未采完即超时）";
         return null;
     }
 
@@ -133,18 +133,15 @@ public static class MachineConfig
         cfg.CoilAUpperA = o.CoilAUpperA;
         cfg.CoilBLowerA = o.CoilBLowerA;
         cfg.CoilBUpperA = o.CoilBUpperA;
-        cfg.CoilACollectMs = o.CoilACollectMs;
-        cfg.CoilBSustainMs = o.CoilBSustainMs;
-        cfg.TransitionMs = o.TransitionMs;
+        cfg.DetectionWindowMs = o.DetectionWindowMs;
+        cfg.CoilACollectMs = o.DetectionWindowMs;   // 旧键同步，兼容旧版本读取
         cfg.SampleIntervalMs = o.SampleIntervalMs;
         cfg.OverallTimeoutMs = o.OverallTimeoutMs;
         WriteCfg(cfg);
 
         if (before.CoilALowerA == o.CoilALowerA && before.CoilAUpperA == o.CoilAUpperA &&
             before.CoilBLowerA == o.CoilBLowerA && before.CoilBUpperA == o.CoilBUpperA &&
-            before.CoilACollectMs == o.CoilACollectMs &&
-            before.CoilBSustainMs == o.CoilBSustainMs &&
-            before.TransitionMs == o.TransitionMs &&
+            before.DetectionWindowMs == o.DetectionWindowMs &&
             before.SampleIntervalMs == o.SampleIntervalMs &&
             before.OverallTimeoutMs == o.OverallTimeoutMs)
             return;
@@ -152,9 +149,7 @@ public static class MachineConfig
         File.AppendAllText(ChangeLogPath,
             $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  检测参数 A区间 {before.CoilALowerA:F2}~{before.CoilAUpperA:F2}→{o.CoilALowerA:F2}~{o.CoilAUpperA:F2}A" +
             $" / B区间 {before.CoilBLowerA:F2}~{before.CoilBUpperA:F2}→{o.CoilBLowerA:F2}~{o.CoilBUpperA:F2}A" +
-            $" / A窗口 {before.CoilACollectMs / 1000.0:F1}→{o.CoilACollectMs / 1000.0:F1}s" +
-            $" / B持续 {before.CoilBSustainMs / 1000.0:F1}→{o.CoilBSustainMs / 1000.0:F1}s" +
-            $" / 跌落确认 {before.TransitionMs / 1000.0:F1}→{o.TransitionMs / 1000.0:F1}s" +
+            $" / 检测窗口 {before.DetectionWindowMs / 1000.0:F1}→{o.DetectionWindowMs / 1000.0:F1}s" +
             $" / 采样间隔 {before.SampleIntervalMs}→{o.SampleIntervalMs}ms" +
             $" / 超时 {before.OverallTimeoutMs / 1000.0:F0}→{o.OverallTimeoutMs / 1000.0:F0}s" +
             $"  ({Environment.MachineName})\n");
@@ -295,9 +290,8 @@ public static class MachineConfig
         public double? CoilBUpperA { get; set; }
         public double CoilAThresholdA { get; set; }   // legacy：迁移后被上/下限取代
         public double CoilBThresholdA { get; set; }   // legacy
-        public int CoilACollectMs { get; set; } = 10_000;
-        public int CoilBSustainMs { get; set; } = 3_000;
-        public int TransitionMs { get; set; } = 2_000;
+        public int DetectionWindowMs { get; set; }       // 新键；0=旧配置，回退 CoilACollectMs
+        public int CoilACollectMs { get; set; }       // legacy：旧 A 窗口键，读时兼容
         public int SampleIntervalMs { get; set; } = 200;
         public int OverallTimeoutMs { get; set; } = 60_000;
 
