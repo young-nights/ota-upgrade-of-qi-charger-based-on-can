@@ -18,6 +18,7 @@ namespace ProductionStationTool.App;
 /// 本页监听端口按连接远端 IP 自动登记（station_access.json），检测到接入自动生成
 /// 状态卡片（在线/离线、最近接入、测试概况、允许/禁止接入），无需手动录入。
 /// 「数据库表格」按时间/工位/机位/结果筛选 test_records，结果绿 PASS 红 FAIL。
+/// 「设置 → 良率统计设置」维护弃用记录是否计入良率，进入需再次验证管理密码。
 /// </summary>
 public partial class SummaryMachinePage : UserControl
 {
@@ -54,6 +55,17 @@ public partial class SummaryMachinePage : UserControl
     }
 
     // ================= 顶部横幅菜单（汇总机独立设置） =================
+
+    private void MenuYieldSettings_Click(object sender, RoutedEventArgs e)
+    {
+        // 二次验证：即使已登录汇总机，进入良率统计设置仍需再次输入管理密码
+        var owner = Window.GetWindow(this);
+        if (!AdminPasswordWindow.Verify(owner, "良率统计设置"))
+            return;
+        var win = new YieldSettingsWindow { Owner = owner };
+        win.ShowDialog();
+        RefreshCards();   // 口径可能变化，立即刷新卡片良率
+    }
 
     private void MenuSetPassword_Click(object sender, RoutedEventArgs e)
     {
@@ -143,7 +155,7 @@ public partial class SummaryMachinePage : UserControl
         var statsByCode = new Dictionary<string, MachineTestStats>(StringComparer.OrdinalIgnoreCase);
         using (var store = new SqliteTestRecordStore())
         {
-            // 良率口径：「设置 → 数据管理」可调（弃用记录是否计入）
+            // 良率口径：汇总机「设置 → 良率统计设置」可调（弃用记录是否计入）
             foreach (var s in store.StatsByMachine(MachineConfig.LoadYieldExcludeAbandoned()))
                 statsByCode[CodeOf(s.StationNo, s.MachineId)] = s;
         }

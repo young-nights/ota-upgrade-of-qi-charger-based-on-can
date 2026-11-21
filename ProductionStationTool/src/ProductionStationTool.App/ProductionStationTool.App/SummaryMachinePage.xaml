@@ -9,6 +9,8 @@
             <Grid>
                 <Menu Background="Transparent" FontSize="14">
                     <MenuItem Header="设置">
+                        <MenuItem Header="良率统计设置…" Click="MenuYieldSettings_Click"/>
+                        <Separator/>
                         <MenuItem Header="设置汇总机密码…" Click="MenuSetPassword_Click"/>
                     </MenuItem>
                 </Menu>
