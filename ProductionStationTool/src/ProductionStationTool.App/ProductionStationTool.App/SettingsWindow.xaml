@@ -118,42 +118,64 @@
                                        FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,10,0,12"/>
 
-                            <UniformGrid Columns="3">
-                                <StackPanel Margin="0,0,8,0"
-                                            ToolTip="A 下限：A 线圈电流爬坡达到此值后开始采样；均值低于此值判低流异常（默认 1.0A）">
-                                    <TextBlock Text="A 下限 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxALower" Style="{StaticResource FieldBox}" Text="1.0"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- 第 1 行：A 上限 / B 上限 -->
+                                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,10"
                                             ToolTip="A 上限：A 线圈均值电流高于此值判过流异常（默认 2.0A）">
                                     <TextBlock Text="A 上限 (A)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxAUpper" Style="{StaticResource FieldBox}" Text="2.0"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
-                                            ToolTip="B 下限：B 线圈电流达到此值后开始采样；均值低于此值判低流异常（默认 1.0A）">
-                                    <TextBlock Text="B 下限 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxBLower" Style="{StaticResource FieldBox}" Text="1.0"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="8,0,0,10"
                                             ToolTip="B 上限：B 线圈均值电流高于此值判过流异常（默认 2.0A）">
                                     <TextBlock Text="B 上限 (A)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxBUpper" Style="{StaticResource FieldBox}" Text="2.0"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
+
+                                <!-- 第 2 行：A 下限 / B 下限 -->
+                                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0"
+                                            ToolTip="A 下限：A 线圈电流爬坡达到此值后开始采样；均值低于此值判低流异常（默认 1.0A）">
+                                    <TextBlock Text="A 下限 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxALower" Style="{StaticResource FieldBox}" Text="1.0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,0"
+                                            ToolTip="B 下限：B 线圈电流达到此值后开始采样；均值低于此值判低流异常（默认 1.0A）">
+                                    <TextBlock Text="B 下限 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxBLower" Style="{StaticResource FieldBox}" Text="1.0"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 其余参数：检测窗口 / 采样间隔 / 整体超时 -->
+                            <Grid Margin="0,14,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,8,0"
                                             ToolTip="检测窗口：从开充起算，A/B 电流达到各自下限后到窗口结束取均值（默认 10s）；有效时间不足 2s 判无效">
                                     <TextBlock Text="检测窗口 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxDetectionWindowSec" Style="{StaticResource FieldBox}" Text="10"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
+                                <StackPanel Grid.Column="1" Margin="8,0,8,0"
                                             ToolTip="采样间隔：PowerZ 启动帧重发节奏（毫秒），决定采样频率 ≈ 1000/间隔 Hz。默认 200ms ≈ 5Hz；范围 50~5000">
                                     <TextBlock Text="采样间隔 (ms)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxSampleIntervalMs" Style="{StaticResource FieldBox}" Text="200"/>
                                 </StackPanel>
-                                <StackPanel ToolTip="整体超时：从开充起算，A 检测 + 换线圈 + B 检测全过程，超时判 FAIL（默认 60s）">
+                                <StackPanel Grid.Column="2" Margin="8,0,0,0"
+                                            ToolTip="整体超时：从开充起算，A 检测 + 换线圈 + B 检测全过程，超时判 FAIL（默认 60s）">
                                     <TextBlock Text="整体超时 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxTimeoutSec" Style="{StaticResource FieldBox}" Text="60"/>
                                 </StackPanel>
-                            </UniformGrid>
+                            </Grid>
 
                             <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                 <Button Content="保存检测参数" Width="150" Height="40"
