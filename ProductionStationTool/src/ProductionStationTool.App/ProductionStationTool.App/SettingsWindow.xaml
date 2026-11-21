@@ -224,7 +224,7 @@
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
                             <TextBlock Text="手动修正（记录级标记）" Style="{StaticResource SectionTitle}"/>
-                            <TextBlock Text="误判记录在此标记弃用/恢复、或修正「打印出库」标记，良率按汇总机「良率统计设置」口径自动重算。标记按 SN 生效（同 SN 各工位记录一起改）。按 SN 查询，留空查最近 200 条。"
+                            <TextBlock Text="误判记录在此标记弃用/恢复、或修正「打印出库」标记；弃用记录固定不计入良率。汇总机卡片如需显示修正值，在汇总机「设置 → 良率统计设置」中按机位填写。标记按 SN 生效（同 SN 各工位记录一起改）。按 SN 查询，留空查最近 200 条。"
                                        FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,10,0,12"/>
 
