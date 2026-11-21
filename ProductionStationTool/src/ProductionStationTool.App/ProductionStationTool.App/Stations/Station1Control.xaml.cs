@@ -284,8 +284,7 @@ public partial class Station1Control : UserControl, IStationPage
                     var (ok, detail) = await _can.EnableChargingAsync(ct);
                     _log.Append(ok ? $"步骤 4：{detail}" : $"步骤 4：开启充电失败 {detail}");
                     chargeOk = ok;
-                    FlowPanel.Mark(3, ok ? StepStatus.Passed : StepStatus.Failed,
-                        ok ? null : "开启充电失败，请检查设备后重试");      // ④ 完成定格
+                    FlowPanel.Mark(3, ok ? StepStatus.Passed : StepStatus.Failed);      // ④ 完成定格
                     if (!ok)
                         throw new InvalidOperationException("开启充电失败，请检查设备放置和充电功能后重试");
                     FlowPanel.Mark(4, StepStatus.Running);     // ⑤ 采样：开始（充电完成才到）

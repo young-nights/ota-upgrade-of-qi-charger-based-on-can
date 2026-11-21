@@ -129,8 +129,8 @@ public static class CoilCheck
                 {
                     lastReport = elapsed;
                     string hint = aHitT < 0
-                        ? $"A 等电流升到下限 {Math.Max(0, aWindowEnd - elapsed) / 1000.0:F0}s · {lastI:F2}A"
-                        : $"A 线圈检测中 {Math.Max(0, aWindowEnd - elapsed) / 1000.0:F0}s · {lastI:F2}A";
+                        ? $"A 等待达到下限 {Math.Max(0, aWindowEnd - elapsed) / 1000.0:F0}s · {lastI:F2}A"
+                        : $"A 采集中 {Math.Max(0, aWindowEnd - elapsed) / 1000.0:F0}s · {lastI:F2}A";
                     onProgress(new CoilProgress(hint, false, false, 0));
                 }
                 await Task.Delay(50, ct);
@@ -152,7 +152,7 @@ public static class CoilCheck
             if (winA.Count == 0)
             {
                 log?.Invoke("A 线圈：窗口内无采样");
-                onProgress?.Invoke(new CoilProgress("没有读到 PowerZ 电流", false, false, 0));
+                onProgress?.Invoke(new CoilProgress("A 窗口无有效采样", false, false, 0));
                 return new CoilJudgement(0, 0, 0, false, false, true,
                     new[] { "没有读到 PowerZ 电流数据（无有效采样），请检查 PowerZ 连接后重测" });
             }
@@ -161,7 +161,7 @@ public static class CoilCheck
             {
                 string why = $"A 线圈未达到下限 {opt.CoilALowerA:F2}A（检测窗口 {opt.DetectionWindowMs / 1000.0:F1} 秒内电流没升上来），请检查 A 线圈是否放好";
                 log?.Invoke(why);
-                onProgress?.Invoke(new CoilProgress("A 线圈电流没升到下限", true, false, 0));
+                onProgress?.Invoke(new CoilProgress("A 未达到下限", true, false, 0));
                 return new CoilJudgement(0, 0, 0, false, false, false, new[] { why });
             }
 
@@ -170,7 +170,7 @@ public static class CoilCheck
             {
                 string why = "A 线圈达到下限后没有采到电流数据（无有效采样），请检查 PowerZ 连接后重测";
                 log?.Invoke(why);
-                onProgress?.Invoke(new CoilProgress("A 线圈没采到电流", true, false, 0));
+                onProgress?.Invoke(new CoilProgress("A 有效采样为空", true, false, 0));
                 return new CoilJudgement(0, 0, 0, false, false, false, new[] { why });
             }
 
@@ -190,7 +190,7 @@ public static class CoilCheck
 
             bool aPass = avgI >= opt.CoilALowerA && avgI <= opt.CoilAUpperA;
             onProgress?.Invoke(new CoilProgress(
-                aPass ? "A 通过，请换 B 线圈" : "A 未通过",
+                aPass ? "A 通过，请换接 B 线圈" : "A 未通过",
                 true, aPass, avgI));
 
             if (!aPass)
@@ -241,8 +241,8 @@ public static class CoilCheck
                     lastBReport = now;
                     double overallRemain = Math.Max(0, opt.OverallTimeoutMs - now) / 1000.0;
                     string hint = sawBelowB
-                        ? $"等 B 线圈电流升到下限（整体剩余 {overallRemain:F0}s）· {lastI:F2}A"
-                        : $"请换 B 线圈（整体剩余 {overallRemain:F0}s）· {lastI:F2}A";
+                        ? $"等待 B 达到下限（整体剩余 {overallRemain:F0}s）· {lastI:F2}A"
+                        : $"请换接 B 线圈（整体剩余 {overallRemain:F0}s）· {lastI:F2}A";
                     onProgress(new CoilProgress(hint, true, true, avgI));
                 }
                 await Task.Delay(50, ct);
@@ -259,7 +259,7 @@ public static class CoilCheck
                 string why = $"B 线圈未接入或电流没达到下限 {opt.CoilBLowerA:F2}A（尾段均值 {tailAvg:F2}A），" +
                              $"整体超时；请换接 B 线圈后重测";
                 log?.Invoke(why);
-                onProgress?.Invoke(new CoilProgress("没检测到 B 线圈，已超时", true, true, avgI));
+                onProgress?.Invoke(new CoilProgress("B 未接入，整体超时", true, true, avgI));
                 return new CoilJudgement(avgV, avgI, tailAvg, true, false, false, new[] { why });
             }
 
@@ -291,7 +291,7 @@ public static class CoilCheck
                     lock (gate) lastI = samples.Count > 0 ? samples[^1].I : 0;
                     double overallRemain = Math.Max(0, opt.OverallTimeoutMs - now) / 1000.0;
                     onProgress(new CoilProgress(
-                        $"B 线圈检测中 {Math.Max(0, bWindowEnd - now) / 1000.0:F0}s（整体剩余 {overallRemain:F0}s）· {lastI:F2}A",
+                        $"B 采集中 {Math.Max(0, bWindowEnd - now) / 1000.0:F0}s（整体剩余 {overallRemain:F0}s）· {lastI:F2}A",
                         true, true, avgI));
                 }
                 await Task.Delay(50, ct);

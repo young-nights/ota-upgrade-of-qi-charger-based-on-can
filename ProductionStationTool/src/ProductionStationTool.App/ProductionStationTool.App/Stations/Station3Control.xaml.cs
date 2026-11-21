@@ -147,7 +147,8 @@ public partial class Station3Control : UserControl, IStationPage
         _log.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
         if (!await _can.WaitReadyAsync(ct))
         {
-            await FailEarly(0, "设备没有响应，请检查设备是否上电、CAN 线是否接好");
+            await FailEarly(0, "设备 8s 内无应答——请检查供电后重试",
+                "设备没有响应，请检查设备是否上电、CAN 线是否接好");
             return;
         }
         FlowPanel.Mark(0, StepStatus.Passed);
@@ -159,7 +160,8 @@ public partial class Station3Control : UserControl, IStationPage
         var sn = await _can.TryReadSnAsync(ct);
         if (string.IsNullOrEmpty(sn))
         {
-            await FailEarly(1, "没有读到设备 SN，无法关联数据库，请先确认设备已写入 SN");
+            await FailEarly(1, "SN 读取失败（设备未写 SN？），无法关联数据库",
+                "没有读到设备 SN，无法关联数据库，请先确认设备已写入 SN");
             return;
         }
         TxtSn.Text = sn;
@@ -180,7 +182,7 @@ public partial class Station3Control : UserControl, IStationPage
         _log.Append(chargeOk ? $"步骤 3：{chargeDetail}" : $"步骤 3：开启充电失败 {chargeDetail}");
         if (!chargeOk)
         {
-            FlowPanel.Mark(2, StepStatus.Failed, "开启充电失败，请检查设备后重试");
+            FlowPanel.Mark(2, StepStatus.Failed);
             FlowPanel.Mark(3, StepStatus.None);
             FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
@@ -276,12 +278,12 @@ public partial class Station3Control : UserControl, IStationPage
     }
 
     /// <summary>前序步骤失败：该步 FAIL，其后「未执行」，安全停充。</summary>
-    private async Task FailEarly(int step, string reason)
+    private async Task FailEarly(int step, string reason, string? displayReason = null)
     {
         FlowPanel.Mark(step, StepStatus.Failed, reason);
         for (var i = step + 1; i < 7; i++)
             FlowPanel.Mark(i, StepStatus.Waiting, "未执行（前序失败）");
-        ListAbnormal.Items.Add($"步骤 {step + 1} 失败：{reason}");
+        ListAbnormal.Items.Add($"步骤 {step + 1} 失败：{displayReason ?? reason}");
         SetResultBadge(false);
         _log.Append(reason);
         await SafeStopChargingAsync();
