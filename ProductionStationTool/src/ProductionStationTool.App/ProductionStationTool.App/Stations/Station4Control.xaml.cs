@@ -11,7 +11,7 @@ namespace ProductionStationTool.App.Stations;
 /// <summary>
 /// 工位 4 页面：出货门禁 + 打印 + 版本比对。
 /// 流程：连接设备 → 读 SN → 数据库门禁（工位1/2/3 全 PASS 才放行，Fail/未测即停）
-///       → SN 输出打印机（接口占位）→ 读软硬件版本与「设置 → 版本预设」比对，匹配才 PASS。
+///       → SN 输出打印机（接口占位）→ 读 MCU1/Qi/Boot/HW 四项版本与「设置 → 版本预设」比对，全匹配才 PASS。
 /// 防呆目的：前面工序的 FAIL 产品不放行到后续/出货。
 /// </summary>
 public partial class Station4Control : UserControl, IStationPage
@@ -61,7 +61,7 @@ public partial class Station4Control : UserControl, IStationPage
             "读取 SN 码",
             "数据库门禁（工位1/2/3 全 PASS）",
             "SN 打印出库",
-            "读取软硬件版本并与预设比对");
+            "读取 MCU1/Qi/Boot/HW 版本并与预设比对");
 
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
@@ -179,25 +179,40 @@ public partial class Station4Control : UserControl, IStationPage
             _log.Append($"步骤 4：SN {sn} 已标记打印出库");
         }
 
-        // ⑤ 读取软硬件版本并与预设比对
+        // ⑤ 读取 MCU1/Qi/Boot/HW 四项版本并与预设比对
         FlowPanel.Mark(4, StepStatus.Running);
-        _log.Append("步骤 5：读取软硬件版本…");
+        _log.Append("步骤 5：读取四项版本…");
         var vs = await _can.TryReadAllVersionsAsync();
-        var (sw, hw) = MachineConfig.LoadVersionPresets();
-        var swOk = ShowVersionCard(CardSw, TxtSwVerdict, TxtSwRead, TxtSwPreset, "软件版本", vs.Mcu1App, sw);
-        var hwOk = ShowVersionCard(CardHw, TxtHwVerdict, TxtHwRead, TxtHwPreset, "硬件版本", vs.Hardware, hw);
-        _log.Append($"步骤 5：软件 {vs.Mcu1App ?? "(读取失败)"} vs 预设 {Show(sw)}" +
-                    $" → {(swOk ? "匹配" : "不匹配")}；硬件 {vs.Hardware ?? "(读取失败)"} vs 预设 {Show(hw)}" +
+        var vp = MachineConfig.LoadVersionPresets();
+        var mcu1Ok = ShowVersionCard(CardMcu1, TxtMcu1Verdict, TxtMcu1Read, TxtMcu1Preset,
+            vs.Mcu1App, vp.Mcu1App);
+        var mcu2Ok = ShowVersionCard(CardMcu2, TxtMcu2Verdict, TxtMcu2Read, TxtMcu2Preset,
+            vs.Mcu2Qi, vp.Mcu2Qi);
+        var bootOk = ShowVersionCard(CardBoot, TxtBootVerdict, TxtBootRead, TxtBootPreset,
+            vs.Bootloader, vp.Bootloader);
+        var hwOk = ShowVersionCard(CardHw, TxtHwVerdict, TxtHwRead, TxtHwPreset,
+            vs.Hardware, vp.Hardware);
+        _log.Append($"步骤 5：MCU1 {vs.Mcu1App ?? "(读取失败)"} vs 预设 {Show(vp.Mcu1App)}" +
+                    $" → {(mcu1Ok ? "匹配" : "不匹配")}");
+        _log.Append($"步骤 5：MCU2 {vs.Mcu2Qi ?? "(读取失败)"} vs 预设 {Show(vp.Mcu2Qi)}" +
+                    $" → {(mcu2Ok ? "匹配" : "不匹配")}");
+        _log.Append($"步骤 5：Boot {vs.Bootloader ?? "(读取失败)"} vs 预设 {Show(vp.Bootloader)}" +
+                    $" → {(bootOk ? "匹配" : "不匹配")}");
+        _log.Append($"步骤 5：硬件 {vs.Hardware ?? "(读取失败)"} vs 预设 {Show(vp.Hardware)}" +
                     $" → {(hwOk ? "匹配" : "不匹配")}");
-        var versionOk = swOk && hwOk;
+        var versionOk = mcu1Ok && mcu2Ok && bootOk && hwOk;
         FlowPanel.Mark(4, versionOk ? StepStatus.Passed : StepStatus.Failed,
-            versionOk ? null : "软硬件版本与预设不匹配");
+            versionOk ? null : "四项版本与预设不匹配");
         if (!versionOk)
         {
-            if (!swOk)
-                ListAbnormal.Items.Add($"软件版本不匹配：读取 {Show(vs.Mcu1App)} / 预设 {Show(sw)}");
+            if (!mcu1Ok)
+                ListAbnormal.Items.Add($"MCU1 APP 版本不匹配：读取 {Show(vs.Mcu1App)} / 预设 {Show(vp.Mcu1App)}");
+            if (!mcu2Ok)
+                ListAbnormal.Items.Add($"MCU2 Qi 版本不匹配：读取 {Show(vs.Mcu2Qi)} / 预设 {Show(vp.Mcu2Qi)}");
+            if (!bootOk)
+                ListAbnormal.Items.Add($"Bootloader 版本不匹配：读取 {Show(vs.Bootloader)} / 预设 {Show(vp.Bootloader)}");
             if (!hwOk)
-                ListAbnormal.Items.Add($"硬件版本不匹配：读取 {Show(vs.Hardware)} / 预设 {Show(hw)}");
+                ListAbnormal.Items.Add($"硬件版本不匹配：读取 {Show(vs.Hardware)} / 预设 {Show(vp.Hardware)}");
         }
 
         SetResultBadge(versionOk);
@@ -261,7 +276,7 @@ public partial class Station4Control : UserControl, IStationPage
 
     /// <summary>版本比对卡：预设为空=未预设（未通过）；读取与预设忽略大小写/首尾空白比对。</summary>
     private static bool ShowVersionCard(Border card, TextBlock verdict, TextBlock read, TextBlock preset,
-        string label, string? readValue, string presetValue)
+        string? readValue, string presetValue)
     {
         read.Text = $"读取：{Show(readValue)}";
         preset.Text = $"预设：{Show(presetValue)}";
@@ -293,7 +308,9 @@ public partial class Station4Control : UserControl, IStationPage
     {
         foreach (var (card, verdict, read, preset) in new[]
                  {
-                     (CardSw, TxtSwVerdict, TxtSwRead, TxtSwPreset),
+                     (CardMcu1, TxtMcu1Verdict, TxtMcu1Read, TxtMcu1Preset),
+                     (CardMcu2, TxtMcu2Verdict, TxtMcu2Read, TxtMcu2Preset),
+                     (CardBoot, TxtBootVerdict, TxtBootRead, TxtBootPreset),
                      (CardHw, TxtHwVerdict, TxtHwRead, TxtHwPreset),
                  })
         {

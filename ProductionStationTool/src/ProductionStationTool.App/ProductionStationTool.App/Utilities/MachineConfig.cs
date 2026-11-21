@@ -20,6 +20,13 @@ public static class MachineConfig
     /// <summary>默认服务器地址（doc 18/21 的 QI-SERVER）。</summary>
     public const string DefaultServerHost = "192.168.10.10";
 
+    // 工位 4 四项版本预设的出厂默认值（当前量产固件版本）；
+    // 操作员可在「设置 → 版本预设」中修改，machine.json 显式留空则不比对通过。
+    private const string DefaultPresetMcu1App = "QC_JYF_MCU1_FW_1.2.3";
+    private const string DefaultPresetMcu2Qi = "QC_JYF_MCU2_FW_1.2.3";
+    private const string DefaultPresetBootloader = "QC_JYF_BL_1.0.0";
+    private const string DefaultPresetHardware = "QC_JYF_HW_1.1.5";
+
     public static StationIdentity Load() => LoadSettings().Identity;
 
     public static string LoadServerHost() => LoadSettings().ServerHost;
@@ -155,29 +162,61 @@ public static class MachineConfig
             $"  ({Environment.MachineName})\n");
     }
 
-    /// <summary>工位 4 版本预设（软件/硬件版本串），读取值与之比对。空 = 未预设。</summary>
-    public static (string Sw, string Hw) LoadVersionPresets()
+    /// <summary>
+    /// 工位 4 四项版本预设：MCU1 APP / MCU2 Qi / Bootloader / 硬件。
+    /// 读取值与之逐项比对，空 = 该项未预设。
+    /// </summary>
+    public static VersionPresets LoadVersionPresets()
     {
         var cfg = ReadCfgOrDefault();
-        return (cfg.PresetSwVersion?.Trim() ?? "", cfg.PresetHwVersion?.Trim() ?? "");
+        // 新键存在（含显式空串）优先；否则用旧版 machine.json 的软件/硬件项；
+        // 旧键也不存在才用出厂默认值。
+        return new VersionPresets(
+            ResolvePreset(cfg.PresetMcu1App, cfg.PresetSwVersion, DefaultPresetMcu1App),
+            ResolvePreset(cfg.PresetMcu2Qi, null, DefaultPresetMcu2Qi),
+            ResolvePreset(cfg.PresetBootloader, null, DefaultPresetBootloader),
+            ResolvePreset(cfg.PresetHardware, cfg.PresetHwVersion, DefaultPresetHardware));
     }
 
-    /// <summary>保存工位 4 版本预设；变更时写 machine_change.log 留痕。</summary>
-    public static void SaveVersionPresets(string sw, string hw)
+    /// <summary>保存工位 4 四项版本预设；变更时写 machine_change.log 留痕。</summary>
+    public static void SaveVersionPresets(string mcu1App, string mcu2Qi, string bootloader, string hardware)
     {
-        sw = sw.Trim();
-        hw = hw.Trim();
+        mcu1App = mcu1App.Trim();
+        mcu2Qi = mcu2Qi.Trim();
+        bootloader = bootloader.Trim();
+        hardware = hardware.Trim();
         var cfg = ReadCfgOrDefault();
-        var before = (cfg.PresetSwVersion?.Trim() ?? "", cfg.PresetHwVersion?.Trim() ?? "");
-        cfg.PresetSwVersion = sw;
-        cfg.PresetHwVersion = hw;
+        var before = LoadVersionPresets();
+        var after = new VersionPresets(mcu1App, mcu2Qi, bootloader, hardware);
+        cfg.PresetMcu1App = mcu1App;
+        cfg.PresetMcu2Qi = mcu2Qi;
+        cfg.PresetBootloader = bootloader;
+        cfg.PresetHardware = hardware;
+        // 旧键同步：旧版本程序仍按软件/硬件两项读取
+        cfg.PresetSwVersion = mcu1App;
+        cfg.PresetHwVersion = hardware;
         WriteCfg(cfg);
 
-        if (before == (sw, hw))
+        if (before == after)
             return;
         File.AppendAllText(ChangeLogPath,
-            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  版本预设 SW {ShowOrDash(before.Item1)}→{ShowOrDash(sw)}" +
-            $" / HW {ShowOrDash(before.Item2)}→{ShowOrDash(hw)}  ({Environment.MachineName})\n");
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  版本预设" +
+            $" MCU1 {ShowOrDash(before.Mcu1App)}→{ShowOrDash(mcu1App)}" +
+            $" / QI {ShowOrDash(before.Mcu2Qi)}→{ShowOrDash(mcu2Qi)}" +
+            $" / BL {ShowOrDash(before.Bootloader)}→{ShowOrDash(bootloader)}" +
+            $" / HW {ShowOrDash(before.Hardware)}→{ShowOrDash(hardware)}" +
+            $"  ({Environment.MachineName})\n");
+    }
+
+    private static string ResolvePreset(string? current, string? legacy, string fallback)
+    {
+        // 键存在即以其值为准（"" 也是显式留空）；旧机器配置没有新键，回退旧键；
+        // 新旧键都没有才用出厂默认。
+        if (current is not null)
+            return current.Trim();
+        if (legacy is not null)
+            return legacy.Trim();
+        return fallback;
     }
 
     /// <summary>标签设计器规格（「打印机设置」页：尺寸/打印机参数/对象排版/条码）。</summary>
@@ -298,9 +337,14 @@ public static class MachineConfig
         // 汇总机管理密码（SHA-256 十六进制；空 = 默认密码 admin123）
         public string SummaryPasswordSha256 { get; set; } = "";
 
-        // 工位 4 版本预设（软件/硬件版本串；空 = 未预设）
-        public string PresetSwVersion { get; set; } = "";
-        public string PresetHwVersion { get; set; } = "";
+        // 工位 4 四项版本预设（null=键不存在，读取时用旧键/出厂默认；""=显式留空）
+        public string? PresetMcu1App { get; set; }
+        public string? PresetMcu2Qi { get; set; }
+        public string? PresetBootloader { get; set; }
+        public string? PresetHardware { get; set; }
+        // legacy：旧版只有软件/硬件两项，读取时迁移到 MCU1 APP / 硬件
+        public string? PresetSwVersion { get; set; }
+        public string? PresetHwVersion { get; set; }
 
         // 良率统计口径（「数据管理」页）：true = 弃用记录不计入良率（默认）
         public bool YieldExcludeAbandoned { get; set; } = true;
@@ -315,3 +359,6 @@ public sealed record MachineSettings(int StationNo, string MachineId, string Ser
 {
     public StationIdentity Identity => new(StationNo, MachineId);
 }
+
+/// <summary>工位 4 四项版本预设；空字符串 = 该项未预设。</summary>
+public sealed record VersionPresets(string Mcu1App, string Mcu2Qi, string Bootloader, string Hardware);

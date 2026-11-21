@@ -107,8 +107,8 @@
                         <controls:CoilJudgeCard x:Name="CardGate3" Grid.Column="4" Title="工位 3"/>
                     </Grid>
 
-                    <!-- 版本比对 -->
-                    <TextBlock Grid.Row="4" Text="软硬件版本比对（预设在 设置 → 版本预设）"
+                    <!-- 版本比对：MCU1 APP / MCU2 Qi / Bootloader / 硬件，四项全匹配才 PASS -->
+                    <TextBlock Grid.Row="4" Text="四项版本比对（预设在 设置 → 版本预设）"
                                Style="{StaticResource SectionTitle}" Margin="0,0,0,8"/>
                     <Grid Grid.Row="5" Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
@@ -116,22 +116,59 @@
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Border x:Name="CardSw" Grid.Column="0" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="10"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Border x:Name="CardMcu1" Grid.Row="0" Grid.Column="0"
+                                Background="{StaticResource FieldBgBrush}" CornerRadius="8" Padding="14">
                             <StackPanel>
-                                <TextBlock Text="软件版本（0xF195）" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtSwVerdict" Text="—" FontSize="16" FontWeight="Bold"
+                                <TextBlock Text="MCU1 APP 版本（0xF195）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtMcu1Verdict" Text="—" FontSize="16" FontWeight="Bold"
                                            Foreground="{StaticResource TextSecondaryBrush}"/>
-                                <TextBlock x:Name="TxtSwRead" Text="读取：—" FontSize="12"
+                                <TextBlock x:Name="TxtMcu1Read" Text="读取：—" FontSize="12"
                                            Foreground="{StaticResource TextSecondaryBrush}"
                                            TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                <TextBlock x:Name="TxtSwPreset" Text="预设：—" FontSize="12"
+                                <TextBlock x:Name="TxtMcu1Preset" Text="预设：—" FontSize="12"
                                            Foreground="{StaticResource TextSecondaryBrush}"
                                            TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
-                        <Border x:Name="CardHw" Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
+
+                        <Border x:Name="CardMcu2" Grid.Row="0" Grid.Column="2"
+                                Background="{StaticResource FieldBgBrush}" CornerRadius="8" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="MCU2 Qi 版本（0x2133）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtMcu2Verdict" Text="—" FontSize="16" FontWeight="Bold"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="TxtMcu2Read" Text="读取：—" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="TxtMcu2Preset" Text="预设：—" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="CardBoot" Grid.Row="2" Grid.Column="0"
+                                Background="{StaticResource FieldBgBrush}" CornerRadius="8" Padding="14">
+                            <StackPanel>
+                                <TextBlock Text="Bootloader 版本（0xF180）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtBootVerdict" Text="—" FontSize="16" FontWeight="Bold"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="TxtBootRead" Text="读取：—" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="TxtBootPreset" Text="预设：—" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="CardHw" Grid.Row="2" Grid.Column="2"
+                                Background="{StaticResource FieldBgBrush}" CornerRadius="8" Padding="14">
                             <StackPanel>
                                 <TextBlock Text="硬件版本（0xF193）" Style="{StaticResource FieldLabel}"/>
                                 <TextBlock x:Name="TxtHwVerdict" Text="—" FontSize="16" FontWeight="Bold"

@@ -199,7 +199,7 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 组件 | 版本号 | 版本字符串位置 |
 |------|--------|----------------|
-| APP 固件 | **QC_JYF_MCU1_FW_1.1.86**（关充清故障缓存——治欠压后再开充 0x22） | `can_protocol.c` → `SW_VERSION_STR` |
+| APP 固件 | **QC_JYF_MCU1_FW_1.1.87**（故障只透传不门禁开充——治欠压后再开充 0x22） | `can_protocol.c` → `SW_VERSION_STR` |
 | Bootloader | QC_JYF_BL_1.0.0 | `can_protocol.c` → `BOOTLOADER_VER_STR` |
 | 硬件版本 | QC_JYF_HW_1.1.5 | `can_protocol.c` → `HW_VERSION_STR` |
 
@@ -209,7 +209,8 @@ OTA / SN / 充电 / Qi 控制等主机操作由 **QiChargerStationTool**（维�
 
 | 日期 | 变更内容 |
 |------|----------|
-| 2026-11-21 | **fix(can): 关充清故障缓存——欠压后再开充不再卡 NRC 0x22（fw 1.1.86）**。场景：开充→欠压（Qi 上报 UVP，`g_qi_fault_code=0x05`）→关充→再开充回 `0x22 条件不满足`。根因：`2E 2101 01` 门禁查 `g_qi_fault_code!=0` 拒绝使能，但关充已 PB2 断电、Qi 芯片不再发状态帧，故障码无帧可清成永久粘住；会话/SA 其实都正常（日志 sid=0x2E 会话=0x03 安全=1）。修复：`DID_CHARGER_ENABLE` 写 `0x00` 时同步清 `g_qi_fault_code`/`g_qi_fod_status`/`g_qi_status_raw`/`g_qi_status2_raw`/`g_qi_charge_state`/`g_qi_device_present`/`g_qi_thermal_derate`——关充即故障上下文失效，重开后芯片重新上电、故障仍在由新帧重新置位。开充侧故障门禁保留。`SW_VERSION_STR` 1.1.85→**1.1.86** |
+| 2026-11-21 | **fix(can): 故障只透传不门禁开充——欠压后再开充不再卡 NRC 0x22（fw 1.1.87）**。场景：开充→欠压（Qi 上报 UVP，`g_qi_fault_code=0x05`）→关充→再开充回 `0x22 条件不满足`。用户定调：出现故障**只上报状态**即可，避免 0x22 等卡死充电操作，**不需要其他操作逻辑**，Qi 故障状态只透传给上位机/CCU。修复：删除 `DID_CHARGER_ENABLE` 写 0x01 时的 `g_qi_fault_code!=0 → NRC 0x22` 门禁（及 1.1.86 关充清缓存逻辑）——开/关充只看会话+SA+取值范围；故障仍由 Qi 状态帧全量镜像到 `g_qi_fault_code`/`g_qi_fod_status`/`g_qi_status_raw` 等，经 DID 0x210B/0x2109/0x2111 只读透传。`SW_VERSION_STR` 1.1.86→**1.1.87** |
+| 2026-11-21 | **fix(can): 关充清故障缓存——欠压后再开充不再卡 NRC 0x22（fw 1.1.86，已被 1.1.87 取代）**。场景：开充→欠压→关充→再开充回 0x22。根因：`2E 2101 01` 门禁查 `g_qi_fault_code!=0` 拒绝使能，关充后 PB2 断电、Qi 不再发帧，故障码永久粘住。1.1.86 曾在关充时清缓存；**1.1.87 按用户要求改为直接去掉故障门禁、故障只透传**。`SW_VERSION_STR` 1.1.85→1.1.86 |
 | 2026-11-12 | **fix(can/tool): ping 独立显示——设备放置指示不抢占磁铁/充电状态（fw 1.1.84）**。用户二订：ping（状态字节 b0）= 设备放置标识（1=已放置/0=未放置），单独显示，不参与磁铁/充电状态轮转。固件：DID 0x2117 派生去掉 ping 分支（0x01 不再产出；放置指示由 0x2111 b0 直读），五态=失能→充满→磁铁存在→充电中→未充电。上位机：磁铁大字五态轮转（紫色 ping 态移除）；仪表卡新增「设备放置」指示灯（绿=已放置/灰=未放置，独立于状态大字）；`DevicePlaced()` 编解码 + `DeriveDisplayState` 同步去 ping 分支；色例/ToolTip 更新。单测 22/22。SW_VERSION_STR=1.1.84 |
 | 2026-11-12 | **feat(can/tool): 充电状态六态——固件派生 DID 0x2117 + QiChargerStationTool 六态显示（fw 1.1.83）**。用户定义（上报数据第 5 字节=状态字节，b0=ping/b1=充电中/b2=充满）：①磁铁不存在·ping ②磁铁不存在·充电中 ③磁铁不存在·未充电 ④磁铁存在·未充电（hall=0）⑤充电失能 ⑥电已充满。优先级：失能→充满→磁铁存在→充电中→ping→未充电（满电不被充电中遮蔽）。固件：`can_protocol.c/h` 新增 `DID_QI_DISPLAY_STATE 0x2119`（fill_did_payload 按 hall PA0 + `g_qi_charger_enable` + `g_qi_status_raw` 现场派生，单一真相源）。上位机（QiChargerStationTool）：读 0x2119 显示六态（紫/绿/橙/红/蓝/青），老固件缺读时 `QiChipStatusCodec.DeriveDisplayState` 本地同规则兜底；磁铁大字、摘要行状态段、色例统一为六态名；`ChargingVerdict` 改走六态派生（statusRaw 可选参数带入 b0/b2）。单测 22/22（新增 ping/full/优先级断言）。SW_VERSION_STR=1.1.83 |
 | 2026-11-12 | **fix(can): Qi 升级前清空 Qi 版本缓存——版本号冲突治理（fw 1.1.82）**。现象：Qi IAP 中途失败变砖后，MCU1 缓存仍报旧版本（如 1.2.3）——未断电读 RAM 缓存兜旧、断电后上电探测 Flash 兜底又回读旧版本，与变砖实态冲突。修复：每次 MCU2 升级开始（31 擦除入口 `g_mcu2_mode=1` 分支）先清空版本缓存——新增 `can_proto_qi_version_cache_clear()`（RAM：`g_qi_ver_major/minor/patch=0`、`g_qi_fw_version_valid=0`、刷新标志清零）+ `device_info_clear_qi_version()`（NVM 整块读-改-写：`qi_fw_version_valid` 置 0xFF「未获取」、版本 3B 清零，保留 SN/pubkey；已是未获取态不擦写）。此后版本查询回 NRC 0x22（上层显示未知/0.0.0）；升级成功后由既有 37 后刷新路径（`can_proto_qi_version_refresh_blocking`）重新采集并落盘。SW_VERSION_STR=1.1.82 |

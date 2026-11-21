@@ -48,10 +48,12 @@ public partial class SettingsWindow : Window
         // 页 2：检测参数
         FillCoilFields(MachineConfig.LoadCoilOptions());
 
-        // 页 3：版本预设
-        var (sw, hw) = MachineConfig.LoadVersionPresets();
-        BoxPresetSw.Text = sw;
-        BoxPresetHw.Text = hw;
+        // 页 3：四项版本预设
+        var vp = MachineConfig.LoadVersionPresets();
+        BoxPresetMcu1.Text = vp.Mcu1App;
+        BoxPresetMcu2.Text = vp.Mcu2Qi;
+        BoxPresetBoot.Text = vp.Bootloader;
+        BoxPresetHw.Text = vp.Hardware;
 
         // 页 4：数据管理
         ChkYieldExclude.IsChecked = MachineConfig.LoadYieldExcludeAbandoned();
@@ -342,7 +344,8 @@ public partial class SettingsWindow : Window
     {
         try
         {
-            MachineConfig.SaveVersionPresets(BoxPresetSw.Text, BoxPresetHw.Text);
+            MachineConfig.SaveVersionPresets(
+                BoxPresetMcu1.Text, BoxPresetMcu2.Text, BoxPresetBoot.Text, BoxPresetHw.Text);
         }
         catch (Exception ex)
         {
