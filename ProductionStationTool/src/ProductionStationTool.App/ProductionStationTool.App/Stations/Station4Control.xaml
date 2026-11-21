@@ -22,7 +22,7 @@
                 <ColumnDefinition Width="5*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- 流程区 -->
+            <!-- 流程区 + 异常项（异常项固定在流程下方，避免数据展示区过高被截断） -->
             <Border Grid.Column="0" Style="{StaticResource Card}">
                 <DockPanel>
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
@@ -32,13 +32,33 @@
                                 Click="BtnLog_Click"
                                 ToolTip="弹出运行日志窗口（不占主页面）"/>
                     </Grid>
+
+                    <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="90"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="异常项" Style="{StaticResource SectionTitle}"
+                                   Margin="0,0,0,8"/>
+                        <ListBox x:Name="ListAbnormal" Grid.Row="1" FontSize="14"
+                                 Background="{StaticResource FieldBgBrush}"
+                                 BorderBrush="{StaticResource CardBorderBrush}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <controls:FlowStepsPanel x:Name="FlowPanel"/>
                     </ScrollViewer>
                 </DockPanel>
             </Border>
 
-            <!-- 数据展示区：结果/SN/打印三列一行，门禁与版本比对横向铺排，异常项列表占满剩余行 -->
+            <!-- 数据展示区：结果/SN/打印三列一行，门禁与版本比对横向铺排 -->
             <Border Grid.Column="2" Style="{StaticResource Card}">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -48,8 +68,6 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*" MinHeight="80"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
@@ -182,19 +200,6 @@
                         </Border>
                     </Grid>
 
-                    <!-- 异常项 -->
-                    <TextBlock Grid.Row="6" Text="异常项" Style="{StaticResource SectionTitle}"
-                               Margin="0,0,0,8"/>
-                    <ListBox x:Name="ListAbnormal" Grid.Row="7" FontSize="14"
-                             Background="{StaticResource FieldBgBrush}"
-                             BorderBrush="{StaticResource CardBorderBrush}"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
                 </Grid>
             </Border>
         </Grid>
