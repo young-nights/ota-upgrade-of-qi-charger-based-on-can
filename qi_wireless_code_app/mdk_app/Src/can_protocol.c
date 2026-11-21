@@ -55,7 +55,7 @@
 
 /* 跳版本说明：1.1.9/1.1.10 的版本串已被 TC-0508 十个测试镜像占用，且打包   */
 /* 输出名 app_image_vX_Y_Z.bin 会与既有测试镜像文件名冲突，故 1.1.8→1.1.11  */
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.85";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.86";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2248,6 +2248,19 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         {
           proto_send_nrc(UDS_SID_WRITE_DATA_BY_ID, UDS_NRC_CONDITIONS_NOT_CORRECT);
           return;
+        }
+        /* 关充即清故障缓存：关充后 PB2 断电、Qi 芯片不再上报，欠压等
+         * 故障码若不清会永久卡死下次开充（0x2101=1 → NRC 0x22）。
+         * 重开后芯片重新上电，若故障仍在会由新状态帧重新置位。 */
+        if (val == 0x00U)
+        {
+          g_qi_fault_code       = 0x00U;
+          g_qi_fod_status       = 0x00U;
+          g_qi_status_raw       = 0x00U;
+          g_qi_status2_raw      = 0x00U;
+          g_qi_charge_state     = QI_CHARGE_DISABLED;
+          g_qi_device_present   = 0U;
+          g_qi_thermal_derate   = 100U;
         }
         /* 掉电续充：先置充电状态标志 → 写 flash → 再执行门控
          * （板载电池颠簸松脱断电后，上电凭 flash 标志恢复充电意图） */
