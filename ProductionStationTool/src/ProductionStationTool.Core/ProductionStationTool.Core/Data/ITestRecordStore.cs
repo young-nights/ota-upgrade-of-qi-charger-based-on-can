@@ -57,7 +57,7 @@ public interface ITestRecordStore
     /// <summary>标记该 SN 已打印出库。</summary>
     void MarkPrinted(string sn);
 
-    /// <summary>手动修正：设置该 SN 全部记录的弃用标记（「数据管理」修正良率口径）。</summary>
+    /// <summary>手动修正：设置该 SN 全部记录的弃用标记（工位机「数据管理」页）。</summary>
     void SetAbandoned(string sn, bool abandoned);
 
     /// <summary>手动修正：设置该 SN 全部记录的打印出库标记。</summary>

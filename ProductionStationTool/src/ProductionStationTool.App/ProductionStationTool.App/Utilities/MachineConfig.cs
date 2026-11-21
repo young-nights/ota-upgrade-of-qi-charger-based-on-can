@@ -235,7 +235,7 @@ public static class MachineConfig
             $" 对象 {design.Objects.Count} 个  ({Environment.MachineName})\n");
     }
 
-    /// <summary>良率统计口径（「数据管理」页）：弃用记录是否计入良率。</summary>
+    /// <summary>良率统计口径（汇总机「设置 → 良率统计设置」）：弃用记录是否计入良率。</summary>
     public static bool LoadYieldExcludeAbandoned()
         => ReadCfgOrDefault().YieldExcludeAbandoned;
 
@@ -346,7 +346,7 @@ public static class MachineConfig
         public string? PresetSwVersion { get; set; }
         public string? PresetHwVersion { get; set; }
 
-        // 良率统计口径（「数据管理」页）：true = 弃用记录不计入良率（默认）
+        // 良率统计口径（汇总机「设置 → 良率统计设置」）：true = 弃用记录不计入良率（默认）
         public bool YieldExcludeAbandoned { get; set; } = true;
 
         // 标签设计器规格（「打印机设置」页）
