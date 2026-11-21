@@ -3,7 +3,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using ProductionStationTool.App.Utilities;
-using ProductionStationTool.Core.Data;
 using ProductionStationTool.Core.Station;
 
 namespace ProductionStationTool.App;
@@ -13,16 +12,12 @@ namespace ProductionStationTool.App;
 ///  「机位与网络」——机位命名（写 machine.json + 留痕）、查看本机 IP、
 ///    服务器连通检测、跳转系统网络设置改 IP（应用内不直改）；
 ///  「检测参数」——步骤 5 双线圈检测参数（上下限/检测窗口/超时），保存后下次测试生效；
-///  「版本预设」——工位 4 四项版本（MCU1/Qi/Boot/HW），四项全匹配才 PASS；
-///  「数据管理」——记录级手动修正（进入需再次输入汇总机管理密码；良率显示修正在汇总机设置）。
+///  「版本预设」——工位 4 四项版本（MCU1/Qi/Boot/HW），四项全匹配才 PASS。
 /// 各页保存均写本机 machine.json，重启后自动沿用。
 /// </summary>
 public partial class SettingsWindow : Window
 {
     private bool _ready;
-    private bool _dataAuthorized;
-    private bool _suppressTabGuard;
-    private int _lastAllowedTab;
 
     private static readonly Brush SuccessBrush = new SolidColorBrush(Color.FromRgb(0x16, 0xA3, 0x4A));
     private static readonly Brush DangerBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
@@ -30,26 +25,11 @@ public partial class SettingsWindow : Window
 
     public SettingsWindow() : this(0) { }
 
-    /// <summary>
-    /// startTab：0=机位与网络，1=检测参数，2=版本预设，3=数据管理（顶部菜单直达对应页）。
-    /// 数据管理页需再次输入汇总机管理密码；dataAuthorized 供菜单入口复用验证结果。
-    /// </summary>
-    public SettingsWindow(int startTab, bool dataAuthorized = false)
+    /// <summary>startTab：0=机位与网络，1=检测参数，2=版本预设（顶部菜单直达对应页）。</summary>
+    public SettingsWindow(int startTab)
     {
         InitializeComponent();
-        _dataAuthorized = dataAuthorized;
-        if (startTab == 3 && !_dataAuthorized)
-        {
-            if (AdminPasswordWindow.Verify(Application.Current.MainWindow, "数据管理"))
-                _dataAuthorized = true;
-            else
-                startTab = 0;
-        }
-
-        var initialTab = startTab is 0 or 1 or 2 or 3 ? startTab : 0;
-        Tabs.SelectedIndex = initialTab;
-        _lastAllowedTab = initialTab;
-        Tabs.SelectionChanged += Tabs_SelectionChanged;
+        Tabs.SelectedIndex = startTab is 0 or 1 or 2 ? startTab : 0;
         // 可编辑 ComboBox 的文本变化是内部 TextBox 的路由事件，挂上以便实时预览编码
         CmbStationNo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
             new TextChangedEventHandler((_, _) => Identity_Changed(CmbStationNo, EventArgs.Empty)));
@@ -73,100 +53,6 @@ public partial class SettingsWindow : Window
         BoxPresetMcu2.Text = vp.Mcu2Qi;
         BoxPresetBoot.Text = vp.Bootloader;
         BoxPresetHw.Text = vp.Hardware;
-
-        // 页 4：数据管理
-        QueryFixRows();
-    }
-
-    /// <summary>从任意页切到「数据管理」时二次验证管理密码；取消则退回上一页。</summary>
-    private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_suppressTabGuard)
-            return;
-        if (Tabs.SelectedIndex != 3)
-        {
-            _lastAllowedTab = Tabs.SelectedIndex;
-            return;
-        }
-        if (_dataAuthorized)
-        {
-            _lastAllowedTab = 3;
-            return;
-        }
-        if (AdminPasswordWindow.Verify(this, "数据管理"))
-        {
-            _dataAuthorized = true;
-            _lastAllowedTab = 3;
-            return;
-        }
-        _suppressTabGuard = true;
-        Tabs.SelectedIndex = _lastAllowedTab;
-        _suppressTabGuard = false;
-    }
-
-    // ================= 页 4：数据管理 =================
-
-    /// <summary>手动修正表行（弃用/打印标记可改，写回按 SN 生效）。</summary>
-    private sealed class FixRow
-    {
-        public string Sn { get; init; } = "";
-        public int StationNo { get; init; }
-        public string Result { get; init; } = "";
-        public DateTime TestTime { get; init; }
-        public bool Abandoned { get; set; }
-        public bool Printed { get; set; }
-    }
-
-    private void QueryFixRows()
-    {
-        try
-        {
-            using var store = new Core.Data.SqliteTestRecordStore();
-            var sn = BoxSnQuery.Text.Trim();
-            var records = sn.Length > 0
-                ? store.FindAllBySn(sn)
-                : store.Query(new Core.Data.TestRecordFilter(Limit: 200));
-            GridFix.ItemsSource = records.Select(r => new FixRow
-            {
-                Sn = r.Sn,
-                StationNo = r.StationNo,
-                Result = r.Result,
-                TestTime = r.TestTime,
-                Abandoned = r.Abandoned,
-                Printed = r.Printed,
-            }).ToList();
-        }
-        catch (Exception ex)
-        {
-            TxtFixResult.Text = $"查询失败：{ex.Message}";
-        }
-    }
-
-    private void BtnQueryRecords_Click(object sender, RoutedEventArgs e) => QueryFixRows();
-
-    private void BtnApplyFix_Click(object sender, RoutedEventArgs e)
-    {
-        if (GridFix.ItemsSource is not IEnumerable<FixRow> rows)
-            return;
-        try
-        {
-            using var store = new Core.Data.SqliteTestRecordStore();
-            int n = 0;
-            foreach (var grp in rows.GroupBy(r => r.Sn))
-            {
-                var row = grp.First();
-                store.SetAbandoned(row.Sn, row.Abandoned);
-                store.SetPrinted(row.Sn, row.Printed);
-                n++;
-            }
-            TxtFixResult.Text = $"已应用 {n} 个 SN 的标记修正";
-            TxtFixResult.Foreground = (Brush)FindResource("TextSecondaryBrush");
-        }
-        catch (Exception ex)
-        {
-            TxtFixResult.Text = $"应用失败：{ex.Message}";
-            TxtFixResult.Foreground = DangerBrush;
-        }
     }
 
     // ================= 页 1：机位与网络 =================

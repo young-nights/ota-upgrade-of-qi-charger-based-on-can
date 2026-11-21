@@ -140,20 +140,12 @@ public partial class MainWindow : Window
 
     private void MenuSettingsPresets_Click(object sender, RoutedEventArgs e) => OpenSettings(2);
 
-    private void MenuSettingsData_Click(object sender, RoutedEventArgs e)
-    {
-        // 数据管理涉及记录修正：进入前再次验证汇总机管理密码
-        if (!AdminPasswordWindow.Verify(this, "数据管理"))
-            return;
-        OpenSettings(3, dataAuthorized: true);
-    }
-
     private void MenuPrintSn_Click(object sender, RoutedEventArgs e)
         => new LabelDesignerWindow { Owner = this }.ShowDialog();
 
-    private void OpenSettings(int startTab, bool dataAuthorized = false)
+    private void OpenSettings(int startTab)
     {
-        var win = new SettingsWindow(startTab, dataAuthorized) { Owner = this };
+        var win = new SettingsWindow(startTab) { Owner = this };
         win.ShowDialog();
     }
 

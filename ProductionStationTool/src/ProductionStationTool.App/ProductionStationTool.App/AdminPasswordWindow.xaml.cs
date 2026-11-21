@@ -6,7 +6,7 @@ using ProductionStationTool.App.Utilities;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// 管理密码二次验证窗：进入「数据管理」或汇总机「良率统计设置」前弹出，
+/// 管理密码二次验证窗：进入汇总机「良率统计设置」前弹出，
 /// 校验的是汇总机管理密码（machine.json 只存 SHA-256 哈希）。
 /// </summary>
 public partial class AdminPasswordWindow : Window

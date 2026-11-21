@@ -17,7 +17,6 @@
                         <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
                         <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
                         <MenuItem Header="版本预设…" Click="MenuSettingsPresets_Click"/>
-                        <MenuItem Header="数据管理…" Click="MenuSettingsData_Click"/>
                     </MenuItem>
                     <!-- 工位切换：菜单栏下拉，勾选当前工位；默认工位1 -->
                     <MenuItem x:Name="MenuStations" Header="工位选择">
