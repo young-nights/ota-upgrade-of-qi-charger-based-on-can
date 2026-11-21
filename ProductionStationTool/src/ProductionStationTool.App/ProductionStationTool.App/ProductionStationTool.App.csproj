@@ -6,14 +6,6 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!--
-      部分 Visual Studio / .NET SDK 组合在 WPF MarkupCompilePass2 的临时工程
-      （*_wpftmp）里会漏生成 GeneratedMSBuildEditorConfig.editorconfig，表现为
-      “未能找到路径 ..._wpftmp.GeneratedMSBuildEditorConfig.editorconfig 的一部分”。
-      本项目 XAML 只用 WPF 自带类型和本地控件，不依赖 NuGet 包里的 XAML 类型，
-      因此关闭临时工程的包引用路径，走 SDK 的 legacy 临时程序集路径。
-    -->
-    <IncludePackageReferencesDuringMarkupCompilation Condition="'$(OS)' == 'Windows_NT'">false</IncludePackageReferencesDuringMarkupCompilation>
   </PropertyGroup>
 
   <ItemGroup>
