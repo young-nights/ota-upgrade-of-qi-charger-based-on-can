@@ -1,0 +1,35 @@
+# MD5 校验清单（完整 32 字符 MD5）
+# 发布包: QC_JYF_MCU1_FW_1.2.4_MCU2_FW_1.2.3_Release
+# 发布日期: 2026-11-22
+# 生成时间: 2026-11-22 02:24:30
+# 规则: <MD5> 为最终发布文件的 MD5；.img 与 .bin 各自独立计算
+
+## 固件文件
+
+5a46cf9c65d5227c4632e6ad4907d507  Firmware/MCU1/QC_JYF_MCU1_FW_1.2.4_5a46cf9c65d5227c4632e6ad4907d507.img
+    用途      : 应用 OTA 升级固件（.img）
+    大小      : 37768 bytes
+    源文件    : python_tools/app bin/app_image_v1_2_4.bin
+
+c62d9b66dcf5fff0a922a725106d8ade  Firmware/MCU1/QC_JYF_MCU1_FW_1.2.4_c62d9b66dcf5fff0a922a725106d8ade.bin
+    用途      : 完整 MCU 烧录固件（.bin，Boot+App）
+    大小      : 50056 bytes
+    源文件    : python_tools/burn bin/prod_image_v1_2_4.bin
+
+52e6d5da8225b93d830d1d25c53a916f  Firmware/MCU2/QC_JYF_MCU2_FW_1.2.3_52e6d5da8225b93d830d1d25c53a916f.img
+    用途      : MCU2 IAP 载荷（.img，**MCU2 未变仍为 1.2.3**）
+    大小      : 12916 bytes
+    源文件    : python_tools/iap bin/QI_IAP_Ver_1_2_3.BIN
+
+## 未交付
+
+QC_JYF_MCU2_FW_1.2.3_<MD5>.bin
+    状态      : 本版本不交付（无整片源）
+
+## 说明
+
+- MCU1 1.2.4 相对 1.2.3 固件区仅版本串 1 字节差异
+- MCU2 未变：MD5 与 1.2.3 发布包中 QI_IAP 相同 52e6d5da8225b93d830d1d25c53a916f
+- 硬件 QC_JYF_HW_1.1.5 / Bootloader QC_JYF_BL_1.0.0
+- Git commit: bb37917a4dd375cec9713a437e19049cdbd697e5
+- 主要变更: MCU1 版本升至 1.2.4（休眠屏蔽策略自 1.2.3 延续）
