@@ -1551,7 +1551,7 @@ public partial class MainWindow : Window
                 return false;
             }
             var r = await Task.Run(() => uds.TryRequest(ProtoIds.SidDsc,
-                new byte[] { 0x03 }, expectSub: 0x03), ct);
+                new byte[] { 0x03 }, expectSub: 0x03, requestRetries: 1), ct);
             if (!Must(r))
             {
                 await FailAsync(name, r.Error);
@@ -1563,9 +1563,12 @@ public partial class MainWindow : Window
                 await FailAsync(name, "SA 解锁失败");
                 return false;
             }
+            // 0x2101 写含 NVM 整扇区擦写：超时重发 2 次 + expectDid 核对回显
+            // （关充偶发「UDS 无应答/噪声 21」= 首发应答丢或慢于 4s 窗）
             r = await Task.Run(() => uds.TryRequest(ProtoIds.SidWdbi,
-                new byte[] { 0x21, 0x01, (byte)(enable ? 0x01 : 0x00) }, timeoutMs: 4000,
-                expectSub: 0x21), ct);
+                new byte[] { 0x21, 0x01, (byte)(enable ? 0x01 : 0x00) }, timeoutMs: 5000,
+                expectSub: 0x21, expectDid: ProtoIds.DidChargerEnable,
+                requestRetries: 2), ct);
             if (!Must(r))
             {
                 await FailAsync(name, r.Error);

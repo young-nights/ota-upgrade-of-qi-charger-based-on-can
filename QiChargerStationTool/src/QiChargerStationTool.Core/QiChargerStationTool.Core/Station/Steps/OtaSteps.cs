@@ -106,13 +106,15 @@ public sealed class ChargeTestStep : ITestStep
         await Task.Yield();
         try
         {
-            ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }, expectSub: 0x03); // extended
+            ctx.Uds.Request(ProtoIds.SidDsc, new byte[] { 0x03 }, expectSub: 0x03, requestRetries: 1); // extended
             ctx.Uds.RequestSuppress(ProtoIds.SidTp, new byte[] { 0x00 });
-            // enable
-            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x01 }, expectSub: 0x21, expectDid: ProtoIds.DidChargerEnable);
+            // enable：0x2101 含 NVM 擦写，超时重发 2 次
+            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x01 }, timeoutMs: 5000,
+                expectSub: 0x21, expectDid: ProtoIds.DidChargerEnable, requestRetries: 2);
             await Task.Delay(1000, ct);
-            // disable
-            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x00 }, expectSub: 0x21, expectDid: ProtoIds.DidChargerEnable);
+            // disable：同上，关充路径
+            ctx.Uds.Request(ProtoIds.SidWdbi, new byte[] { 0x21, 0x01, 0x00 }, timeoutMs: 5000,
+                expectSub: 0x21, expectDid: ProtoIds.DidChargerEnable, requestRetries: 2);
             return new TestStepResult { Name = Name, Status = TestStepStatus.Passed, Message = "启停正常" };
         }
         catch (Exception ex)

@@ -52,7 +52,7 @@
 /*  打包固定 0x00；metadata 无软件版本字段）。改版本只改本常量 + docs。      */
 /* ========================================================================== */
 
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.88";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.89";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
@@ -2173,6 +2173,10 @@ static void handle_write_data_by_id(uint8_t *data, uint16_t len)
         }
         /* 故障不参与开/关充门禁：只透传 Qi 上报（0x210B/0x2111 等），
          * 避免欠压等故障后 0x2101=1 回 NRC 0x22 卡死充电操作。 */
+        /* NVM 整扇区擦写可能阻塞主循环数十 ms：先回 0x78 responsePending，
+         * 避免主机 4s 窗内在擦写期间只收到噪声帧而判「UDS 无应答」。 */
+        proto_send_pending(UDS_SID_WRITE_DATA_BY_ID);
+        (void)can_driver_wait_tx_idle(20U);
         /* 掉电续充：先置充电状态标志 → 写 flash → 再执行门控
          * （板载电池颠簸松脱断电后，上电凭 flash 标志恢复充电意图） */
         g_qi_charger_enable = val;

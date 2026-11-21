@@ -313,11 +313,13 @@ public sealed class UdsClient
         return rx.Length >= 4 ? rx[3] : (byte)0xFF;
     }
 
-    /// <summary>WriteDataByIdentifier：payload = DID(2B) + data。失败返回 UdsResult，不抛。</summary>
-    public UdsResult TryWriteDid(ushort did, byte[] data, int timeoutMs = 4000)
+    /// <summary>WriteDataByIdentifier：payload = DID(2B) + data。失败返回 UdsResult，不抛。
+    /// requestRetries：仅应答超时原样重发（NRC 不重发）；0x2101 含 NVM 擦写，
+    /// 首发易超时——充电启停建议 2。</summary>
+    public UdsResult TryWriteDid(ushort did, byte[] data, int timeoutMs = 4000, int requestRetries = 0)
         => TryRequest(ProtoIds.SidWdbi,
             new byte[] { (byte)(did >> 8), (byte)did }.Concat(data).ToArray(), timeoutMs,
-            expectSub: (byte)(did >> 8), expectDid: did);
+            expectSub: (byte)(did >> 8), expectDid: did, requestRetries: requestRetries);
 
     /// <summary>ReadDataByIdentifier → 数据区；失败返回 (null, error)。</summary>
     public (byte[]? Data, string Error) TryReadDid(ushort did, int timeoutMs = 3000)
