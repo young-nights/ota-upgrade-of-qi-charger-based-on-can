@@ -12,8 +12,8 @@ namespace ProductionStationTool.App.Utilities;
 ///   { "stationNo": 1, "machineId": "1", "serverHost": "192.168.10.10",
 ///     "coilALowerA": 1.0, "coilAUpperA": 2.0, "coilBLowerA": 1.0,
 ///     "coilBUpperA": 2.0, "detectionWindowMs": 10000, "overallTimeoutMs": 60000 }
-/// 分两类：机位身份/服务器地址（「机位与网络」设置页）、步骤 5 双线圈检测参数
-/// （「检测参数」设置页）。保存任一类都保留另一类；变更写 machine_change.log 留痕。
+/// 另含工位 4 四项版本预设、良率口径、标签设计、汇总机密码哈希等。
+/// 保存任一类都保留其余配置；变更写 machine_change.log 留痕。
 /// </summary>
 public static class MachineConfig
 {

@@ -13,7 +13,9 @@ namespace ProductionStationTool.App;
 /// 本机设置页（按类型分页）：
 ///  「机位与网络」——机位命名（写 machine.json + 留痕）、查看本机 IP、
 ///    服务器连通检测、跳转系统网络设置改 IP（应用内不直改）；
-///  「检测参数」——步骤 5 双线圈检测参数（上下限/检测窗口/超时），保存后下次测试生效。
+///  「检测参数」——步骤 5 双线圈检测参数（上下限/检测窗口/超时），保存后下次测试生效；
+///  「版本预设」——工位 4 四项版本（MCU1/Qi/Boot/HW），四项全匹配才 PASS；
+///  「数据管理」——良率口径与记录级手动修正。
 /// </summary>
 public partial class SettingsWindow : Window
 {
