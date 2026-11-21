@@ -52,7 +52,7 @@
 /*  打包固定 0x00；metadata 无软件版本字段）。改版本只改本常量 + docs。      */
 /* ========================================================================== */
 
-static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.1.89";  /*!< 运行版本唯一真相源 */
+static const char SW_VERSION_STR[]     = "QC_JYF_MCU1_FW_1.2.3";  /*!< 运行版本唯一真相源 */
 static const char BOOTLOADER_VER_STR[] = "QC_JYF_BL_1.0.0";
 static const char HW_VERSION_STR[]     = "QC_JYF_HW_1.1.5";
 
