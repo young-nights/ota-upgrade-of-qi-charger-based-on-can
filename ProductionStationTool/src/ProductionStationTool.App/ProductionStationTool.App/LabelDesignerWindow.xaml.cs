@@ -12,7 +12,7 @@ using ProductionStationTool.Core.Printing;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// SN 码标签设计器（「打印机设置」）：直接配置标签尺寸、打印机参数、条码与文字排版，
+/// SN 码标签设计器（「打印机设置」）：直接配置标签尺寸、打印机参数与文字排版，
 /// 打印时按 TSPL/ZPL 指令经 RAW 原始打印直发打印机——无需 BarTender / 无授权限制。
 /// </summary>
 public partial class LabelDesignerWindow : Window
@@ -42,15 +42,6 @@ public partial class LabelDesignerWindow : Window
         ComboScript.SelectedIndex = string.Equals(d.Script, "zpl", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         ComboDpi.SelectedIndex = d.Dpi == 300 ? 1 : 0;
         BoxGapMm.Text = d.GapMm.ToString("0.##");
-        ChkBarcode.IsChecked = d.Barcode.Enabled;
-        ComboBcSymbology.SelectedIndex = string.Equals(d.Barcode.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-        BoxBcContent.Text = d.Barcode.Content;
-        BoxBcWidth.Text = d.Barcode.WidthMm.ToString("0.##");
-        BoxBcHeight.Text = d.Barcode.HeightMm.ToString("0.##");
-        BoxBcModule.Text = d.Barcode.ModuleMm.ToString("0.##");
-        ComboBcHuman.SelectedIndex = d.Barcode.HumanReadable ? 0 : 1;
-        BoxBcX.Text = d.Barcode.XMm.ToString("0.##");
-        BoxBcY.Text = d.Barcode.YMm.ToString("0.##");
         GridObjects.ItemsSource = d.Objects.Select(ToRow).ToList();
         _importedLines = d.Lines
             .Select(v => new LabelLineDesign
@@ -173,7 +164,7 @@ public partial class LabelDesignerWindow : Window
             ImgBtwPreview.Source = null;
         }
 
-        // 预览图量版式 → 自动摆位（坐标/字号/条码），无需手摆
+        // 预览图量版式 → 自动摆位（坐标/字号），无需手摆；条码对象忽略（不进设计）
         double widthMm = ParseD(BoxWidthMm.Text, 50);
         var (items, aspect) = BtwLayout.Measure(r.PreviewPng ?? Array.Empty<byte>(), r.Objects, widthMm);
         if (aspect > 0.5)
@@ -209,22 +200,6 @@ public partial class LabelDesignerWindow : Window
             })
             .ToList();
 
-        var bc = items.FirstOrDefault(p => p.Kind == "barcode");
-        if (bc is not null)
-        {
-            ChkBarcode.IsChecked = true;
-            BoxBcX.Text = bc.XMm.ToString("0.##");
-            BoxBcY.Text = bc.YMm.ToString("0.##");
-            BoxBcWidth.Text = bc.WidthMm.ToString("0.##");
-            BoxBcHeight.Text = bc.HeightMm.ToString("0.##");
-            ComboBcSymbology.SelectedIndex = BtwLayout.LooksSquare(bc.WidthMm, bc.HeightMm) ? 1 : 0;
-        }
-        else
-        {
-            // .btw 里没有条码对象：关掉条码，避免残留设置画出多余条码块
-            ChkBarcode.IsChecked = false;
-        }
-
         // 打印机 + 指令语言推断
         if (!string.IsNullOrEmpty(r.PrinterName))
         {
@@ -253,18 +228,6 @@ public partial class LabelDesignerWindow : Window
             Script = ComboScript.SelectedIndex == 1 ? "zpl" : "tspl",
             Dpi = ComboDpi.SelectedIndex == 1 ? 300 : 203,
             GapMm = ParseD(BoxGapMm.Text, 2),
-            Barcode = new LabelBarcodeDesign
-            {
-                Enabled = ChkBarcode.IsChecked == true,
-                Symbology = ComboBcSymbology.SelectedIndex == 1 ? "qrcode" : "code128",
-                Content = BoxBcContent.Text.Trim(),
-                WidthMm = ParseD(BoxBcWidth.Text, 0),
-                HeightMm = ParseD(BoxBcHeight.Text, 8),
-                ModuleMm = ParseD(BoxBcModule.Text, 0.4),
-                HumanReadable = ComboBcHuman.SelectedIndex != 1,
-                XMm = ParseD(BoxBcX.Text, 5),
-                YMm = ParseD(BoxBcY.Text, 15),
-            },
             Objects = new List<LabelObjectDesign>(),
             Lines = _importedLines.Select(v => new LabelLineDesign
             {

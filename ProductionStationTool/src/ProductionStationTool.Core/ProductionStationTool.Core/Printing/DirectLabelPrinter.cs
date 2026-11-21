@@ -50,30 +50,6 @@ public static class DirectLabelScript
             sb.AppendLine($"TEXT {x:0},{y:0},\"{font}\",0,{mul},{mul},\"{text}\"");
         }
 
-        var b = d.Barcode;
-        if (b.Enabled && !string.IsNullOrEmpty(b.Content))
-        {
-            string data = b.Content.Replace("{SN}", sn, StringComparison.OrdinalIgnoreCase);
-            if (string.Equals(b.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase))
-            {
-                // TSPL 二维码：QRCODE x,y,纠错等级,模块宽,模式,旋转,"数据"
-                // 指定宽度时按 ~25 模块反推模块宽，使打印尺寸对齐 .btw 版式
-                int cell = b.WidthMm > 0
-                    ? Math.Max(1, (int)Math.Round(dots(b.WidthMm) / 25))
-                    : Math.Max(2, (int)Math.Round(dots(b.ModuleMm)));
-                sb.AppendLine($"QRCODE {dots(b.XMm):0},{dots(b.YMm):0},L,{cell},A,0,\"{data}\"");
-            }
-            else
-            {
-                int narrow = b.WidthMm > 0
-                    ? Math.Max(1, (int)Math.Round(dots(b.WidthMm) / ((data.Length + 3) * 11.0)))
-                    : Math.Max(1, (int)Math.Round(dots(b.ModuleMm)));
-                int human = b.HumanReadable ? 1 : 0;
-                sb.AppendLine($"BARCODE {dots(b.XMm):0},{dots(b.YMm):0},\"128\",{dots(b.HeightMm):0}," +
-                              $"{human},0,{narrow},{narrow * 3},\"{data}\"");
-            }
-        }
-
         sb.AppendLine("PRINT 1,1");
         return sb.ToString();
     }
@@ -112,28 +88,6 @@ public static class DirectLabelScript
             double w = Math.Round(h * 0.6);
             sb.AppendLine($"^FO{dots(o.XMm ?? 0):0},{dots(o.YMm ?? 0):0}" +
                           $"^A0N,{h:0},{w:0}^FD{text}^FS");
-        }
-
-        var b = d.Barcode;
-        if (b.Enabled && !string.IsNullOrEmpty(b.Content))
-        {
-            string data = b.Content.Replace("{SN}", sn, StringComparison.OrdinalIgnoreCase);
-            if (string.Equals(b.Symbology, "qrcode", StringComparison.OrdinalIgnoreCase))
-            {
-                int cell = b.WidthMm > 0
-                    ? Math.Max(1, (int)Math.Round(dots(b.WidthMm) / 25))
-                    : Math.Max(2, (int)Math.Round(dots(b.ModuleMm)));
-                sb.AppendLine($"^FO{dots(b.XMm):0},{dots(b.YMm):0}^BQN,2,{cell}^FDLA,{data}^FS");
-            }
-            else
-            {
-                int module = b.WidthMm > 0
-                    ? Math.Max(1, (int)Math.Round(dots(b.WidthMm) / ((data.Length + 3) * 11.0)))
-                    : Math.Max(1, (int)Math.Round(dots(b.ModuleMm)));
-                char human = b.HumanReadable ? 'Y' : 'N';
-                sb.AppendLine($"^FO{dots(b.XMm):0},{dots(b.YMm):0}^BY{module},3" +
-                              $"^BCN,{dots(b.HeightMm):0},{human},N,N^FD{data}^FS");
-            }
         }
 
         sb.AppendLine("^PQ1");

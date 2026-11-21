@@ -219,7 +219,7 @@ public static class MachineConfig
         return fallback;
     }
 
-    /// <summary>标签设计器规格（「打印机设置」页：尺寸/打印机参数/对象排版/条码）。</summary>
+    /// <summary>标签设计器规格（「打印机设置」页：尺寸/打印机参数/文字排版）。</summary>
     public static LabelDesign LoadLabelDesign()
         => ReadCfgOrDefault().SnLabelDesign ?? new LabelDesign();
 

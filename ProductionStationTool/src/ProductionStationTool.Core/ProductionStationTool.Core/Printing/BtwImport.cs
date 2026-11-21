@@ -65,8 +65,9 @@ public static class BtwImport
         var objects = ExtractObjects(records, param);
         int barcode = objects.Count(o => o.IsBarcode);
 
+        // 条码不进标签设计（功能已移除）；解析结果仅供版式测量时排除条码区
         var note = $"已导入文本 {objects.Count(o => !o.IsBarcode)} 行"
-            + (barcode > 0 ? $"、条码 {barcode} 个" : "")
+            + (barcode > 0 ? $"（模板含条码 {barcode} 个，已忽略不打印）" : "")
             + (printer is not null ? $"、打印机「{printer}」" : "")
             + "；坐标/字号按预览图自动测量";
         return new BtwImportResult(png, printer, objects, note);
