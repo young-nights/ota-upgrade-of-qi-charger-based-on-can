@@ -1,0 +1,38 @@
+# MD5 checksum list (full 32-character MD5)
+# Package: QC_JYF_MCU1_FW_1.2.3_MCU2_FW_1.2.3_Release
+# Release date: 2026-11-22
+# Generated: 2026-11-22 11:38:26
+# Rule: <MD5> is the MD5 of the final delivered file; .img and .bin hashed independently
+
+## Firmware files
+
+9053c70bfa3a237584a5f7c199916cff  Firmware/MCU1/QC_JYF_MCU1_FW_1.2.3_9053c70bfa3a237584a5f7c199916cff.img
+    Purpose   : MCU1 application OTA upgrade (.img)
+    Size      : 37768 bytes
+    Source    : python_tools/app bin/app_image_v1_2_3.bin
+
+f247d340537a1defdf74dc58b5579329  Firmware/MCU1/QC_JYF_MCU1_FW_1.2.3_f247d340537a1defdf74dc58b5579329.bin
+    Purpose   : MCU1 full-flash burn (.bin, Boot+App)
+    Size      : 50056 bytes
+    Source    : python_tools/burn bin/prod_image_v1_2_3.bin
+
+52e6d5da8225b93d830d1d25c53a916f  Firmware/MCU2/QC_JYF_MCU2_FW_1.2.3_52e6d5da8225b93d830d1d25c53a916f.img
+    Purpose   : MCU2 IAP upgrade payload (.img) — QI_IAP_Ver_1_2_3.BIN is MCU2 ONLY
+    Size      : 12916 bytes
+    Source    : python_tools/iap bin/QI_IAP_Ver_1_2_3.BIN
+
+## Not delivered
+
+QC_JYF_MCU2_FW_1.2.3_<MD5>.bin
+    Purpose   : MCU2 full-flash burn (.bin)
+    Status    : Not delivered this package (no full-flash source)
+
+## Notes
+
+- MCU1 .img = pack_image.py (XATO header + signed APP), for OTA
+- MCU1 .bin = merge_prod_bin.py (Bootloader + App), for factory/direct burn
+- MCU2 .img = QI_IAP_Ver_1_2_3.BIN (Qi chip IAP payload) — MCU2 upgrade file, not MCU1
+- Hardware QC_JYF_HW_1.1.5 / Bootloader QC_JYF_BL_1.0.0
+- Git commit: 1f6e9b7b7977f29607b17ec32ebd97dc71d8d5d1
+- Release Note / Self Test Report language: English
+- MCU1/MCU2 both 1.2.3 in this package
