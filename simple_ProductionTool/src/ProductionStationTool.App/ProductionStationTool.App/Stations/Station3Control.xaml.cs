@@ -1,9 +1,10 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using ProductionStationTool.App.Controls;
 using ProductionStationTool.App.Utilities;
-using ProductionStationTool.Core.Data;
 using ProductionStationTool.Core.Sn;
 using ProductionStationTool.Core.Station;
 using ProductionStationTool.PowerZ;
@@ -11,10 +12,9 @@ using ProductionStationTool.PowerZ;
 namespace ProductionStationTool.App.Stations;
 
 /// <summary>
-/// 工位 3 页面：SN 生成/写入/回读 + PowerZ 电流电压检测（构想文档）。
-/// 四分区布局：串口接入 / 测试流程 / 数据展示 / 运行日志。
-/// CAN/UDS 经 CanUdsDevice（复用 QiChargerStationTool.Core 协议栈），
-/// 流程编排用 Station1Workflow（SN 写入失败不入库、不消耗流水号）。
+/// 工位 3 页面：扫码枪扫描 SN → 结构自动判定 → 写入设备 + 回读 →
+/// 开充电 → PowerZ A/B 双线圈 → 停充并结束（原先工位1 的扫码逻辑，简化版无数据库不入库）。
+/// 扫码超时/SN 判定/整体超时在「设置 → 检测参数 → 扫码参数」维护。
 /// </summary>
 public partial class Station3Control : UserControl, IStationPage
 {
@@ -22,19 +22,24 @@ public partial class Station3Control : UserControl, IStationPage
     private static readonly Brush DangerBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
 
-    /// <summary>步骤 5 检测参数统一在「设置 → 检测参数」页维护（machine.json），测试开始时读取。</summary>
+    /// <summary>步骤检测参数统一在「设置 → 检测参数」页维护（machine.json），测试开始时读取。</summary>
     private CoilTestOptions BuildCoilOptions() => MachineConfig.LoadCoilOptions();
 
-    private readonly ITestRecordStore _store = new SqliteTestRecordStore();
     /// <summary>运行日志缓冲：主页面不占位，弹出日志窗（LogWindow）实时刷新。</summary>
     private readonly LogBuffer _log = new();
     private LogWindow? _logWin;
-    private readonly Station1Workflow _workflow;
-    /// <summary>SN 联机取号客户端（优先汇总机统一发号，防多机位撞号）。</summary>
-    private readonly SnAllocationClient _snClient = new();
-    /// <summary>本机应急取号产生的 SN：回收时不发汇总机（服务端本来就没有发过）。</summary>
-    private readonly HashSet<string> _offlineSns = new(StringComparer.Ordinal);
-    private readonly string _serverHost;
+    private readonly Station1Workflow _workflow = new();
+
+    // ---- 扫码枪输入状态（原先工位1 逻辑）----
+    private readonly DispatcherTimer _scanTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private TaskCompletionSource<string>? _scanTcs;
+    private int _scanTimeoutSeconds = 10;
+    private int _judgeTimeoutSeconds = 2;
+    private int _overallTimeoutSeconds = 15;
+    private long _scanDeadlineMs;
+    private long _judgeDeadlineMs;
+    private long _overallDeadlineMs;
+    private bool _waitingForScan;
 
     private CanUdsDevice? _can;
 
@@ -44,9 +49,8 @@ public partial class Station3Control : UserControl, IStationPage
     /// <summary>测试流程正在执行。</summary>
     private bool _running;
 
-
     public int StationNo => 3;
-    public string Title => "工位3 — SN写入 + 线圈A/B";
+    public string Title => "工位3 — 扫码写 SN + 线圈A/B";
 
     /// <summary>串口未接入时禁止开始测试。</summary>
     public bool CanStartTest => _connected && !_running;
@@ -55,64 +59,30 @@ public partial class Station3Control : UserControl, IStationPage
 
     private void RaiseAvailability() => AvailabilityChanged?.Invoke();
 
-    private static string Fmt(string v) => v.Length == 0 ? "(空)" : v;
-
     private void LogSafe(string msg)
         => _log.Append(msg);
 
     public Station3Control(StationIdentity identity)
     {
         InitializeComponent();
-        _serverHost = MachineConfig.LoadServerHost();
-        _workflow = new Station1Workflow(_store, identity: new StationIdentity(3, identity.MachineId),
-            snAllocate: ct => AllocateSnAsync(identity, ct),
-            snRelease: (sn, ct) => _offlineSns.Contains(sn)
-                ? Task.CompletedTask
-                : _snClient.ReleaseAsync(_serverHost, sn, ct));
+        _scanTimer.Tick += (_, _) => OnScanCountdownTick();
         _log.Append($"本机身份：{identity.Code}（{identity.Label}，machine.json 可改）");
         var coil0 = MachineConfig.LoadCoilOptions();
-        var vp0 = MachineConfig.LoadVersionPresets();
-        _log.Append($"已载入保存参数（machine.json，重启自动沿用）：A {coil0.CoilALowerA:F2}~{coil0.CoilAUpperA:F2}A / B {coil0.CoilBLowerA:F2}~{coil0.CoilBUpperA:F2}A；" +
-                    $"版本预设 MCU1={Fmt(vp0.Mcu1App)} QI={Fmt(vp0.Mcu2Qi)} BL={Fmt(vp0.Bootloader)} HW={Fmt(vp0.Hardware)}");
-        _log.Append($"SN 取号：优先汇总机 {_serverHost}:5000；连不上时自动用本机应急号（每机位每天最多 25 个）");
+        _log.Append($"已载入线圈参数（machine.json，重启自动沿用）：A {coil0.CoilALowerA:F2}~{coil0.CoilAUpperA:F2}A / B {coil0.CoilBLowerA:F2}~{coil0.CoilBUpperA:F2}A");
+        _log.Append("SN 来源：扫码枪输入，本机校验结构后写入设备");
         FlowPanel.SetSteps(
             ("1", "连接设备（串口/CAN 自动检测）"),
-            ("2", "生成 SN 码"),
-            ("3", "写入 SN 并回读验证"),
-            ("4", "开启无线充电"),
-            ("5", "PowerZ："),
-            ("5.1", "A 线圈状态检测"),
-            ("5.2", "B 线圈状态检测"),
-            ("6", "停充并入库"));
-        // 5 汇总行：只滚动倒计时提示，通过/失败由 5.1/5.2 承载——初始空白
-        FlowPanel.Mark(4, StepStatus.None);
+            ("2", "扫码并写入 SN（校验/读回）"),
+            ("3", "开启无线充电"),
+            ("4", "PowerZ："),
+            ("4.1", "A 线圈状态检测"),
+            ("4.2", "B 线圈状态检测"),
+            ("5", "停充并结束"));
+        // 4 汇总行：只滚动倒计时提示，通过/失败由 4.1/4.2 承载——初始空白
+        FlowPanel.Mark(3, StepStatus.None);
 
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
-    }
-
-    /// <summary>
-    /// 优先向汇总机取号；只有“网络不可达”才降级本机应急号。
-    /// 汇总机明确返回 CAP_REACHED 等业务错误时不降级（避免绕过服务器上限）。
-    /// </summary>
-    private async Task<SnAllocResult> AllocateSnAsync(StationIdentity identity, CancellationToken ct)
-    {
-        var online = await _snClient.NextAsync(_serverHost, identity.StationNo, identity.MachineId, ct);
-        if (online.Ok || online.Error != "NETWORK")
-            return online;
-
-        _log.Append($"汇总机取号失败：{online.Message}");
-        var local = LocalSnFallback.Next(identity, DateTime.Now);
-        if (local.Ok && local.Sn is not null)
-        {
-            _offlineSns.Add(local.Sn);
-            _log.Append($"已改用本机应急号：{local.Sn}（离线号段，每机位每天最多 25 个；联网后请以汇总机为准）");
-        }
-        else
-        {
-            _log.Append(local.Message);
-        }
-        return local;
     }
 
     private async void OnConnectRequested(string can, string pz)
@@ -176,6 +146,133 @@ public partial class Station3Control : UserControl, IStationPage
         RaiseAvailability();
     }
 
+    // ================= 扫码枪输入（原先工位1 逻辑） =================
+
+    /// <summary>等待扫码枪输入；每次文本变化重新计时，回车或倒计时结束提交当前内容。</summary>
+    private async Task<string?> WaitForScanAsync(CancellationToken ct)
+    {
+        TxtSn.Clear();
+        TxtSn.IsReadOnly = false;
+        TxtSn.Focus();
+        TxtScanHint.Text = "等待扫描…";
+        TxtScanHint.Foreground = MutedBrush;
+        _scanTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var timing = MachineConfig.LoadScanTiming();
+        _scanTimeoutSeconds = timing.ScanSeconds;
+        _judgeTimeoutSeconds = timing.JudgeSeconds;
+        _overallTimeoutSeconds = timing.OverallSeconds;
+        _waitingForScan = true;
+        StartScanDeadlines();
+
+        using var reg = ct.Register(() => Dispatcher.Invoke(() => CompleteScan("")));
+        try
+        {
+            return await _scanTcs.Task;
+        }
+        finally
+        {
+            _waitingForScan = false;
+            _scanTimer.Stop();
+            TxtSn.IsReadOnly = true;
+        }
+    }
+
+    private void StartScanDeadlines()
+    {
+        long now = Environment.TickCount64;
+        _scanDeadlineMs = now + _scanTimeoutSeconds * 1000L;
+        _judgeDeadlineMs = 0;
+        _overallDeadlineMs = now + _overallTimeoutSeconds * 1000L;
+        UpdateScanCountdownText(now);
+        _scanTimer.Stop();
+        _scanTimer.Start();
+    }
+
+    private void OnScanCountdownTick()
+    {
+        if (!_waitingForScan)
+        {
+            _scanTimer.Stop();
+            return;
+        }
+        long now = Environment.TickCount64;
+        string current = TxtSn.Text.Trim();
+        if (now >= _overallDeadlineMs)
+        {
+            TxtScanCountdown.Text = "整体超时：按当前输入判定";
+            CompleteScan(current);
+            return;
+        }
+        if (current.Length == 0 && now >= _scanDeadlineMs)
+        {
+            TxtScanCountdown.Text = "扫码超时：未输入 SN";
+            CompleteScan("");
+            return;
+        }
+        if (current.Length > 0 && _judgeDeadlineMs > 0 && now >= _judgeDeadlineMs)
+        {
+            TxtScanCountdown.Text = "SN 判定超时：校验当前输入";
+            CompleteScan(current);
+            return;
+        }
+        UpdateScanCountdownText(now);
+    }
+
+    private void UpdateScanCountdownText(long now)
+    {
+        long scanLeft = Math.Max(0, (_scanDeadlineMs - now + 999) / 1000);
+        long judgeLeft = _judgeDeadlineMs > 0
+            ? Math.Max(0, (_judgeDeadlineMs - now + 999) / 1000)
+            : -1;
+        long overallLeft = Math.Max(0, (_overallDeadlineMs - now + 999) / 1000);
+        string scanText = TxtSn.Text.Trim().Length == 0 ? $"扫码 {scanLeft}s" : "扫码已输入";
+        string judgeText = judgeLeft >= 0 ? $"SN判定 {judgeLeft}s" : "SN判定 --";
+        TxtScanCountdown.Text = $"{scanText} · {judgeText} · 整体 {overallLeft}s";
+    }
+
+    private void CompleteScan(string sn)
+    {
+        if (!_waitingForScan)
+            return;
+        _waitingForScan = false;
+        _scanTimer.Stop();
+        TxtSn.IsReadOnly = true;
+        _scanTcs?.TrySetResult(sn);
+    }
+
+    private void OnScanTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_waitingForScan)
+            return;
+        _judgeDeadlineMs = TxtSn.Text.Trim().Length > 0
+            ? Environment.TickCount64 + _judgeTimeoutSeconds * 1000L
+            : 0;
+        UpdateScanCountdownText(Environment.TickCount64);
+    }
+
+    private void OnScanKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || !_waitingForScan)
+            return;
+        e.Handled = true;
+        CompleteScan(TxtSn.Text.Trim());
+    }
+
+    /// <summary>扫码门禁失败：立即停止本次测试，后续设备步骤全部不执行。</summary>
+    private void FailScanGate(string flowReason, string hint, string logMessage)
+    {
+        FlowPanel.Mark(1, StepStatus.Failed, flowReason);
+        for (int i = 2; i <= 6; i++)
+            FlowPanel.Mark(i, StepStatus.Waiting, "未执行（SN校验未通过）");
+        ListAbnormal.Items.Add(hint);
+        TxtScanHint.Text = hint;
+        TxtScanHint.Foreground = DangerBrush;
+        SetResultBadge(false);
+        _log.Append(logMessage);
+        _running = false;
+        RaiseAvailability();
+    }
+
     public async Task StartAsync(CancellationToken ct = default)
     {
         if (_running)
@@ -192,12 +289,11 @@ public partial class Station3Control : UserControl, IStationPage
 
         // 「下一个」并入「开始测试」：开测即复位上一台显示，连续测试免手点
         ResetForNext();
-        FlowPanel.Mark(4, StepStatus.None);   // 5 汇总行回空白
+        FlowPanel.Mark(3, StepStatus.None);   // PowerZ 汇总行回空白
         _log.Append("开始工位 3 测试流程");
 
         // ① 连接设备：先唤醒 + 等 UDS 就绪（设备空闲 10s 会真休眠/整板断电，
-        //    首帧请求会丢在重新供电的冷启动窗口里——必须先唤醒探活），
-        //    然后读全套版本，再往下走
+        //    首帧请求会丢在重新供电的冷启动窗口里——必须先唤醒探活）
         FlowPanel.Mark(0, StepStatus.Running);
         _log.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
         var ready = await _can.WaitReadyAsync(ct);
@@ -211,19 +307,32 @@ public partial class Station3Control : UserControl, IStationPage
             RaiseAvailability();
             return;
         }
-        _log.Append("设备已就绪，读取版本…");
-        var vs = await _can.TryReadAllVersionsAsync();
-        _log.Append("设备版本：");
-        _log.Append($"  APP  = {vs.Mcu1App}");
-        _log.Append($"  BL   = {vs.Bootloader}");
-        _log.Append($"  HW   = {vs.Hardware}");
-        _log.Append($"  Qi   = {vs.Mcu2Qi}");
-        if (vs.Errors.Count > 0)
-            _log.Append("版本读取告警：" + string.Join("；", vs.Errors));
         FlowPanel.Mark(0, StepStatus.Passed);
         _log.Append("步骤 1 完成");
 
-        // ⑤ 的数据源：HID 先静默就绪，等流程走到采样步再点亮「进行中」
+        // ② 扫码：等待扫码枪输入，倒计时结束校验 SN 结构
+        FlowPanel.Mark(1, StepStatus.Running);
+        var scannedSn = await WaitForScanAsync(ct);
+        if (string.IsNullOrWhiteSpace(scannedSn))
+        {
+            FailScanGate("扫码超时/未输入", "扫码超时：未输入 SN",
+                "步骤 2：扫码/SN判定超时，SN 为空；后续流程不执行");
+            return;
+        }
+        if (!SnGenerator.TryParse(scannedSn, out _))
+        {
+            FailScanGate("SN 结构不符合",
+                "SN 结构不符合：LSCH42JY + 两位数字硬件版本 + YYMMDD + 0001~9999",
+                $"步骤 2：SN 结构不符合：{scannedSn}；后续流程不执行");
+            return;
+        }
+        TxtSn.Text = scannedSn;
+        TxtScanHint.Text = "扫码通过，正在写入设备并读回验证…";
+        TxtScanHint.Foreground = SuccessBrush;
+        TxtScanCountdown.Text = "";
+        _log.Append($"[扫码] SN = {scannedSn}，结构校验通过");
+
+        // ③ 写入 + 回读 + 开充电 + 线圈检测（编排在 workflow；无数据库不入库）
         HidPowerZSource? powerZ = null;
         bool writeOk = false, readOk = false, chargeOk = false;
         string? writtenSn = null;
@@ -236,66 +345,55 @@ public partial class Station3Control : UserControl, IStationPage
             powerZ.Log += LogSafe;
 
             // 严格顺序执行：每步完成即定格（Passed/Failed），下一步才亮「进行中」。
-            // PowerZ HID 在⑤真正开始（④开充电完成）时才打开，避免日志时序错乱。
+            // PowerZ HID 在开充电完成时才打开，避免日志时序错乱。
             result = await _workflow.RunAsync(
+                scannedSn,
                 snWriteAsync: async sn =>
                 {
                     writtenSn = sn;
                     TxtSn.Text = sn;
-                    _log.Append($"生成 SN：{sn}");
-                    FlowPanel.Mark(1, StepStatus.Passed);      // ② 生成 SN：完成
+                    _log.Append($"扫码 SN：{sn}");
 
-                    // 换新号前：设备残留的旧 SN 被取代 → 标弃用并回收
-                    // （返修重测：旧 SN 的历史记录保留，但不流入打印工序）
-                    try
-                    {
-                        var oldSn = await _can.TryReadSnAsync(ct);
-                        if (!string.IsNullOrEmpty(oldSn) && !string.Equals(oldSn, sn, StringComparison.Ordinal))
-                        {
-                            _store.MarkAbandoned(oldSn);
-                            await _snClient.ReleaseAsync(_serverHost, oldSn, ct);
-                            _log.Append($"旧 SN {oldSn} 被新号取代：已标弃用并回收");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _log.Append($"旧 SN 读取失败（不阻塞写入新号）：{ex.Message}");
-                    }
-
-                    FlowPanel.Mark(2, StepStatus.Running);     // ③ 写入并回读：开始
                     var (ok, detail) = await _can.WriteSnAsync(sn, ct);
-                    _log.Append(ok ? $"步骤 3：写 SN 成功 {detail}" : $"步骤 3：写 SN 失败 {detail}");
+                    _log.Append(ok ? $"步骤 2：写 SN 成功 {detail}" : $"步骤 2：写 SN 失败 {detail}");
                     writeOk = ok;
                     if (!ok)
-                        FlowPanel.Mark(2, StepStatus.Failed);  // 写失败即定格，不再回读
+                    {
+                        FlowPanel.Mark(1, StepStatus.Failed, "SN 写入失败");
+                        TxtScanHint.Text = "SN 写入设备失败";
+                        TxtScanHint.Foreground = DangerBrush;
+                    }
                     return ok;
                 },
                 snReadAsync: async () =>
                 {
                     var back = await _can.TryReadSnAsync(ct);
                     readOk = back is not null && string.Equals(back, writtenSn, StringComparison.Ordinal);
-                    _log.Append($"步骤 3：回读 SN = {back ?? "(空)"}");
-                    FlowPanel.Mark(2, readOk ? StepStatus.Passed : StepStatus.Failed);  // ③ 完成定格
+                    _log.Append($"步骤 2：回读 SN = {back ?? "(空)"}");
+                    FlowPanel.Mark(1, readOk ? StepStatus.Passed : StepStatus.Failed,
+                        readOk ? "" : "SN 回读不一致");
+                    TxtScanHint.Text = readOk ? "扫码、写入、回读均通过" : "SN 回读不一致";
+                    TxtScanHint.Foreground = readOk ? SuccessBrush : DangerBrush;
                     return back;
                 },
                 chargeStartAsync: async () =>
                 {
-                    FlowPanel.Mark(3, StepStatus.Running);     // ④ 开充电：开始
+                    FlowPanel.Mark(2, StepStatus.Running);     // 开充电：开始
                     var (ok, detail) = await _can.EnableChargingAsync(ct);
-                    _log.Append(ok ? $"步骤 4：{detail}" : $"步骤 4：开启充电失败 {detail}");
+                    _log.Append(ok ? $"步骤 3：{detail}" : $"步骤 3：开启充电失败 {detail}");
                     chargeOk = ok;
-                    FlowPanel.Mark(3, ok ? StepStatus.Passed : StepStatus.Failed);      // ④ 完成定格
+                    FlowPanel.Mark(2, ok ? StepStatus.Passed : StepStatus.Failed);      // 开充电完成定格
                     if (!ok)
                         throw new InvalidOperationException("开启充电失败，请检查设备放置和充电功能后重试");
-                    FlowPanel.Mark(4, StepStatus.Running);     // ⑤ 采样：开始（充电完成才到）
-                    _log.Append("步骤 5：打开 PowerZ HID 采样…");
+                    FlowPanel.Mark(3, StepStatus.Running);     // 采样：开始（充电完成才到）
+                    _log.Append("步骤 4：打开 PowerZ HID 采样…");
                     try
                     {
                         await powerZ!.StartAsync(ct);
                     }
                     catch (Exception ex)
                     {
-                        // HID 打开失败不抛：交给⑤等采样超时 →「无有效采样」定格
+                        // HID 打开失败不抛：交给采样超时 →「无有效采样」定格
                         _log.Append($"[PowerZ] 打开失败：{ex.Message}");
                     }
                 },
@@ -319,7 +417,7 @@ public partial class Station3Control : UserControl, IStationPage
             }
         }
 
-        // ---- ⑤⑥ 定格 + 未执行步骤补齐（fail-fast：任一步出错，其后「未执行」）----
+        // ---- 定格 + 未执行步骤补齐（fail-fast：任一步出错，其后「未执行」）----
         bool snOk = writeOk && readOk;
 
         if (snOk && chargeOk)
@@ -328,56 +426,46 @@ public partial class Station3Control : UserControl, IStationPage
             {
                 ShowCoilJudgement(c);
 
-                // ⑤ PowerZ 汇总行回空白；通过/失败由 5.1/5.2 承载
-                FlowPanel.Mark(4, StepStatus.None);
-                // 5.1 / 5.2 子步分别定格 A、B 判定（B 未测到 = 未执行）
-                FlowPanel.Mark(5, c.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
+                // PowerZ 汇总行回空白；通过/失败由 4.1/4.2 承载
+                FlowPanel.Mark(3, StepStatus.None);
+                FlowPanel.Mark(4, c.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
                 if (!c.CoilAPassed)
-                    FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
+                    FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
                 else
-                    FlowPanel.Mark(6, c.CoilBPassed ? StepStatus.Passed : StepStatus.Failed);
-                _log.Append($"步骤 5：A 均值 {c.CoilACurrent:F3}A / B 均值 {c.CoilBCurrent:F3}A" +
+                    FlowPanel.Mark(5, c.CoilBPassed ? StepStatus.Passed : StepStatus.Failed);
+                _log.Append($"步骤 4：A 均值 {c.CoilACurrent:F3}A / B 均值 {c.CoilBCurrent:F3}A" +
                                 $" → {(c.IsNormal ? "正常" : "异常：" + string.Join("；", c.AbnormalItems))}");
 
-                // ⑥ 停充并入库（线圈判 FAIL 也入库为 FAIL 记录）
-                FlowPanel.Mark(7, StepStatus.Running);
+                // ⑤ 停充并结束（无入库）
+                FlowPanel.Mark(6, StepStatus.Running);
                 var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
-                _log.Append(offOk ? $"步骤 6：停止充电（{offDetail}）" : $"步骤 6：停止充电失败 {offDetail}");
+                _log.Append(offOk ? $"步骤 5：停止充电（{offDetail}）" : $"步骤 5：停止充电失败 {offDetail}");
                 if (!offOk)
                     ListAbnormal.Items.Add("关闭充电失败：请检查设备连接后重试");
-                FlowPanel.Mark(7, offOk ? StepStatus.Passed : StepStatus.Failed);
-                _log.Append(c.IsNormal
-                    ? "步骤 6：已入库（PASS）"
-                    : $"步骤 6：已入库（FAIL 记录：{string.Join("；", c.AbnormalItems)}）");
+                FlowPanel.Mark(6, offOk ? StepStatus.Passed : StepStatus.Failed);
+                _log.Append("步骤 5：停充结束（简化版无数据库，不入库）");
             }
             else
             {
                 ShowCoilJudgement(result?.Coil);
-                FlowPanel.Mark(4, StepStatus.None);
-                FlowPanel.Mark(5, StepStatus.Failed);
-                FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
-                FlowPanel.Mark(7, StepStatus.Waiting, "未执行（前序失败）");
-                _log.Append("步骤 6：未执行（无有效采样），不入库");
+                FlowPanel.Mark(3, StepStatus.None);
+                FlowPanel.Mark(4, StepStatus.Failed, "无有效采样");
+                FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
+                FlowPanel.Mark(6, StepStatus.Waiting, "未执行（无有效采样）");
+                _log.Append("步骤 5：未执行（无有效采样）");
             }
         }
         else
         {
-            // 前序失败：未到达的步骤全部标未执行（已定格 FAIL 的步骤不覆盖——
-            // 开充电失败时步骤 4 已标 FAIL，不得改回「未执行」）
-            if (result is { Sn.Length: 0 })
-            {
-                // SN 取号失败（如超上限）：② 生成 SN 定格失败，③ 起未执行
-                FlowPanel.Mark(1, StepStatus.Failed);
-                FlowPanel.Mark(2, StepStatus.Waiting, "未执行（前序失败）");
-            }
+            // 前序失败：未到达的步骤全部标未执行（已定格 FAIL 的步骤不覆盖）
             if (!snOk)
-                FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
+                FlowPanel.Mark(2, StepStatus.Waiting, "未执行（前序失败）");
             ShowCoilJudgement(null);
-            FlowPanel.Mark(4, StepStatus.None);
+            FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
+            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
             FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
-            FlowPanel.Mark(7, StepStatus.Waiting, "未执行（前序失败）");
-            _log.Append("步骤 6：未执行（前序失败），不入库");
+            _log.Append("步骤 5：未执行（前序失败）");
         }
 
         // 安全关充：流程中途出错（无采样/前序失败）时充电可能仍开着，补发停充
@@ -405,7 +493,10 @@ public partial class Station3Control : UserControl, IStationPage
     {
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
-        TxtSn.Text = "—";
+        TxtSn.Text = "";
+        TxtScanHint.Text = "点击「开始测试」后等待扫描";
+        TxtScanHint.Foreground = MutedBrush;
+        TxtScanCountdown.Text = "";
         ShowCoilJudgement(null);
         TxtResult.Text = "待测试";
         TxtResult.Foreground = MutedBrush;
@@ -414,43 +505,21 @@ public partial class Station3Control : UserControl, IStationPage
         RaiseAvailability();
     }
 
-    /// <summary>把一次测试结果显示到数据展示区（异常项红字）。</summary>
-    public void ShowResult(Station1Result result)
-    {
-        ListAbnormal.Items.Clear();
-        TxtSn.Text = string.IsNullOrEmpty(result.Sn) ? "—" : result.Sn;
-
-        SetResultBadge(result.Passed);
-
-        if (result.Coil is { NoValidSample: false } c)
-        {
-            ShowCoilJudgement(c);
-        }
-
-        foreach (var item in result.AbnormalItems)
-            ListAbnormal.Items.Add(item);
-
-        _log.Append(result.Passed
-            ? "全部检测项正常，PASS"
-            : $"存在 {result.AbnormalItems.Count} 项异常，FAIL");
-    }
-
     /// <summary>
     /// PowerZ 检测实时进度：流程区显示阶段提示/倒计时；A 判定一出即点亮 A 卡片，
     /// 测试员见「通过」即可换接 B 线圈。
     /// </summary>
     private void OnCoilProgress(CoilProgress p)
     {
-        FlowPanel.Mark(4, StepStatus.Running, p.Hint);   // 5 总步骤：阶段提示/倒计时
+        FlowPanel.Mark(3, StepStatus.Running, p.Hint);   // PowerZ 汇总行：阶段提示/倒计时
         if (p.CoilADecided)
         {
             CardCoilA.SetState(p.CoilAPassed ? CoilState.Passed : CoilState.Failed, p.CoilACurrent);
-            // 5.1 A 定格；5.2 B 随即开始（A 未过则 B 不测）
-            FlowPanel.Mark(5, p.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
+            FlowPanel.Mark(4, p.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
             if (!p.CoilAPassed)
-                FlowPanel.Mark(6, StepStatus.Waiting, "未执行（前序失败）");
+                FlowPanel.Mark(5, StepStatus.Waiting, "未执行（前序失败）");
             else
-                FlowPanel.Mark(6, StepStatus.Running);
+                FlowPanel.Mark(5, StepStatus.Running);
         }
     }
 

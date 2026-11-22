@@ -47,6 +47,12 @@ public partial class SettingsWindow : Window
         // 页 2：检测参数
         FillCoilFields(MachineConfig.LoadCoilOptions());
 
+        // 扫码参数（工位3 扫码枪）
+        var scan = MachineConfig.LoadScanTiming();
+        BoxScanTimeoutSec.Text = scan.ScanSeconds.ToString();
+        BoxSnJudgeTimeoutSec.Text = scan.JudgeSeconds.ToString();
+        BoxOverallTimeoutSec.Text = scan.OverallSeconds.ToString();
+
         // 页 3：四项版本预设
         var vp = MachineConfig.LoadVersionPresets();
         BoxPresetMcu1.Text = vp.Mcu1App;
@@ -222,5 +228,27 @@ public partial class SettingsWindow : Window
 
         TxtPresetResult.Text = "已保存到本机 machine.json，重启后沿用，工位 4 下次测试比对生效";
         TxtPresetResult.Foreground = SuccessBrush;
+    }
+
+    private void BtnSaveScan_Click(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(BoxScanTimeoutSec.Text.Trim(), out var scan) ||
+            !int.TryParse(BoxSnJudgeTimeoutSec.Text.Trim(), out var judge) ||
+            !int.TryParse(BoxOverallTimeoutSec.Text.Trim(), out var overall))
+        {
+            TxtScanSaveResult.Text = "请输入有效整数秒数";
+            TxtScanSaveResult.Foreground = DangerBrush;
+            return;
+        }
+        var err = MachineConfig.ValidateScanTiming(scan, judge, overall);
+        if (err is not null)
+        {
+            TxtScanSaveResult.Text = err;
+            TxtScanSaveResult.Foreground = DangerBrush;
+            return;
+        }
+        MachineConfig.SaveScanTiming(scan, judge, overall);
+        TxtScanSaveResult.Text = "已保存，下次测试生效";
+        TxtScanSaveResult.Foreground = SuccessBrush;
     }
 }

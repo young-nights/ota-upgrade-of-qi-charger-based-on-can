@@ -175,6 +175,35 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="扫码参数（工位3）" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock Text="点击「开始测试」后进入等待扫码。输入框每收到一次键入都会重新计时；超时后校验当前内容，SN 结构不符合则本次 FAIL。扫码枪回车会立即确认。"
+                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,10,0,12"/>
+                            <WrapPanel>
+                                <StackPanel Width="140" Margin="0,0,12,0">
+                                    <TextBlock Text="扫码超时 (s)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxScanTimeoutSec" Style="{StaticResource FieldBox}" Text="10"/>
+                                </StackPanel>
+                                <StackPanel Width="160" Margin="0,0,12,0">
+                                    <TextBlock Text="SN码判定超时 (s)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxSnJudgeTimeoutSec" Style="{StaticResource FieldBox}" Text="2"/>
+                                </StackPanel>
+                                <StackPanel Width="140" Margin="0,0,12,0">
+                                    <TextBlock Text="整体超时 (s)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxOverallTimeoutSec" Style="{StaticResource FieldBox}" Text="15"/>
+                                </StackPanel>
+                                <Button Content="保存扫码参数" Width="150" Height="40"
+                                        VerticalAlignment="Bottom"
+                                        Style="{StaticResource PrimaryButton}" Click="BtnSaveScan_Click"/>
+                                <TextBlock x:Name="TxtScanSaveResult" VerticalAlignment="Center"
+                                           Margin="12,0,0,0" FontSize="12"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </TabItem>

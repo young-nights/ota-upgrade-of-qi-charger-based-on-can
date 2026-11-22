@@ -74,10 +74,20 @@
                         <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
                                 CornerRadius="8" Padding="16">
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="SN 码" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtSn" Text="—"
-                                           FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="扫码枪 SN" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtSn" Text="" IsReadOnly="True"
+                                         FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
+                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                         Background="White" BorderBrush="#90CAF9" BorderThickness="2"
+                                         Padding="8,4"
+                                         TextChanged="OnScanTextChanged"
+                                         KeyDown="OnScanKeyDown"/>
+                                <TextBlock x:Name="TxtScanHint" Text="点击「开始测试」后等待扫描"
+                                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                           Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="TxtScanCountdown" Text=""
+                                           FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                         </Border>
                     </Grid>

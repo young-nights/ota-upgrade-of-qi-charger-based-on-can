@@ -38,7 +38,7 @@
                 </DockPanel>
             </Border>
 
-            <!-- 数据展示区：结果/SN/数据库关联三列一行，异常项列表占满剩余行 -->
+            <!-- 数据展示区：结果 + 线圈 A/B，异常项列表占满剩余行 -->
             <Border Grid.Column="2" Style="{StaticResource Card}">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -55,51 +55,23 @@
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,4"/>
 
-                    <!-- 结果大字 + SN 码 并排（SN 占半幅，长码显示完整） -->
-                    <Grid Grid.Row="1" Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Border x:Name="BadgeResult" Grid.Column="0" Background="#F1F5F9" CornerRadius="8"
-                                Padding="24,14" VerticalAlignment="Stretch">
-                            <TextBlock x:Name="TxtResult" Text="待测试" FontSize="40"
-                                       FontWeight="Bold" HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Foreground="{StaticResource TextSecondaryBrush}"/>
-                        </Border>
-                        <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="SN 码（设备读取）" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtSn" Text="—"
-                                           FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
+                    <!-- 结果大字（简化流程：无 SN、无数据库关联） -->
+                    <Border x:Name="BadgeResult" Grid.Row="1" Background="#F1F5F9" CornerRadius="8"
+                            Padding="24,14" Margin="0,0,0,12" HorizontalAlignment="Left">
+                        <TextBlock x:Name="TxtResult" Text="待测试" FontSize="40"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                    </Border>
 
-                    <!-- 线圈 A/B + 数据库关联 一行（数据库关联移出 SN 行，SN 不再被挤） -->
+                    <!-- 线圈 A/B 一行 -->
                     <Grid Grid.Row="2" Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <controls:CoilJudgeCard x:Name="CardCoilA" Grid.Column="0" Title="线圈 A"/>
                         <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Column="2" Title="线圈 B"/>
-                        <Border Grid.Column="4" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="数据库关联（按 SN）" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtDbLink" Text="—"
-                                           FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
-                            </StackPanel>
-                        </Border>
                     </Grid>
 
                     <!-- 异常项 -->

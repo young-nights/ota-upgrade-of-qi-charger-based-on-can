@@ -160,6 +160,50 @@ public static class MachineConfig
             $"  ({Environment.MachineName})\n");
     }
 
+    /// <summary>扫码时间参数：无输入等待、输入停止后的 SN 判定、整个扫码阶段硬超时。</summary>
+    public static (int ScanSeconds, int JudgeSeconds, int OverallSeconds) LoadScanTiming()
+    {
+        var cfg = ReadCfgOrDefault();
+        int scan = cfg.ScanTimeoutSeconds is >= 1 and <= 120 ? cfg.ScanTimeoutSeconds : 10;
+        int judge = cfg.SnJudgeTimeoutSeconds is >= 1 and <= 120 ? cfg.SnJudgeTimeoutSeconds : 2;
+        int overall = cfg.ScanOverallTimeoutSeconds is >= 1 and <= 300
+            ? cfg.ScanOverallTimeoutSeconds
+            : Math.Max(15, scan + judge + 1);
+        if (overall <= scan + judge)
+            overall = scan + judge + 1;
+        return (scan, judge, overall);
+    }
+
+    public static string? ValidateScanTiming(int scan, int judge, int overall)
+    {
+        if (scan is < 1 or > 120)
+            return "扫码超时需在 1~120 秒之间";
+        if (judge is < 1 or > 120)
+            return "SN 码判定超时需在 1~120 秒之间";
+        if (overall is < 1 or > 300)
+            return "整体超时需在 1~300 秒之间";
+        if (overall <= scan + judge)
+            return "整体超时必须大于扫码超时与 SN 码判定超时之和";
+        return null;
+    }
+
+    /// <summary>保存扫码时间参数；变更时写 machine_change.log 留痕。</summary>
+    public static void SaveScanTiming(int scan, int judge, int overall)
+    {
+        var cfg = ReadCfgOrDefault();
+        var before = LoadScanTiming();
+        cfg.ScanTimeoutSeconds = scan;
+        cfg.SnJudgeTimeoutSeconds = judge;
+        cfg.ScanOverallTimeoutSeconds = overall;
+        WriteCfg(cfg);
+        if (before == (scan, judge, overall))
+            return;
+        File.AppendAllText(ChangeLogPath,
+            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  扫码超时 {before.ScanSeconds}s→{scan}s" +
+            $" / SN判定 {before.JudgeSeconds}s→{judge}s" +
+            $" / 整体 {before.OverallSeconds}s→{overall}s  ({Environment.MachineName})\n");
+    }
+
     /// <summary>
     /// 工位 4 四项版本预设：MCU1 APP / MCU2 Qi / Bootloader / 硬件。
     /// 读取值与之逐项比对，空 = 该项未预设。
@@ -270,6 +314,11 @@ public static class MachineConfig
         public int CoilACollectMs { get; set; }       // legacy：旧 A 窗口键，读时兼容
         public int SampleIntervalMs { get; set; } = 200;
         public int OverallTimeoutMs { get; set; } = 60_000;
+
+        // 扫码时间参数（工位3 扫码枪：无输入等待 / SN 判定 / 整体硬超时）
+        public int ScanTimeoutSeconds { get; set; } = 10;
+        public int SnJudgeTimeoutSeconds { get; set; } = 2;
+        public int ScanOverallTimeoutSeconds { get; set; } = 15;
 
         // 工位 4 四项版本预设（null=键不存在，读取时用旧键/出厂默认；""=显式留空）
         public string? PresetMcu1App { get; set; }

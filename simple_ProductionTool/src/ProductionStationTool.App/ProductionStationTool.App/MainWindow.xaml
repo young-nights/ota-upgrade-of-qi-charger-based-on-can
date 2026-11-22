@@ -24,11 +24,11 @@
                         </MenuItem>
                         <!-- 工位切换：菜单栏下拉，勾选当前工位；默认工位1 -->
                         <MenuItem x:Name="MenuStations" Header="工位选择">
-                            <MenuItem Header="工位1 — SN复测 + 线圈A/B" Tag="0"
+                            <MenuItem Header="工位1 — 充电线圈 A/B" Tag="0"
                                   IsCheckable="True" IsChecked="True" Click="MenuStation_Click"/>
                             <MenuItem Header="工位2 — 老化测试" Tag="1"
                                   IsCheckable="True" Click="MenuStation_Click"/>
-                            <MenuItem Header="工位3 — SN写入 + 线圈A/B" Tag="2"
+                            <MenuItem Header="工位3 — 扫码写 SN + 线圈A/B" Tag="2"
                                   IsCheckable="True" Click="MenuStation_Click"/>
                         </MenuItem>
                         <MenuItem Header="关于">
@@ -60,7 +60,7 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock x:Name="TxtCurrent" Text="工位1 — SN复测 + 线圈A/B"
+                                <TextBlock x:Name="TxtCurrent" Text="工位1 — 充电线圈 A/B"
                                    FontSize="20" FontWeight="Bold"
                                    Foreground="{StaticResource TextPrimaryBrush}"/>
                                 <TextBlock Text="自动检测串口/CAN → 点击「开始测试」自动跑完流程"
