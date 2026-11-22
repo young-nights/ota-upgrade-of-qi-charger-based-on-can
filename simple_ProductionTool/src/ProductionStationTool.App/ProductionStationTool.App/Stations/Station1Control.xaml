@@ -38,8 +38,7 @@
                 </DockPanel>
             </Border>
 
-            <!-- 数据展示区：结果/SN/A线圈/B线圈 四组件等比放大（电压电流组件已移除），
-                 异常项列表占满剩余行，整页免滚动 -->
+            <!-- 数据展示区：结果/SN/数据库关联三列一行，异常项列表占满剩余行 -->
             <Border Grid.Column="2" Style="{StaticResource Card}">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -49,15 +48,14 @@
                         <RowDefinition Height="*" MinHeight="90"/>
                         <RowDefinition Height="*" MinHeight="105"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <!-- 异常项列表：压缩高度（36），空间让给上方四卡片 -->
-                        <RowDefinition Height="36"/>
+                        <!-- 异常项列表：至少 80，保证失败原因完整显示 -->
+                        <RowDefinition Height="80"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,4"/>
 
-                    <!-- 结果大字 + SN 码 并排 -->
+                    <!-- 结果大字 + SN 码 并排（SN 占半幅，长码显示完整） -->
                     <Grid Grid.Row="1" Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -72,49 +70,51 @@
                                        Foreground="{StaticResource TextSecondaryBrush}"/>
                         </Border>
                         <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="16">
+                                CornerRadius="8" Padding="14">
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="扫码枪 SN" Style="{StaticResource FieldLabel}"/>
-                                <TextBox x:Name="TxtSn" Text="" IsReadOnly="True"
-                                         FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
-                                         Foreground="{StaticResource TextPrimaryBrush}"
-                                         Background="White" BorderBrush="#90CAF9" BorderThickness="2"
-                                         Padding="8,4"
-                                         TextChanged="OnScanTextChanged"
-                                         KeyDown="OnScanKeyDown"/>
-                                <TextBlock x:Name="TxtScanHint" Text="点击「开始测试」后等待扫描"
-                                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                                           Margin="0,6,0,0" TextWrapping="Wrap"/>
-                                <TextBlock x:Name="TxtScanCountdown" Text=""
-                                           FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
+                                <TextBlock Text="SN 码（设备读取）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtSn" Text="—"
+                                           FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
                             </StackPanel>
                         </Border>
                     </Grid>
 
-                    <!-- 线圈 A/B 判定：两个组件并排，绿=通过 / 红=未通过 / 灰=未测 -->
+                    <!-- 线圈 A/B + 数据库关联 一行（数据库关联移出 SN 行，SN 不再被挤） -->
                     <Grid Grid.Row="2" Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="12"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <controls:CoilJudgeCard x:Name="CardCoilA" Grid.Column="0" Title="线圈 A"/>
                         <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Column="2" Title="线圈 B"/>
+                        <Border Grid.Column="4" Background="{StaticResource FieldBgBrush}"
+                                CornerRadius="8" Padding="14">
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="数据库关联（按 SN）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock x:Name="TxtDbLink" Text="—"
+                                           FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                        </Border>
                     </Grid>
 
-                    <!-- 检测参数只读提示（修改入口在「设置」页） -->
-                    <TextBlock Grid.Row="3"
-                               Text="检测参数（A/B 上下限、窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
-                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                               Margin="0,0,0,4"/>
-
                     <!-- 异常项 -->
-                    <TextBlock Grid.Row="4" Text="异常项" Style="{StaticResource SectionTitle}"
+                    <TextBlock Grid.Row="3" Text="异常项" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,4"/>
-                    <ListBox x:Name="ListAbnormal" Grid.Row="5" FontSize="14"
+                    <ListBox x:Name="ListAbnormal" Grid.Row="4" FontSize="14"
                              Background="{StaticResource FieldBgBrush}"
-                             BorderBrush="{StaticResource CardBorderBrush}"/>
+                             BorderBrush="{StaticResource CardBorderBrush}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
             </Border>
         </Grid>

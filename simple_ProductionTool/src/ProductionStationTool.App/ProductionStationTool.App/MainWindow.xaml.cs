@@ -15,7 +15,7 @@ namespace ProductionStationTool.App;
 public partial class MainWindow : Window
 {
     private readonly IStationPage[] _pages;
-    private readonly StationIdentity? _identity;
+    private readonly StationIdentity _identity;
     private IStationPage? _currentPage;
     private bool _isRunning;
 
@@ -127,4 +127,5 @@ public partial class MainWindow : Window
         win.ShowDialog();
     }
 
+    // ---- 汇总机页面（整页接管工作区；仅启动登录选汇总机身份才进入，关闭窗口即退出）----
 }

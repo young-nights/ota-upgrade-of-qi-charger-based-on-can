@@ -57,13 +57,13 @@ public interface ITestRecordStore
     /// <summary>标记该 SN 已打印出库。</summary>
     void MarkPrinted(string sn);
 
-    /// <summary>手动修正：设置该 SN 全部记录的弃用标记（「数据管理」修正良率口径）。</summary>
+    /// <summary>手动修正：设置该 SN 全部记录的弃用标记（仓储能力，当前 UI 未暴露）。</summary>
     void SetAbandoned(string sn, bool abandoned);
 
     /// <summary>手动修正：设置该 SN 全部记录的打印出库标记。</summary>
     void SetPrinted(string sn, bool printed);
 
-    /// <summary>按 SN 查全部工位记录（工位3 关联历史），按工位号升序。</summary>
+    /// <summary>按 SN 查全部工位记录（工位3 关联历史 / 工位4 出货门禁），按工位号升序。</summary>
     IReadOnlyList<TestRecord> FindAllBySn(string sn);
 
     /// <summary>取最近 n 条。</summary>
@@ -76,6 +76,6 @@ public interface ITestRecordStore
     IReadOnlyList<(int StationNo, string MachineId)> DistinctSources();
 
     /// <summary>按机位聚合的测试统计（总数/PASS/FAIL/最近测试时间）；
-    /// excludeAbandoned=true 时弃用记录不计入（良率口径）。</summary>
+    /// excludeAbandoned=true 时弃用记录不计入（汇总机良率统计固定用它排除弃用记录）。</summary>
     IReadOnlyList<MachineTestStats> StatsByMachine(bool excludeAbandoned = false);
 }

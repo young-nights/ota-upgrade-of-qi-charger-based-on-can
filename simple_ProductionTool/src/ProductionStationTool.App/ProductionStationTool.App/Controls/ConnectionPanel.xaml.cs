@@ -34,7 +34,7 @@ public partial class ConnectionPanel : UserControl
     private bool _busy;
 
     /// <summary>
-    /// 是否需要 PowerZ（默认需要）。只读 CAN 的页面不需要，
+    /// 是否需要 PowerZ（默认需要）。工位4 只用 CAN（读 SN/版本/打印门禁），
     /// 置 false 后隐藏 PowerZ 下拉、连接只校验 CAN 口。
     /// </summary>
     private bool _showPowerZ = true;

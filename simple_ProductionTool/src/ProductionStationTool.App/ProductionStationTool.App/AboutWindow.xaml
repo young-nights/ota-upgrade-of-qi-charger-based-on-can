@@ -16,7 +16,7 @@
                        Foreground="{StaticResource TextPrimaryBrush}" Margin="0,4,0,0"/>
             <TextBlock Text="运行环境：.NET 8 · WPF" FontSize="13"
                        Foreground="{StaticResource TextPrimaryBrush}" Margin="0,4,0,12"/>
-            <TextBlock Text="工位1 SN + 电流电压（A/B 双线圈检测）、工位3 SN 复测；机位命名与检测参数在「设置」中配置。"
+            <TextBlock Text="工位1 SN + 电流电压（A/B 双线圈检测）、工位2 老化测试；机位命名、网络与检测参数在「设置」中配置。"
                        FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                        TextWrapping="Wrap" Margin="0,0,0,16"/>
             <Button Content="关闭" Width="100" Height="36" HorizontalAlignment="Right"

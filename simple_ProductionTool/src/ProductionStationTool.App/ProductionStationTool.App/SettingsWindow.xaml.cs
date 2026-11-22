@@ -1,4 +1,4 @@
-using System.IO;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -8,9 +8,12 @@ using ProductionStationTool.Core.Station;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// 本机设置页：
-///  「机位设置」——机位命名（写 machine.json + 留痕）；
-///  「检测参数」——步骤 5 双线圈检测参数（电流阈值/窗口/超时）。
+/// 本机设置页（按类型分页）：
+///  「机位与网络」——机位命名（写 machine.json + 留痕）、查看本机 IP、
+///    服务器连通检测、跳转系统网络设置改 IP（应用内不直改）；
+///  「检测参数」——步骤 5 双线圈检测参数（上下限/检测窗口/超时），保存后下次测试生效；
+///  「版本预设」——工位 4 四项版本（MCU1/Qi/Boot/HW），四项全匹配才 PASS。
+/// 各页保存均写本机 machine.json，重启后自动沿用。
 /// </summary>
 public partial class SettingsWindow : Window
 {
@@ -22,47 +25,44 @@ public partial class SettingsWindow : Window
 
     public SettingsWindow() : this(0) { }
 
-    /// <summary>startTab：0=机位设置，1=检测参数。</summary>
+    /// <summary>startTab：0=机位与网络，1=检测参数，2=版本预设（顶部菜单直达对应页）。</summary>
     public SettingsWindow(int startTab)
     {
         InitializeComponent();
         Tabs.SelectedIndex = startTab is 0 or 1 or 2 ? startTab : 0;
+        // 可编辑 ComboBox 的文本变化是内部 TextBox 的路由事件，挂上以便实时预览编码
         CmbStationNo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
             new TextChangedEventHandler((_, _) => Identity_Changed(CmbStationNo, EventArgs.Empty)));
         _ready = true;
 
+        // 页 1：机位与网络
         var settings = MachineConfig.LoadSettings();
         CmbStationNo.Text = settings.StationNo.ToString();
         TxtMachineId.Text = settings.MachineId;
+        TxtServerHost.Text = settings.ServerHost;
         TxtCurrentCode.Text = $"当前编码：{settings.Identity.Code}";
+        TxtPingResult.Text = "点「检测连通」验证到服务器的链路";
+        RefreshIps();
+
+        // 页 2：检测参数
         FillCoilFields(MachineConfig.LoadCoilOptions());
 
-        // 页 3：版本预设
+        // 页 3：四项版本预设
         var vp = MachineConfig.LoadVersionPresets();
-        BoxPresetApp.Text = vp.App;
-        BoxPresetBoot.Text = vp.Boot;
-        BoxPresetQi.Text = vp.Qi;
-        BoxPresetHw.Text = vp.Hw;
-        var scanTiming = MachineConfig.LoadScanTiming();
-        BoxScanTimeoutSec.Text = scanTiming.ScanSeconds.ToString();
-        BoxSnJudgeTimeoutSec.Text = scanTiming.JudgeSeconds.ToString();
-        BoxOverallTimeoutSec.Text = scanTiming.OverallSeconds.ToString();
-        RefreshLog();
+        BoxPresetMcu1.Text = vp.Mcu1App;
+        BoxPresetMcu2.Text = vp.Mcu2Qi;
+        BoxPresetBoot.Text = vp.Bootloader;
+        BoxPresetHw.Text = vp.Hardware;
     }
 
-    private void RefreshLog()
+    // ================= 页 1：机位与网络 =================
+
+    private void RefreshIps()
     {
-        try
-        {
-            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "machine_change.log");
-            TxtLog.Text = File.Exists(path)
-                ? string.Join("\n", File.ReadAllLines(path).TakeLast(8))
-                : "（暂无变更记录）";
-        }
-        catch (Exception ex)
-        {
-            TxtLog.Text = $"（记录读取失败：{ex.Message}）";
-        }
+        var ips = NetworkInfo.GetLocalIpv4();
+        TxtIps.Text = ips.Count == 0
+            ? "（未检测到已启用的网卡 IPv4）"
+            : string.Join("\n", ips.Select(x => $"{x.Adapter}：{x.Ipv4}"));
     }
 
     private void Identity_Changed(object sender, EventArgs e)
@@ -91,7 +91,7 @@ public partial class SettingsWindow : Window
 
         try
         {
-            MachineConfig.Save(stationNo, machineId);
+            MachineConfig.Save(stationNo, machineId, TxtServerHost.Text);
         }
         catch (Exception ex)
         {
@@ -102,26 +102,41 @@ public partial class SettingsWindow : Window
 
         TxtCurrentCode.Text = $"当前编码：{new StationIdentity(stationNo, machineId).Code}";
         TxtCurrentCode.Foreground = (Brush)FindResource("AccentBrush");
-        TxtSaveResult.Text = "已保存，重启软件后生效";
+        TxtSaveResult.Text = "已保存到本机 machine.json，重启软件后生效";
         TxtSaveResult.Foreground = SuccessBrush;
-        RefreshLog();
     }
 
-    private void BtnSavePresets_Click(object sender, RoutedEventArgs e)
+    private async void BtnPing_Click(object sender, RoutedEventArgs e)
+    {
+        var host = TxtServerHost.Text.Trim();
+        if (host.Length == 0)
+        {
+            TxtPingResult.Text = "请先填写服务器地址";
+            TxtPingResult.Foreground = DangerBrush;
+            return;
+        }
+
+        TxtPingResult.Text = $"正在检测 {host} …";
+        TxtPingResult.Foreground = MutedBrush;
+        var (ok, _, detail) = await NetworkInfo.PingAsync(host);
+        TxtPingResult.Text = $"{host}：{detail}";
+        TxtPingResult.Foreground = ok ? SuccessBrush : DangerBrush;
+    }
+
+    private void BtnOpenNetwork_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            MachineConfig.SaveVersionPresets(new MachineConfig.VersionPresets(
-                BoxPresetApp.Text, BoxPresetBoot.Text, BoxPresetQi.Text, BoxPresetHw.Text));
-            TxtPresetResult.Text = "已保存，下次测试生效";
-            TxtPresetResult.Foreground = SuccessBrush;
+            Process.Start(new ProcessStartInfo("ncpa.cpl") { UseShellExecute = true });
         }
         catch (Exception ex)
         {
-            TxtPresetResult.Text = $"保存失败：{ex.Message}";
-            TxtPresetResult.Foreground = DangerBrush;
+            MessageBox.Show($"打开网络设置失败：{ex.Message}", "本机设置",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    // ================= 页 2：检测参数 =================
 
     private void FillCoilFields(CoilTestOptions o)
     {
@@ -129,9 +144,7 @@ public partial class SettingsWindow : Window
         BoxAUpper.Text = o.CoilAUpperA.ToString("0.##");
         BoxBLower.Text = o.CoilBLowerA.ToString("0.##");
         BoxBUpper.Text = o.CoilBUpperA.ToString("0.##");
-        BoxAWindowSec.Text = (o.CoilACollectMs / 1000.0).ToString("0.##");
-        BoxBSustainSec.Text = (o.CoilBSustainMs / 1000.0).ToString("0.##");
-        BoxTransitionSec.Text = (o.TransitionMs / 1000.0).ToString("0.##");
+        BoxDetectionWindowSec.Text = (o.DetectionWindowMs / 1000.0).ToString("0.##");
         BoxSampleIntervalMs.Text = o.SampleIntervalMs.ToString("0");
         BoxTimeoutSec.Text = (o.OverallTimeoutMs / 1000.0).ToString("0.##");
     }
@@ -153,13 +166,11 @@ public partial class SettingsWindow : Window
         var aHigh = ParseD(BoxAUpper, d.CoilAUpperA);
         var bLow = ParseD(BoxBLower, d.CoilBLowerA);
         var bHigh = ParseD(BoxBUpper, d.CoilBUpperA);
-        var aWin = ParseD(BoxAWindowSec, d.CoilACollectMs / 1000.0);
-        var bSus = ParseD(BoxBSustainSec, d.CoilBSustainMs / 1000.0);
-        var trans = ParseD(BoxTransitionSec, d.TransitionMs / 1000.0);
+        var detWin = ParseD(BoxDetectionWindowSec, d.DetectionWindowMs / 1000.0);
         var samp = ParseD(BoxSampleIntervalMs, d.SampleIntervalMs);
         var tOut = ParseD(BoxTimeoutSec, d.OverallTimeoutMs / 1000.0);
 
-        var err = MachineConfig.ValidateCoil(aLow, aHigh, bLow, bHigh, aWin, bSus, tOut, trans, samp);
+        var err = MachineConfig.ValidateCoil(aLow, aHigh, bLow, bHigh, detWin, tOut, samp);
         if (err is not null)
         {
             TxtCoilSaveResult.Text = err;
@@ -173,9 +184,7 @@ public partial class SettingsWindow : Window
             CoilAUpperA = aHigh,
             CoilBLowerA = bLow,
             CoilBUpperA = bHigh,
-            CoilACollectMs = (int)(aWin * 1000),
-            CoilBSustainMs = (int)(bSus * 1000),
-            TransitionMs = (int)(trans * 1000),
+            DetectionWindowMs = (int)(detWin * 1000),
             SampleIntervalMs = (int)samp,
             OverallTimeoutMs = (int)(tOut * 1000),
         };
@@ -191,31 +200,27 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        TxtCoilSaveResult.Text = "已保存，下次测试生效";
+        TxtCoilSaveResult.Text = "已保存到本机 machine.json，重启后沿用，下次测试生效";
         TxtCoilSaveResult.Foreground = SuccessBrush;
-        RefreshLog();
     }
 
-    private void BtnSaveScan_Click(object sender, RoutedEventArgs e)
+    // ================= 页 3：版本预设 =================
+
+    private void BtnSavePresets_Click(object sender, RoutedEventArgs e)
     {
-        if (!int.TryParse(BoxScanTimeoutSec.Text.Trim(), out var scan) ||
-            !int.TryParse(BoxSnJudgeTimeoutSec.Text.Trim(), out var judge) ||
-            !int.TryParse(BoxOverallTimeoutSec.Text.Trim(), out var overall))
+        try
         {
-            TxtScanSaveResult.Text = "请输入有效整数秒数";
-            TxtScanSaveResult.Foreground = DangerBrush;
+            MachineConfig.SaveVersionPresets(
+                BoxPresetMcu1.Text, BoxPresetMcu2.Text, BoxPresetBoot.Text, BoxPresetHw.Text);
+        }
+        catch (Exception ex)
+        {
+            TxtPresetResult.Text = $"保存失败：{ex.Message}";
+            TxtPresetResult.Foreground = DangerBrush;
             return;
         }
-        var err = MachineConfig.ValidateScanTiming(scan, judge, overall);
-        if (err is not null)
-        {
-            TxtScanSaveResult.Text = err;
-            TxtScanSaveResult.Foreground = DangerBrush;
-            return;
-        }
-        MachineConfig.SaveScanTiming(scan, judge, overall);
-        TxtScanSaveResult.Text = "已保存，下次测试生效";
-        TxtScanSaveResult.Foreground = SuccessBrush;
-        RefreshLog();
+
+        TxtPresetResult.Text = "已保存到本机 machine.json，重启后沿用，工位 4 下次测试比对生效";
+        TxtPresetResult.Foreground = SuccessBrush;
     }
 }

@@ -5,105 +5,68 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="12"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- ① 串口接入区 -->
+        <!-- ① 串口接入区（仅 CAN，开充指令不需 PowerZ） -->
         <Border Grid.Row="0" Style="{StaticResource Card}">
             <controls:ConnectionPanel x:Name="ConnPanel"/>
         </Border>
 
-        <!-- ② 流程区 + ③ 数据展示区 -->
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="3*"/>
-                <ColumnDefinition Width="12"/>
-                <ColumnDefinition Width="5*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- 流程区 -->
-            <Border Grid.Column="0" Style="{StaticResource Card}">
-                <DockPanel>
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
-                        <TextBlock Text="老化流程" Style="{StaticResource SectionTitle}"/>
-                        <Button Content="日志" Style="{StaticResource GhostButton}"
-                                Height="26" Padding="12,0" HorizontalAlignment="Right"
-                                Click="BtnLog_Click"
-                                ToolTip="弹出运行日志窗口（不占主页面）"/>
-                    </Grid>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <controls:FlowStepsPanel x:Name="FlowPanel"/>
-                    </ScrollViewer>
-                </DockPanel>
-            </Border>
-
-            <!-- 数据展示区：结果/剩余时间/进度三列一行，老化项目列表占满剩余行 -->
-            <Border Grid.Column="2" Style="{StaticResource Card}">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-
-                    <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
-                               Margin="0,0,0,8"/>
-
-                    <!-- 结果大字 + 老化进度 并排 -->
-                    <Grid Grid.Row="1" Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="1.2*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <Border x:Name="BadgeResult" Grid.Column="0" Background="#F1F5F9" CornerRadius="8"
-                                Padding="20,10" VerticalAlignment="Stretch">
-                            <TextBlock x:Name="TxtResult" Text="待老化" FontSize="32"
-                                       FontWeight="Bold" HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Foreground="{StaticResource TextSecondaryBrush}"/>
-                        </Border>
-
-                        <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="剩余时间" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtRemaining" Text="30:00"
-                                           FontSize="28" FontWeight="Bold"
-                                           Foreground="{StaticResource AccentBrush}"/>
-                                <TextBlock Text="老化时长 30 分钟" FontSize="12"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           Margin="0,4,0,0"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Grid.Column="4" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="老化进度" Style="{StaticResource FieldLabel}"/>
-                                <ProgressBar x:Name="ProgressAging" Height="22"
-                                             Minimum="0" Maximum="100"/>
-                                <TextBlock x:Name="TxtProgressPct" Text="0%"
-                                           FontSize="12" HorizontalAlignment="Right"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           Margin="0,4,0,0"/>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-
-                    <!-- 老化说明 -->
-                    <TextBlock Grid.Row="2" Text="老化项目" Style="{StaticResource SectionTitle}"
-                               Margin="0,0,0,8"/>
-                    <ListBox x:Name="ListDetails" Grid.Row="3" FontSize="14"
-                             Background="{StaticResource FieldBgBrush}"
-                             BorderBrush="{StaticResource CardBorderBrush}"/>
+        <!-- ② 开充循环状态（简化老化位：无倒计时/测流/入库） -->
+        <Border Grid.Row="1" Style="{StaticResource Card}">
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <TextBlock Text="开充循环（老化位）" Style="{StaticResource SectionTitle}"/>
+                    <Button Content="日志" Style="{StaticResource GhostButton}"
+                            Height="26" Padding="12,0" HorizontalAlignment="Right"
+                            Click="BtnLog_Click"
+                            ToolTip="弹出运行日志窗口（不占主页面）"/>
                 </Grid>
-            </Border>
-        </Grid>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <!-- 状态大字 -->
+                        <Border x:Name="BadgeState" Background="#F1F5F9" CornerRadius="8"
+                                Padding="24,12" Margin="0,0,0,16" HorizontalAlignment="Left">
+                            <TextBlock x:Name="TxtState" Text="未启动" FontSize="40"
+                                       FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Border>
+
+                        <!-- 发送计数 / 最近结果 -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="1.6*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="{StaticResource FieldBgBrush}"
+                                    CornerRadius="8" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="已发送" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock x:Name="TxtCount" Text="0 次"
+                                               FontSize="32" FontWeight="Bold"
+                                               Foreground="{StaticResource AccentBrush}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
+                                    CornerRadius="8" Padding="14">
+                                <StackPanel>
+                                    <TextBlock Text="最近结果" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock x:Name="TxtLast" Text="—"
+                                               FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- 使用提示 -->
+                        <TextBlock x:Name="TxtHint"
+                                   Text="点击「开始测试」后以 500ms 周期持续发送开充指令（2E 21 01）；产线接新设备无需重新点击，「断开」停止循环。不倒计时、不读电流电压、不判限、不入库。"
+                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
     </Grid>
 </UserControl>

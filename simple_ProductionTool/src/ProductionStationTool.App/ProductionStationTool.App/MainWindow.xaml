@@ -6,100 +6,104 @@
         MinWidth="1100" MinHeight="680"
         Background="{StaticResource BgBrush}">
     <Grid>
-    <DockPanel x:Name="WorkstationView">
-        <!-- 顶部横幅：下拉菜单（设置 / 工位选择 / 关于）。启动直接进入工位机，无登录/汇总机入口 -->
-        <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}"
+        <Grid.RowDefinitions>
+            <RowDefinition Height="16*"/>
+            <RowDefinition Height="749*"/>
+        </Grid.RowDefinitions>
+        <DockPanel x:Name="WorkstationView" Grid.RowSpan="2">
+            <!-- 顶部横幅：下拉菜单（设置 / 工位选择 / 关于）。身份只在启动登录窗选择，工位机页无汇总机入口 -->
+            <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}"
                 BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1"
                 Padding="12,2">
-            <Grid>
-                <Menu Background="Transparent" FontSize="14">
-                    <MenuItem Header="设置">
-                        <MenuItem Header="机位设置…" Click="MenuSettingsNetwork_Click"/>
-                        <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
-                        <MenuItem Header="版本预设…" Click="MenuSettingsPresets_Click"/>
-                    </MenuItem>
-                    <!-- 工位切换：菜单栏下拉，勾选当前工位；默认工位1 -->
-                    <MenuItem x:Name="MenuStations" Header="工位选择">
-                        <MenuItem Header="工位1 — SN + 电流电压" Tag="0"
-                                  IsCheckable="True" IsChecked="True" Click="MenuStation_Click"/>
-                        <MenuItem Header="工位2 — 老化测试" Tag="1"
-                                  IsCheckable="True" Click="MenuStation_Click"/>
-                        <MenuItem Header="工位3 — SN复测 + 线圈A/B" Tag="2"
-                                  IsCheckable="True" Click="MenuStation_Click"/>
-                    </MenuItem>
-                    <MenuItem Header="关于">
-                        <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
-                    </MenuItem>
-                </Menu>
-            </Grid>
-        </Border>
-        <Grid Margin="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="12"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <!-- 操作栏 + 工位页面宿主 -->
-        <Grid Grid.Row="0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="12"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <!-- 顶部操作栏 -->
-            <Border Grid.Row="0" Style="{StaticResource Card}">
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock x:Name="TxtCurrent" Text="工位1 — SN + 电流电压"
+                    <Menu Background="Transparent" FontSize="14">
+                        <MenuItem Header="设置">
+                            <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
+                            <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
+                            <MenuItem Header="版本预设…" Click="MenuSettingsPresets_Click"/>
+                        </MenuItem>
+                        <!-- 工位切换：菜单栏下拉，勾选当前工位；默认工位1 -->
+                        <MenuItem x:Name="MenuStations" Header="工位选择">
+                            <MenuItem Header="工位1 — SN复测 + 线圈A/B" Tag="0"
+                                  IsCheckable="True" IsChecked="True" Click="MenuStation_Click"/>
+                            <MenuItem Header="工位2 — 老化测试" Tag="1"
+                                  IsCheckable="True" Click="MenuStation_Click"/>
+                            <MenuItem Header="工位3 — SN写入 + 线圈A/B" Tag="2"
+                                  IsCheckable="True" Click="MenuStation_Click"/>
+                        </MenuItem>
+                        <MenuItem Header="关于">
+                            <MenuItem Header="关于 ProductionStationTool…" Click="MenuAbout_Click"/>
+                        </MenuItem>
+                    </Menu>
+                </Grid>
+            </Border>
+            <Grid Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="12"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- 操作栏 + 工位页面宿主 -->
+                <Grid Grid.Row="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 顶部操作栏 -->
+                    <Border Grid.Row="0" Style="{StaticResource Card}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock x:Name="TxtCurrent" Text="工位1 — SN复测 + 线圈A/B"
                                    FontSize="20" FontWeight="Bold"
                                    Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <TextBlock Text="自动检测串口/CAN → 点击「开始测试」自动跑完流程"
+                                <TextBlock Text="自动检测串口/CAN → 点击「开始测试」自动跑完流程"
                                    FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                    Margin="0,4,0,0"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="BtnStart" Content="开始测试" Width="150" Height="52"
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnStart" Content="开始测试" Width="150" Height="52"
                                 FontSize="20" FontWeight="SemiBold"
                                 Style="{StaticResource PrimaryButton}"
                                 IsEnabled="False"
                                 ToolTip="CAN 与 PowerZ 串口接入后可点"
                                 Click="BtnStart_Click"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
 
-            <!-- 工位页面宿主（Stretch 约束高度，分隔条才能让上下区同步缩放） -->
-            <ContentControl x:Name="PageHost" Grid.Row="2"
+                    <!-- 工位页面宿主（Stretch 约束高度，分隔条才能让上下区同步缩放） -->
+                    <ContentControl x:Name="PageHost" Grid.Row="2"
                             HorizontalContentAlignment="Stretch"
                             VerticalContentAlignment="Stretch"/>
-        </Grid>
+                </Grid>
 
-        <!-- 状态栏 -->
-        <Border Grid.Row="2" Style="{StaticResource Card}" Padding="14,8">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <Ellipse Grid.Column="0" Width="10" Height="10"
+                <!-- 状态栏 -->
+                <Border Grid.Row="2" Style="{StaticResource Card}" Padding="14,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Grid.Column="0" Width="10" Height="10"
                          Fill="{StaticResource SuccessBrush}" VerticalAlignment="Center"/>
-                <TextBlock x:Name="TxtStatus" Grid.Column="1" Margin="8,0,0,0"
+                        <TextBlock x:Name="TxtStatus" Grid.Column="1" Margin="8,0,0,0"
                            FontSize="13" Foreground="{StaticResource TextSecondaryBrush}"
                            Text="就绪：自动检测串口/CAN 后点击「开始测试」"/>
-                <TextBlock Grid.Column="2" FontSize="13"
+                        <TextBlock Grid.Column="2" FontSize="13"
                            Foreground="{StaticResource TextSecondaryBrush}"
                            Text="ProductionStationTool"/>
+                    </Grid>
+                </Border>
             </Grid>
-        </Border>
-        </Grid>
-    </DockPanel>
+        </DockPanel>
 
     </Grid>
 </Window>

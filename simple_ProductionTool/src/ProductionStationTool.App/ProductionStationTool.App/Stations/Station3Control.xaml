@@ -38,20 +38,26 @@
                 </DockPanel>
             </Border>
 
-            <!-- 数据展示区：结果/SN/版本比对三列一行，异常项列表占满剩余行 -->
+            <!-- 数据展示区：结果/SN/A线圈/B线圈 四组件等比放大（电压电流组件已移除），
+                 异常项列表占满剩余行，整页免滚动 -->
             <Border Grid.Column="2" Style="{StaticResource Card}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <!-- 结果/SN 一行；线圈上下排 + 版本比对一行吃满剩余空间（异常项栏已撤） -->
+                        <!-- 结果/SN 与 A/B 线圈吃掉剩余空间（等比放大）；
+                             异常项列表固定高，不随窗口变大 -->
                         <RowDefinition Height="*" MinHeight="90"/>
-                        <RowDefinition Height="*" MinHeight="230"/>
+                        <RowDefinition Height="*" MinHeight="105"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <!-- 异常项列表：至少 80，保证失败原因完整显示 -->
+                        <RowDefinition Height="80"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,4"/>
 
-                    <!-- 结果大字 + SN 码 并排（SN 占半幅，长码显示完整） -->
+                    <!-- 结果大字 + SN 码 并排 -->
                     <Grid Grid.Row="1" Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -66,9 +72,9 @@
                                        Foreground="{StaticResource TextSecondaryBrush}"/>
                         </Border>
                         <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14">
+                                CornerRadius="8" Padding="16">
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="SN 码（设备读取）" Style="{StaticResource FieldLabel}"/>
+                                <TextBlock Text="SN 码" Style="{StaticResource FieldLabel}"/>
                                 <TextBlock x:Name="TxtSn" Text="—"
                                            FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
                                            Foreground="{StaticResource TextPrimaryBrush}"/>
@@ -76,46 +82,36 @@
                         </Border>
                     </Grid>
 
-                    <!-- 线圈 A/B 上下排布（左侧全宽防截断） + 版本号比对（右侧） -->
+                    <!-- 线圈 A/B 判定：两个组件并排，绿=通过 / 红=未通过 / 灰=未测 -->
                     <Grid Grid.Row="2" Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="*" MinWidth="340"/>
+                            <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Grid Grid.Column="0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="10"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <controls:CoilJudgeCard x:Name="CardCoilA" Grid.Row="0" Title="线圈 A"/>
-                            <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Row="2" Title="线圈 B"/>
-                        </Grid>
-                        <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
-                                CornerRadius="8" Padding="14,10">
-                            <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="版本号比对（实测 / 预设）" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtVerApp" Text="APP   —"
-                                           FontSize="13" FontFamily="Consolas" Margin="0,5,0,0"
-                                           TextOptions.TextFormattingMode="Display" TextWrapping="Wrap"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
-                                <TextBlock x:Name="TxtVerBoot" Text="Boot  —"
-                                           FontSize="13" FontFamily="Consolas" Margin="0,5,0,0"
-                                           TextOptions.TextFormattingMode="Display" TextWrapping="Wrap"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
-                                <TextBlock x:Name="TxtVerQi" Text="Qi    —"
-                                           FontSize="13" FontFamily="Consolas" Margin="0,5,0,0"
-                                           TextOptions.TextFormattingMode="Display" TextWrapping="Wrap"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
-                                <TextBlock x:Name="TxtVerHw" Text="硬件  —"
-                                           FontSize="13" FontFamily="Consolas" Margin="0,5,0,0"
-                                           TextOptions.TextFormattingMode="Display" TextWrapping="Wrap"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
-                            </StackPanel>
-                        </Border>
+                        <controls:CoilJudgeCard x:Name="CardCoilA" Grid.Column="0" Title="线圈 A"/>
+                        <controls:CoilJudgeCard x:Name="CardCoilB" Grid.Column="2" Title="线圈 B"/>
                     </Grid>
 
+                    <!-- 检测参数只读提示（修改入口在「设置」页） -->
+                    <TextBlock Grid.Row="3"
+                               Text="检测参数（A/B 上下限、检测窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,4"/>
+
+                    <!-- 异常项 -->
+                    <TextBlock Grid.Row="4" Text="异常项" Style="{StaticResource SectionTitle}"
+                               Margin="0,0,0,4"/>
+                    <ListBox x:Name="ListAbnormal" Grid.Row="5" FontSize="14"
+                             Background="{StaticResource FieldBgBrush}"
+                             BorderBrush="{StaticResource CardBorderBrush}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
             </Border>
         </Grid>

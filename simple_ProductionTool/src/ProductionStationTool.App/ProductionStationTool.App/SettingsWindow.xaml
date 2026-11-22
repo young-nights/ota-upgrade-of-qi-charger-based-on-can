@@ -6,17 +6,19 @@
         Background="{StaticResource BgBrush}">
     <TabControl x:Name="Tabs" Margin="16" Background="Transparent" BorderThickness="0">
 
-        <!-- 页 1：机位设置 -->
-        <TabItem Header="机位设置">
+        <!-- ===== 页 1：机位与网络 ===== -->
+        <TabItem Header="机位与网络">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
                 <StackPanel>
+
+                    <!-- 本机身份 -->
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
                             <TextBlock Text="本机身份（机位命名）" Style="{StaticResource SectionTitle}"/>
                             <TextBlock x:Name="TxtCurrentCode" Text="当前编码：ST-01-1"
                                        FontSize="22" FontWeight="Bold" Margin="0,10,0,2"
                                        Foreground="{StaticResource AccentBrush}"/>
-                            <TextBlock Text="机位数随产量动态增减：改名只写 machine.json，代码零改动；保存后重启软件生效。"
+                            <TextBlock Text="机位数随产量动态增减：改名只写 machine.json，代码/服务器零改动；保存后重启软件生效。"
                                        FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,0,0,12"/>
 
@@ -33,7 +35,9 @@
                                 <ComboBox x:Name="CmbStationNo" Grid.Column="1" Style="{StaticResource FieldComboEditable}"
                                           IsEditable="True" SelectionChanged="Identity_Changed">
                                     <ComboBoxItem Content="1"/>
+                                    <ComboBoxItem Content="2"/>
                                     <ComboBoxItem Content="3"/>
+                                    <ComboBoxItem Content="4"/>
                                 </ComboBox>
                                 <TextBlock Grid.Column="3" Text="机位号" Style="{StaticResource FieldLabel}"
                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -43,88 +47,122 @@
                             <TextBlock Text="机位号 1~8 位字母/数字，同工位内不重复（如 1、2、3…）"
                                        FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,10"/>
 
-                            <WrapPanel>
+                            <StackPanel Orientation="Horizontal">
                                 <Button Content="保存机位设置" Width="150" Height="40"
                                         Style="{StaticResource PrimaryButton}" Click="BtnSave_Click"/>
                                 <TextBlock x:Name="TxtSaveResult" VerticalAlignment="Center"
                                            Margin="12,0,0,0" FontSize="12"
                                            Foreground="{StaticResource TextSecondaryBrush}"/>
-                            </WrapPanel>
+                            </StackPanel>
                         </StackPanel>
                     </Border>
 
-                    <Border Style="{StaticResource Card}">
+                    <!-- 网络 -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
-                            <TextBlock Text="变更记录（machine_change.log）" Style="{StaticResource SectionTitle}"/>
-                            <TextBox x:Name="TxtLog" IsReadOnly="True" AcceptsReturn="True"
-                                     TextWrapping="Wrap" Height="110" Margin="0,10,0,0"
-                                     FontSize="11" FontFamily="Consolas"
-                                     Background="{StaticResource FieldBgBrush}"
-                                     BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
-                                     VerticalScrollBarVisibility="Auto"/>
+                            <TextBlock Text="网络" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock Text="本机 IP（只读；修改 IP 请用「打开网络设置」）"
+                                       Style="{StaticResource FieldLabel}" Margin="0,10,0,4"/>
+                            <TextBlock x:Name="TxtIps" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="服务器" Style="{StaticResource FieldLabel}"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="TxtServerHost" Grid.Column="1" Style="{StaticResource FieldBox}"
+                                         VerticalAlignment="Center"/>
+                                <Button Grid.Column="2" Content="检测连通" Width="110" Height="36"
+                                        Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                                        Click="BtnPing_Click"/>
+                            </Grid>
+                            <TextBlock x:Name="TxtPingResult" FontSize="12" Margin="0,0,0,12"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+
+                            <Button Content="打开网络设置（网卡/IPv4）" Width="230" Height="40"
+                                    Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                                    Click="BtnOpenNetwork_Click"
+                                    ToolTip="打开 Windows 网络连接面板，改 IP/掩码/网关需管理员权限"/>
                         </StackPanel>
                     </Border>
+
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
 
-        <!-- 页 2：检测参数 -->
+        <!-- ===== 页 2：检测参数 ===== -->
         <TabItem Header="检测参数">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
                 <StackPanel>
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
                             <TextBlock Text="步骤 5 双线圈检测参数" Style="{StaticResource SectionTitle}"/>
-                            <TextBlock Text="A 线圈：采集窗口内均值电流落在 [A 下限, A 上限] 区间内即正常（低于下限=低流、高于上限=过流，均异常）；A 通过后实时监测跌落（低于 B 下限或 A 均值一半），跌落状态持续「跌落确认」时长才算有效换线圈（不判失败）；B 线圈：电流恢复进入 [B 下限, B 上限] 区间并持续规定时长即正常；整体超时（A 采集 + 换线圈 + B 判定）判 FAIL。保存后下次测试生效。"
+                            <TextBlock Text="A 线圈：从开充起算，电流达到 A 下限后开始采样，到检测窗口结束取均值；均值落在 [A 下限, A 上限] 内即正常。有效检测时间不足 2s 判无效。A 通过后不再等待跌落，直接换接 B 线圈，整体倒计时继续；B 达到下限后按同样的窗口/均值/2s 规则判定。整体超时判 FAIL。保存后下次测试生效（存 machine.json，重启自动沿用）。"
                                        FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,10,0,12"/>
 
-                            <UniformGrid Columns="3">
-                                <StackPanel Margin="0,0,8,0"
-                                            ToolTip="A 下限：A 线圈均值电流低于此值判低流异常（默认 1.0A）">
-                                    <TextBlock Text="A 下限 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxALower" Style="{StaticResource FieldBox}" Text="1.0"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- 第 1 行：A 上限 / B 上限 -->
+                                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,10"
                                             ToolTip="A 上限：A 线圈均值电流高于此值判过流异常（默认 2.0A）">
                                     <TextBlock Text="A 上限 (A)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxAUpper" Style="{StaticResource FieldBox}" Text="2.0"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
-                                            ToolTip="B 下限：B 线圈恢复判定区间下沿（默认 1.0A）">
-                                    <TextBlock Text="B 下限 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxBLower" Style="{StaticResource FieldBox}" Text="1.0"/>
-                                </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
-                                            ToolTip="B 上限：B 线圈恢复判定区间上沿（默认 2.0A）">
+                                <StackPanel Grid.Row="0" Grid.Column="1" Margin="8,0,0,10"
+                                            ToolTip="B 上限：B 线圈均值电流高于此值判过流异常（默认 2.0A）">
                                     <TextBlock Text="B 上限 (A)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxBUpper" Style="{StaticResource FieldBox}" Text="2.0"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
-                                            ToolTip="A 窗口：A 线圈固定采集时长（秒）。窗口内电流均值落在 A 上下限区间内即判 A 通过（默认 10s）">
-                                    <TextBlock Text="A 窗口 (s)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxAWindowSec" Style="{StaticResource FieldBox}" Text="10"/>
+
+                                <!-- 第 2 行：A 下限 / B 下限 -->
+                                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0"
+                                            ToolTip="A 下限：A 线圈电流爬坡达到此值后开始采样；均值低于此值判低流异常（默认 1.0A）">
+                                    <TextBlock Text="A 下限 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxALower" Style="{StaticResource FieldBox}" Text="1.0"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
-                                            ToolTip="B 持续：B 线圈电流恢复进 B 上下限区间后，须连续保持在区间内该时长（秒）才判 B 通过（默认 3s）">
-                                    <TextBlock Text="B 持续 (s)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxBSustainSec" Style="{StaticResource FieldBox}" Text="3"/>
+                                <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,0"
+                                            ToolTip="B 下限：B 线圈电流达到此值后开始采样；均值低于此值判低流异常（默认 1.0A）">
+                                    <TextBlock Text="B 下限 (A)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxBLower" Style="{StaticResource FieldBox}" Text="1.0"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
-                                            ToolTip="跌落确认：A 通过后电流处于跌落状态（低于 B 下限或 A 均值一半）须持续该时长（秒）才算有效换线圈，抗毛刺干扰（默认 2s）">
-                                    <TextBlock Text="跌落确认 (s)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxTransitionSec" Style="{StaticResource FieldBox}" Text="2"/>
+                            </Grid>
+
+                            <!-- 其余参数：检测窗口 / 采样间隔 / 整体超时 -->
+                            <Grid Margin="0,14,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,8,0"
+                                            ToolTip="检测窗口：从开充起算，A/B 电流达到各自下限后到窗口结束取均值（默认 10s）；有效时间不足 2s 判无效">
+                                    <TextBlock Text="检测窗口 (s)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="BoxDetectionWindowSec" Style="{StaticResource FieldBox}" Text="10"/>
                                 </StackPanel>
-                                <StackPanel Margin="0,0,8,0"
+                                <StackPanel Grid.Column="1" Margin="8,0,8,0"
                                             ToolTip="采样间隔：PowerZ 启动帧重发节奏（毫秒），决定采样频率 ≈ 1000/间隔 Hz。默认 200ms ≈ 5Hz；范围 50~5000">
                                     <TextBlock Text="采样间隔 (ms)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxSampleIntervalMs" Style="{StaticResource FieldBox}" Text="200"/>
                                 </StackPanel>
-                                <StackPanel>
+                                <StackPanel Grid.Column="2" Margin="8,0,0,0"
+                                            ToolTip="整体超时：从开充起算，A 检测 + 换线圈 + B 检测全过程，超时判 FAIL（默认 60s）">
                                     <TextBlock Text="整体超时 (s)" Style="{StaticResource FieldLabel}"/>
                                     <TextBox x:Name="BoxTimeoutSec" Style="{StaticResource FieldBox}" Text="60"/>
                                 </StackPanel>
-                            </UniformGrid>
+                            </Grid>
 
                             <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                 <Button Content="保存检测参数" Width="150" Height="40"
@@ -137,79 +175,31 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-
-                    <Border Style="{StaticResource Card}">
-                        <StackPanel>
-                            <TextBlock Text="扫码参数" Style="{StaticResource SectionTitle}"/>
-                            <TextBlock Text="点击「开始测试」后进入等待扫码。输入框每收到一次键入都会重新计时；超时后校验当前内容，SN 结构不符合则本次 FAIL。扫码枪回车会立即确认。"
-                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                                       TextWrapping="Wrap" Margin="0,10,0,12"/>
-                            <WrapPanel>
-                                <StackPanel Width="140" Margin="0,0,12,0">
-                                    <TextBlock Text="扫码超时 (s)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxScanTimeoutSec" Style="{StaticResource FieldBox}" Text="10"/>
-                                </StackPanel>
-                                <StackPanel Width="160" Margin="0,0,12,0">
-                                    <TextBlock Text="SN码判定超时 (s)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxSnJudgeTimeoutSec" Style="{StaticResource FieldBox}" Text="2"/>
-                                </StackPanel>
-                                <StackPanel Width="140" Margin="0,0,12,0">
-                                    <TextBlock Text="整体超时 (s)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxOverallTimeoutSec" Style="{StaticResource FieldBox}" Text="15"/>
-                                </StackPanel>
-                                <Button Content="保存扫码参数" Width="150" Height="40"
-                                        VerticalAlignment="Bottom"
-                                        Style="{StaticResource PrimaryButton}" Click="BtnSaveScan_Click"/>
-                                <TextBlock x:Name="TxtScanSaveResult" VerticalAlignment="Center"
-                                           Margin="12,0,0,0" FontSize="12"
-                                           Foreground="{StaticResource TextSecondaryBrush}"/>
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
-        <!-- ===== 页 3：版本预设（版本比对基准） ===== -->
+
+        <!-- ===== 页 3：版本预设（工位 4 比对） ===== -->
         <TabItem Header="版本预设">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
                 <StackPanel>
                     <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                         <StackPanel>
-                            <TextBlock Text="版本比对预设" Style="{StaticResource SectionTitle}"/>
-                            <TextBlock Text="工位「比对版本号」步骤把设备版本与这里比对：APP / Boot / Qi / 硬件 四项，凡填了预设的项逐一核对（全串或版本尾缀均可，如 QC_JYF_MCU2_FW_1.2.3 可只填 1.2.3）；留空 = 不比该项。保存后下次测试生效。"
+                            <TextBlock Text="工位 4 四项版本预设" Style="{StaticResource SectionTitle}"/>
+                            <TextBlock Text="工位 4 依次读取 MCU1 APP（0xF195）、MCU2 Qi（0x2133）、Bootloader（0xF180）、硬件（0xF193）版本，四项都与预设匹配才 PASS。留空视为该项未预设，比对不通过。"
                                        FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                        TextWrapping="Wrap" Margin="0,10,0,12"/>
 
-                            <TextBlock Text="APP 版本" Style="{StaticResource FieldLabel}" Margin="0,0,0,2"/>
-                            <!-- Display 模式像素对齐：ClearType 亚像素定位会把 _ 细线按串宽抹平（实测 APP 示例下划线消失、Boot 正常） -->
-                            <TextBlock FontFamily="Consolas" FontSize="12" Foreground="#334155"
-                                       TextOptions.TextFormattingMode="Display"
-                                       Padding="0,0,0,3" Margin="0,0,0,4"
-                                       Text="格式如 QC_JYF_MCU1_FW_1.2.1"/>
-                            <TextBox x:Name="BoxPresetApp" Style="{StaticResource FieldBox}" Margin="0,0,0,12"/>
+                            <TextBlock Text="MCU1 APP 版本预设（如 QC_JYF_MCU1_FW_1.2.3）" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxPresetMcu1" Style="{StaticResource FieldBox}" Margin="0,0,0,12"/>
 
-                            <TextBlock Text="Boot 版本" Style="{StaticResource FieldLabel}" Margin="0,0,0,2"/>
-                            <!-- Display 模式像素对齐：ClearType 亚像素定位会把 _ 细线按串宽抹平（实测 APP 示例下划线消失、Boot 正常） -->
-                            <TextBlock FontFamily="Consolas" FontSize="12" Foreground="#334155"
-                                       TextOptions.TextFormattingMode="Display"
-                                       Padding="0,0,0,3" Margin="0,0,0,4"
-                                       Text="格式如 QC_JYF_BL_1.0.0"/>
+                            <TextBlock Text="MCU2 Qi 版本预设（如 QC_JYF_MCU2_FW_1.2.3）" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="BoxPresetMcu2" Style="{StaticResource FieldBox}" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="Bootloader 版本预设（如 QC_JYF_BL_1.0.0）" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="BoxPresetBoot" Style="{StaticResource FieldBox}" Margin="0,0,0,12"/>
 
-                            <TextBlock Text="Qi 版本" Style="{StaticResource FieldLabel}" Margin="0,0,0,2"/>
-                            <!-- Display 模式像素对齐：ClearType 亚像素定位会把 _ 细线按串宽抹平（实测 APP 示例下划线消失、Boot 正常） -->
-                            <TextBlock FontFamily="Consolas" FontSize="12" Foreground="#334155"
-                                       TextOptions.TextFormattingMode="Display"
-                                       Padding="0,0,0,3" Margin="0,0,0,4"
-                                       Text="格式如 QC_JYF_MCU2_FW_1.2.3"/>
-                            <TextBox x:Name="BoxPresetQi" Style="{StaticResource FieldBox}" Margin="0,0,0,12"/>
-
-                            <TextBlock Text="硬件版本" Style="{StaticResource FieldLabel}" Margin="0,0,0,2"/>
-                            <!-- Display 模式像素对齐：ClearType 亚像素定位会把 _ 细线按串宽抹平（实测 APP 示例下划线消失、Boot 正常） -->
-                            <TextBlock FontFamily="Consolas" FontSize="12" Foreground="#334155"
-                                       TextOptions.TextFormattingMode="Display"
-                                       Padding="0,0,0,3" Margin="0,0,0,4"
-                                       Text="格式如 QC_JYF_HW_1.1.5"/>
+                            <TextBlock Text="硬件版本预设（如 QC_JYF_HW_1.1.5）" Style="{StaticResource FieldLabel}"/>
                             <TextBox x:Name="BoxPresetHw" Style="{StaticResource FieldBox}" Margin="0,0,0,12"/>
 
                             <StackPanel Orientation="Horizontal">
@@ -224,5 +214,6 @@
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
+
     </TabControl>
 </Window>

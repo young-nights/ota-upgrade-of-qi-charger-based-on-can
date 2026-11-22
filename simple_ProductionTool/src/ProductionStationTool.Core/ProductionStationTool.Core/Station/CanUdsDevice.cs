@@ -50,15 +50,12 @@ public sealed class CanUdsDevice : IDisposable
     {
         return await Task.Run(() =>
         {
-            var fast = _uds.TryRequest(ProtoIds.SidTp, new byte[] { 0x00 }, timeoutMs: 600, ct: ct);
-            if (fast.Ok || fast.Nrc != 0)
-                return true;
             for (int i = 0; i < 8; i++)
             {
                 _uds.SendWake();
-                Thread.Sleep(200);
+                Thread.Sleep(250);
             }
-            var r = _uds.TryRequest(ProtoIds.SidTp, new byte[] { 0x00 }, timeoutMs: 1000, ct: ct);
+            var r = _uds.TryRequest(ProtoIds.SidTp, new byte[] { 0x00 }, timeoutMs: 1500, ct: ct);
             return r.Ok || r.Nrc != 0;   // 有正响应或 NRC 都算栈活着
         }, ct);
     }
@@ -73,26 +70,21 @@ public sealed class CanUdsDevice : IDisposable
     {
         return await Task.Run(() =>
         {
-            // 常见情况设备已醒：先做 600ms 快速探活，避免固定 2s 唤醒 burst。
-            var fast = _uds.TryRequest(ProtoIds.SidTp, new byte[] { 0x00 }, timeoutMs: 600, ct: ct);
-            if (fast.Ok || fast.Nrc != 0)
-                return true;
-
             for (int i = 0; i < 8; i++)
             {
                 _uds.SendWake();
-                Thread.Sleep(200);
+                Thread.Sleep(250);
             }
-            long deadline = Environment.TickCount64 + 5000;
+            long deadline = Environment.TickCount64 + 8000;
             while (Environment.TickCount64 < deadline && !ct.IsCancellationRequested)
             {
-                var r = _uds.TryRequest(ProtoIds.SidTp, new byte[] { 0x00 }, timeoutMs: 1000, ct: ct);
+                var r = _uds.TryRequest(ProtoIds.SidTp, new byte[] { 0x00 }, timeoutMs: 1500, ct: ct);
                 if (r.Ok || r.Nrc != 0)
                     return true;
                 // 无应答：再补 2 帧唤醒（可能仍在 Boot），0.3s 后重探
                 _uds.SendWake();
                 _uds.SendWake();
-                Thread.Sleep(180);
+                Thread.Sleep(300);
             }
             return false;
         }, ct);
@@ -101,11 +93,6 @@ public sealed class CanUdsDevice : IDisposable
     /// <summary>读全套版本：APP 0xF195 / Qi 0x2133 / Boot 0xF180 / HW 0xF193。</summary>
     public Task<VersionSet> TryReadAllVersionsAsync(CancellationToken ct = default)
         => Task.Run(() => _uds.TryReadAllVersions(ct), ct);
-
-    /// <summary>只读硬件版本 F193（工位3版本比对用，避免整组版本超时拖慢流程）。</summary>
-    public Task<(bool Ok, string Text, string Error)> TryReadHardwareVersionAsync(
-        CancellationToken ct = default)
-        => Task.Run(() => _uds.TryReadAsciiDid(ProtoIds.DidHwVersion, ct), ct);
 
     /// <summary>
     /// 写 SN 并回读校验（DID 0xF18C，Programming+SA，32B ASCII 空格填充）：
@@ -119,6 +106,18 @@ public sealed class CanUdsDevice : IDisposable
         if (sn.Length > 32)
             return (false, $"SN 过长 {sn.Length}>32");
 
+        var dsc = await Task.Run(() => RequestRetry(ProtoIds.SidDsc, new byte[] { 0x02 }, 3000, ct,
+            expectSub: 0x02), ct);
+        if (!dsc.Ok)
+            return (false, $"10 02 进编程会话失败：{dsc.Error}");
+        Log?.Invoke("进入编程会话 10 02");
+
+        var signer = SeedSigner.FromDefaultKey();
+        if (signer is null)
+            return (false, "缺少 keys/private.pem，无法 SA 解锁");
+        if (!await SecurityAccess.UnlockAsync(_uds, signer, m => Log?.Invoke(m), ct))
+            return (false, "SA 解锁失败");
+
         var body = new byte[32];
         for (int i = 0; i < 32; i++)
             body[i] = 0x20;
@@ -128,55 +127,8 @@ public sealed class CanUdsDevice : IDisposable
         payload[0] = 0xF1;
         payload[1] = 0x8C;
         body.CopyTo(payload, 2);
-
-        // 扫码可能持续数秒到十几秒，设备可能已经入睡；写前重新快速探活。
-        if (!await WaitReadyAsync(ct))
-            return (false, "写 SN 前设备未就绪（唤醒/探活超时）");
-
-        // 确定性顺序（1.2.1 固件 session_switch 实证）：
-        //   10 01 复位默认（清残留会话/解锁）→ SA 解锁（27 无会话门禁）→
-        //   10 02 切编程会话（默认→编程**保留解锁**）→ 立即写。
-        // 旧顺序 10 02→SA→写：SA 长交换（签名+16 分片）期间设备空闲真睡/
-        // 唤醒复位（BOOTUP 周期，session_reset 清会话+解锁），写入必吃 0x22/0x33。
-        var signer = SeedSigner.FromDefaultKey();
-        if (signer is null)
-            return (false, "缺少 keys/private.pem，无法 SA 解锁");
-
-        UdsResult w = UdsResult.Fail("未发送");
-        for (int attempt = 1; attempt <= 3; attempt++)
-        {
-            var d0 = await Task.Run(() => RequestRetry(
-                ProtoIds.SidDsc, new byte[] { 0x01 }, 3000, ct, expectSub: 0x01), ct);
-            if (!d0.Ok)
-                return (false, $"10 01 会话复位失败：{d0.Error}");
-
-            if (!await SecurityAccess.UnlockAsync(_uds, signer, m => Log?.Invoke(m), ct))
-            {
-                if (attempt < 3)
-                {
-                    Log?.Invoke($"[恢复] SA 解锁未完成（第 {attempt} 次），复位后重来");
-                    continue;
-                }
-                return (false, "SA 解锁失败");
-            }
-
-            var dsc = await Task.Run(() => RequestRetry(
-                ProtoIds.SidDsc, new byte[] { 0x02 }, 3000, ct, expectSub: 0x02), ct);
-            if (!dsc.Ok)
-                return (false, $"10 02 进编程会话失败：{dsc.Error}");
-            Log?.Invoke($"进入编程会话 10 02（第 {attempt} 次）");
-
-            w = await Task.Run(() => RequestRetry(ProtoIds.SidWdbi, payload, 5000, ct,
-                expectSub: 0xF1, expectDid: ProtoIds.DidSn), ct);
-            if (w.Ok)
-                break;
-            if (attempt < 3 && w.Nrc is 0x22 or 0x33)
-            {
-                Log?.Invoke($"[恢复] NRC 0x{w.Nrc:X2}（会话/解锁被清），整套重来后重试 F18C");
-                continue;
-            }
-            break;
-        }
+        var w = await Task.Run(() => RequestRetry(ProtoIds.SidWdbi, payload, 5000, ct,
+            expectSub: 0xF1, expectDid: ProtoIds.DidSn), ct);
         if (!w.Ok)
             return (false, $"2E F18C 写入失败：{w.Error}");
         Log?.Invoke("2E F18C 写入完成");
@@ -213,100 +165,67 @@ public sealed class CanUdsDevice : IDisposable
     public Task<(bool Ok, string Detail)> DisableChargingAsync(CancellationToken ct = default)
         => SetChargingAsync(0x00, ct);
 
+    /// <summary>周期开充循环的会话状态：扩机会话+SA 是否已就绪（写失败自动失效）。</summary>
+    private volatile bool _extUnlocked;
+
     /// <summary>
-    /// 断开前的尽力停充（快速版）：先裸写 2E 21 01 00——断开通常紧接测试，
-    /// S3（30s）内会话/解锁还在，~百 ms 即成；仅当设备活着但被门禁（0x22/0x33）
-    /// 才整套兜底一次（10 01 → SA → 10 03 → 写），总预算 budgetMs 用尽即放弃。
-    /// 断开不必恋战：即使没停充，无负载时 charge_poll 只在霍尔检出手机才维持 PB2。
+    /// 确保扩机会话 + SA 解锁（工位2 周期开充循环建链）。
+    /// force=false：已就绪直接返回（500ms 周期不再重复 SA 长交换）；
+    /// force=true：总是重做 10 03 + SA（单次开/关充保持原语义）。
     /// </summary>
-    public async Task<(bool Ok, string Detail)> DisableChargingQuickAsync(
-        int budgetMs = 3000, CancellationToken ct = default)
+    public async Task<(bool Ok, string Detail)> EnsureExtendedUnlockedAsync(
+        bool force, CancellationToken ct = default)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(budgetMs);
-        try
-        {
-            var q = await Task.Run(() => _uds.TryRequest(ProtoIds.SidWdbi,
-                new byte[] { 0x21, 0x01, 0x00 }, timeoutMs: 800,
-                expectSub: 0x21, ct: cts.Token, expectDid: ProtoIds.DidChargerEnable), cts.Token);
-            if (q.Ok)
-                return (true, "充电已停止（快路径）");
-            if (q.Nrc is not (0x22 or 0x33))
-                return (false, $"停充未送达：{q.Error}");   // 无应答/其他 NRC：设备不在，兜底无意义
+        if (!force && _extUnlocked)
+            return (true, "扩机会话已就绪");
 
-            var signer = SeedSigner.FromDefaultKey();
-            if (signer is null)
-                return (false, $"停充未送达（{q.Error}）；缺少 keys/private.pem 无法 SA 兜底");
+        var dsc = await Task.Run(() => RequestRetry(ProtoIds.SidDsc, new byte[] { 0x03 }, 3000, ct,
+            expectSub: 0x03), ct);
+        if (!dsc.Ok)
+            return (false, $"10 03 进扩机会话失败：{dsc.Error}");
+        Log?.Invoke("进入扩机会话 10 03");
+        await Task.Run(() => _uds.KeepAlive(), ct);
 
-            var d0 = await Task.Run(() => _uds.TryRequest(ProtoIds.SidDsc,
-                new byte[] { 0x01 }, timeoutMs: 1200, expectSub: 0x01, ct: cts.Token), cts.Token);
-            if (d0.Ok && await SecurityAccess.UnlockAsync(_uds, signer, _ => { }, cts.Token))
-            {
-                var d3 = await Task.Run(() => _uds.TryRequest(ProtoIds.SidDsc,
-                    new byte[] { 0x03 }, timeoutMs: 1200, expectSub: 0x03, ct: cts.Token), cts.Token);
-                if (d3.Ok)
-                {
-                    var w = await Task.Run(() => _uds.TryRequest(ProtoIds.SidWdbi,
-                        new byte[] { 0x21, 0x01, 0x00 }, timeoutMs: 1500,
-                        expectSub: 0x21, ct: cts.Token, expectDid: ProtoIds.DidChargerEnable), cts.Token);
-                    return w.Ok
-                        ? (true, "充电已停止（会话恢复后）")
-                        : (false, $"停充未送达：{w.Error}");
-                }
-            }
-            return (false, $"停充未送达（快路径：{q.Error}；兜底：10 01/SA 未完成）");
-        }
-        catch (OperationCanceledException)
-        {
-            return (false, $"停充预算 {budgetMs}ms 用尽，放弃停充");
-        }
-    }
-
-    /// <summary>写充电开关 2E 21 01 [onOff]：10 01 复位 → SA → 10 03(Extended) → 2E（SA 前置避开长交换掉会话；默认→扩展保留解锁）。</summary>
-    private async Task<(bool Ok, string Detail)> SetChargingAsync(byte onOff, CancellationToken ct = default)
-    {
         var signer = SeedSigner.FromDefaultKey();
         if (signer is null)
             return (false, "缺少 keys/private.pem，无法 SA 解锁");
+        if (!await SecurityAccess.UnlockAsync(_uds, signer, m => Log?.Invoke(m), ct))
+            return (false, "SA 解锁失败");
 
-        UdsResult w = UdsResult.Fail("未发送");
-        for (int attempt = 1; attempt <= 3; attempt++)
-        {
-            var d0 = await Task.Run(() => RequestRetry(
-                ProtoIds.SidDsc, new byte[] { 0x01 }, 3000, ct, expectSub: 0x01), ct);
-            if (!d0.Ok)
-                return (false, $"10 01 会话复位失败：{d0.Error}");
+        _extUnlocked = true;
+        return (true, "扩机会话 + SA 已就绪");
+    }
 
-            if (!await SecurityAccess.UnlockAsync(_uds, signer, m => Log?.Invoke(m), ct))
-            {
-                if (attempt < 3)
-                {
-                    Log?.Invoke($"[恢复] SA 解锁未完成（第 {attempt} 次），复位后重来");
-                    continue;
-                }
-                return (false, "SA 解锁失败");
-            }
-
-            var dsc = await Task.Run(() => RequestRetry(ProtoIds.SidDsc, new byte[] { 0x03 }, 3000, ct,
-                expectSub: 0x03), ct);
-            if (!dsc.Ok)
-                return (false, $"10 03 进扩机会话失败：{dsc.Error}");
-            Log?.Invoke("进入扩机会话 10 03");
-
-            w = await Task.Run(() => RequestRetry(ProtoIds.SidWdbi,
-                new byte[] { 0x21, 0x01, onOff }, 5000, ct, expectSub: 0x21,
-                expectDid: ProtoIds.DidChargerEnable), ct);
-            if (w.Ok)
-                break;
-            if (attempt < 3 && w.Nrc is 0x22 or 0x33)
-            {
-                Log?.Invoke($"[恢复] NRC 0x{w.Nrc:X2}（会话/解锁被清），整套重来后重试 2E 2101");
-                continue;
-            }
-            break;
-        }
+    /// <summary>
+    /// 写充电开关 2E 21 01（轻量写：不重复 10 03/SA，供 500ms 周期循环）；
+    /// 失败（0x22/0x33/超时）自动失效会话标志，下轮重建链。
+    /// </summary>
+    public async Task<(bool Ok, string Detail)> WriteChargerEnableAsync(
+        bool on, CancellationToken ct = default)
+    {
+        byte v = on ? (byte)0x01 : (byte)0x00;
+        var w = await Task.Run(() => RequestRetry(ProtoIds.SidWdbi,
+            new byte[] { 0x21, 0x01, v }, 5000, ct, expectSub: 0x21,
+            expectDid: ProtoIds.DidChargerEnable), ct);
         if (!w.Ok)
-            return (false, $"2E 21 01 {onOff:X2} 失败：{w.Error}");
+        {
+            _extUnlocked = false;
+            return (false, $"2E 21 01 {v:X2} 失败：{w.Error}");
+        }
+        return (true, on ? "充电已开启" : "充电已停止");
+    }
+
+    /// <summary>写充电开关 2E 21 01 [onOff]：10 03(Extended) → SA → 2E（单次语义，每次全建链）。</summary>
+    private async Task<(bool Ok, string Detail)> SetChargingAsync(byte onOff, CancellationToken ct = default)
+    {
+        var (eok, edet) = await EnsureExtendedUnlockedAsync(force: true, ct);
+        if (!eok)
+            return (false, edet);
+
+        var (wok, wdet) = await WriteChargerEnableAsync(onOff != 0, ct);
+        if (!wok)
+            return (false, wdet);
+
         Log?.Invoke($"2E 21 01 {onOff:X2} {(onOff != 0 ? "充电已开启" : "充电已停止")}");
         return (true, onOff != 0 ? "充电已开启" : "充电已停止");
     }
