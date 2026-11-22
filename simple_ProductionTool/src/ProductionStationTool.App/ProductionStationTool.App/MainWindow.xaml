@@ -18,7 +18,7 @@
                 <Grid>
                     <Menu Background="Transparent" FontSize="14">
                         <MenuItem Header="设置">
-                            <MenuItem Header="机位与网络…" Click="MenuSettingsNetwork_Click"/>
+                            <MenuItem Header="机位设置…" Click="MenuSettingsNetwork_Click"/>
                             <MenuItem Header="检测参数…" Click="MenuSettingsCoil_Click"/>
                             <MenuItem Header="版本预设…" Click="MenuSettingsPresets_Click"/>
                         </MenuItem>

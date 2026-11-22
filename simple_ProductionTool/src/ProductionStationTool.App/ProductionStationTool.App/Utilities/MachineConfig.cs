@@ -7,17 +7,15 @@ namespace ProductionStationTool.App.Utilities;
 
 /// <summary>
 /// 本机配置（程序目录 machine.json）：
-///   { "stationNo": 1, "machineId": "1", "serverHost": "192.168.10.10",
-///     "coilALowerA": 1.0, "coilAUpperA": 2.0, "coilBLowerA": 1.0,
+///   { "stationNo": 1, "machineId": "1",
+///     "coilALowerA": 0.3, "coilAUpperA": 2.0, "coilBLowerA": 0.3,
 ///     "coilBUpperA": 2.0, "detectionWindowMs": 10000, "overallTimeoutMs": 60000 }
-/// 另含工位 4 四项版本预设、汇总机良率显示修正、标签设计、汇总机密码哈希等。
+/// 另含扫码时间参数与四项版本预设。
 /// 保存任一类都保留其余配置；变更写 machine_change.log 留痕。
+/// 所有参数保存在本机 machine.json，重启上位机自动沿用本地保存值。
 /// </summary>
 public static class MachineConfig
 {
-    /// <summary>默认服务器地址（doc 18/21 的 QI-SERVER）。</summary>
-    public const string DefaultServerHost = "192.168.10.10";
-
     // 工位 4 四项版本预设的出厂默认值（当前量产固件版本）；
     // 操作员可在「设置 → 版本预设」中修改，machine.json 显式留空则不比对通过。
     private const string DefaultPresetMcu1App = "QC_JYF_MCU1_FW_1.2.3";
@@ -27,15 +25,12 @@ public static class MachineConfig
 
     public static StationIdentity Load() => LoadSettings().Identity;
 
-    public static string LoadServerHost() => LoadSettings().ServerHost;
-
     public static MachineSettings LoadSettings()
     {
         var cfg = ReadCfgOrDefault();
         return new MachineSettings(
             cfg.StationNo >= 1 ? cfg.StationNo : 1,
-            string.IsNullOrWhiteSpace(cfg.MachineId) ? "1" : cfg.MachineId.Trim(),
-            string.IsNullOrWhiteSpace(cfg.ServerHost) ? DefaultServerHost : cfg.ServerHost.Trim());
+            string.IsNullOrWhiteSpace(cfg.MachineId) ? "1" : cfg.MachineId.Trim());
     }
 
     /// <summary>步骤 5 双线圈检测参数（「检测参数」设置页保存；每次测试开始时读取）。</summary>
@@ -43,19 +38,22 @@ public static class MachineConfig
     {
         var cfg = ReadCfgOrDefault();
         // 上下限缺失时迁移旧单阈值（CoilAThresholdA/CoilBThresholdA）：
-        // 下限 = 旧阈值，上限 = 旧阈值×2（保持旧「≥阈值」行为不突变）
-        double legacyA = cfg.CoilAThresholdA > 0 ? cfg.CoilAThresholdA : 1.0;
-        double legacyB = cfg.CoilBThresholdA > 0 ? cfg.CoilBThresholdA : 1.0;
+        // 下限 = 旧阈值，上限 = 旧阈值×2（保持旧「≥阈值」行为不突变）；
+        // 无任何旧值时用出厂默认：下限 0.3A、上限 2A（本机保存过的值优先）。
+        const double defaultLower = 0.3;
+        const double defaultUpper = 2.0;
+        double? legacyA = cfg.CoilAThresholdA > 0 ? cfg.CoilAThresholdA : null;
+        double? legacyB = cfg.CoilBThresholdA > 0 ? cfg.CoilBThresholdA : null;
         // detectionWindowMs 为新键；旧 machine.json 的 coilACollectMs 继续兼容
         int detectionWindow = cfg.DetectionWindowMs > 0
             ? cfg.DetectionWindowMs
             : (cfg.CoilACollectMs > 0 ? cfg.CoilACollectMs : 10_000);
         return new CoilTestOptions
         {
-            CoilALowerA = cfg.CoilALowerA > 0 ? cfg.CoilALowerA.Value : legacyA,
-            CoilAUpperA = cfg.CoilAUpperA > 0 ? cfg.CoilAUpperA.Value : legacyA * 2,
-            CoilBLowerA = cfg.CoilBLowerA > 0 ? cfg.CoilBLowerA.Value : legacyB,
-            CoilBUpperA = cfg.CoilBUpperA > 0 ? cfg.CoilBUpperA.Value : legacyB * 2,
+            CoilALowerA = cfg.CoilALowerA > 0 ? cfg.CoilALowerA.Value : legacyA ?? defaultLower,
+            CoilAUpperA = cfg.CoilAUpperA > 0 ? cfg.CoilAUpperA.Value : (legacyA is { } la ? la * 2 : defaultUpper),
+            CoilBLowerA = cfg.CoilBLowerA > 0 ? cfg.CoilBLowerA.Value : legacyB ?? defaultLower,
+            CoilBUpperA = cfg.CoilBUpperA > 0 ? cfg.CoilBUpperA.Value : (legacyB is { } lb ? lb * 2 : defaultUpper),
             DetectionWindowMs = detectionWindow,
             SampleIntervalMs = cfg.SampleIntervalMs > 0 ? cfg.SampleIntervalMs : 200,
             OverallTimeoutMs = cfg.OverallTimeoutMs > 0 ? cfg.OverallTimeoutMs : 60_000,
@@ -101,31 +99,25 @@ public static class MachineConfig
         return null;
     }
 
-    /// <summary>保存机位身份/服务器地址；变更时写 machine_change.log 留痕。失败抛 IOException。</summary>
-    public static void Save(int stationNo, string machineId, string serverHost)
+    /// <summary>保存机位身份；变更时写 machine_change.log 留痕。失败抛 IOException。</summary>
+    public static void Save(int stationNo, string machineId)
     {
         machineId = machineId.Trim();
-        serverHost = string.IsNullOrWhiteSpace(serverHost) ? DefaultServerHost : serverHost.Trim();
 
         var cfg = ReadCfgOrDefault();
-        var previous = new MachineSettings(cfg.StationNo, cfg.MachineId, cfg.ServerHost);
+        var previous = new MachineSettings(cfg.StationNo, cfg.MachineId);
         cfg.StationNo = stationNo;
         cfg.MachineId = machineId;
-        cfg.ServerHost = serverHost;
         WriteCfg(cfg);
 
-        var identityChanged = previous.StationNo != stationNo || previous.MachineId != machineId;
-        var serverChanged = !string.Equals(previous.ServerHost, serverHost, StringComparison.OrdinalIgnoreCase);
-        if (!identityChanged && !serverChanged)
+        if (previous.StationNo == stationNo && previous.MachineId == machineId)
             return;
 
         var line = new StringBuilder()
             .Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
             .Append("  ").Append(previous.Identity.Code)
-            .Append(" -> ").Append(new StationIdentity(stationNo, machineId).Code);
-        if (serverChanged)
-            line.Append("  server ").Append(previous.ServerHost).Append(" -> ").Append(serverHost);
-        line.Append("  (").Append(Environment.MachineName).AppendLine(")");
+            .Append(" -> ").Append(new StationIdentity(stationNo, machineId).Code)
+            .Append("  (").Append(Environment.MachineName).AppendLine(")");
         File.AppendAllText(ChangeLogPath, line.ToString());
     }
 
@@ -300,7 +292,6 @@ public static class MachineConfig
     {
         public int StationNo { get; set; } = 1;
         public string MachineId { get; set; } = "1";
-        public string ServerHost { get; set; } = DefaultServerHost;
 
         // 步骤 5 双线圈检测参数（「检测参数」设置页）
         // 上下限（null=旧配置未迁移）；旧单阈值字段仅迁移兼容，不再写入
@@ -332,8 +323,8 @@ public static class MachineConfig
     }
 }
 
-/// <summary>本机设置全量（机位身份 + 服务器地址）。</summary>
-public sealed record MachineSettings(int StationNo, string MachineId, string ServerHost)
+/// <summary>本机设置全量（机位身份）。</summary>
+public sealed record MachineSettings(int StationNo, string MachineId)
 {
     public StationIdentity Identity => new(StationNo, MachineId);
 }

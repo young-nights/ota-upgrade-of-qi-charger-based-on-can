@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -9,11 +7,10 @@ using ProductionStationTool.Core.Station;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// 本机设置页（按类型分页）：
-///  「机位与网络」——机位命名（写 machine.json + 留痕）、查看本机 IP、
-///    服务器连通检测、跳转系统网络设置改 IP（应用内不直改）；
-///  「检测参数」——步骤 5 双线圈检测参数（上下限/检测窗口/超时），保存后下次测试生效；
-///  「版本预设」——工位 4 四项版本（MCU1/Qi/Boot/HW），四项全匹配才 PASS。
+/// 本机设置页（按类型分页，参考版写法；简版无网络/无数据库）：
+///  「机位设置」——机位命名（写 machine.json + 留痕）；
+///  「检测参数」——双线圈上下限/检测窗口/超时 + 扫码参数（SN 判定时间），保存后下次测试生效；
+///  「版本预设」——四项版本（MCU1/Qi/Boot/HW），四项全匹配才 PASS。
 /// 各页保存均写本机 machine.json，重启后自动沿用。
 /// </summary>
 public partial class SettingsWindow : Window
@@ -26,7 +23,7 @@ public partial class SettingsWindow : Window
 
     public SettingsWindow() : this(0) { }
 
-    /// <summary>startTab：0=机位与网络，1=检测参数，2=版本预设（顶部菜单直达对应页）。</summary>
+    /// <summary>startTab：0=机位设置，1=检测参数，2=版本预设（顶部菜单直达对应页）。</summary>
     public SettingsWindow(int startTab)
     {
         InitializeComponent();
@@ -36,15 +33,11 @@ public partial class SettingsWindow : Window
             new TextChangedEventHandler((_, _) => Identity_Changed(CmbStationNo, EventArgs.Empty)));
         _ready = true;
 
-        // 页 1：机位与网络
+        // 页 1：机位设置
         var settings = MachineConfig.LoadSettings();
         CmbStationNo.Text = settings.StationNo.ToString();
         TxtMachineId.Text = settings.MachineId;
-        TxtServerHost.Text = settings.ServerHost;
         TxtCurrentCode.Text = $"当前编码：{settings.Identity.Code}";
-        TxtPingResult.Text = "点「检测连通」验证到服务器的链路";
-        RefreshIps();
-        RefreshLog();
 
         // 页 2：检测参数
         FillCoilFields(MachineConfig.LoadCoilOptions());
@@ -63,31 +56,7 @@ public partial class SettingsWindow : Window
         BoxPresetHw.Text = vp.Hardware;
     }
 
-    // ================= 页 1：机位与网络 =================
-
-    /// <summary>机位/参数变更留痕（machine_change.log）最近 8 行。</summary>
-    private void RefreshLog()
-    {
-        try
-        {
-            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "machine_change.log");
-            TxtLog.Text = File.Exists(path)
-                ? string.Join("\n", File.ReadAllLines(path).TakeLast(8))
-                : "（暂无变更记录）";
-        }
-        catch (Exception ex)
-        {
-            TxtLog.Text = $"（记录读取失败：{ex.Message}）";
-        }
-    }
-
-    private void RefreshIps()
-    {
-        var ips = NetworkInfo.GetLocalIpv4();
-        TxtIps.Text = ips.Count == 0
-            ? "（未检测到已启用的网卡 IPv4）"
-            : string.Join("\n", ips.Select(x => $"{x.Adapter}：{x.Ipv4}"));
-    }
+    // ================= 页 1：机位设置 =================
 
     private void Identity_Changed(object sender, EventArgs e)
     {
@@ -115,7 +84,7 @@ public partial class SettingsWindow : Window
 
         try
         {
-            MachineConfig.Save(stationNo, machineId, TxtServerHost.Text);
+            MachineConfig.Save(stationNo, machineId);
         }
         catch (Exception ex)
         {
@@ -128,37 +97,6 @@ public partial class SettingsWindow : Window
         TxtCurrentCode.Foreground = (Brush)FindResource("AccentBrush");
         TxtSaveResult.Text = "已保存到本机 machine.json，重启软件后生效";
         TxtSaveResult.Foreground = SuccessBrush;
-        RefreshLog();
-    }
-
-    private async void BtnPing_Click(object sender, RoutedEventArgs e)
-    {
-        var host = TxtServerHost.Text.Trim();
-        if (host.Length == 0)
-        {
-            TxtPingResult.Text = "请先填写服务器地址";
-            TxtPingResult.Foreground = DangerBrush;
-            return;
-        }
-
-        TxtPingResult.Text = $"正在检测 {host} …";
-        TxtPingResult.Foreground = MutedBrush;
-        var (ok, _, detail) = await NetworkInfo.PingAsync(host);
-        TxtPingResult.Text = $"{host}：{detail}";
-        TxtPingResult.Foreground = ok ? SuccessBrush : DangerBrush;
-    }
-
-    private void BtnOpenNetwork_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo("ncpa.cpl") { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"打开网络设置失败：{ex.Message}", "本机设置",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
     }
 
     // ================= 页 2：检测参数 =================
@@ -227,7 +165,6 @@ public partial class SettingsWindow : Window
 
         TxtCoilSaveResult.Text = "已保存到本机 machine.json，重启后沿用，下次测试生效";
         TxtCoilSaveResult.Foreground = SuccessBrush;
-        RefreshLog();
     }
 
     // ================= 页 3：版本预设 =================
@@ -248,7 +185,6 @@ public partial class SettingsWindow : Window
 
         TxtPresetResult.Text = "已保存到本机 machine.json，重启后沿用，工位 4 下次测试比对生效";
         TxtPresetResult.Foreground = SuccessBrush;
-        RefreshLog();
     }
 
     private void BtnSaveScan_Click(object sender, RoutedEventArgs e)
@@ -271,6 +207,5 @@ public partial class SettingsWindow : Window
         MachineConfig.SaveScanTiming(scan, judge, overall);
         TxtScanSaveResult.Text = "已保存，下次测试生效";
         TxtScanSaveResult.Foreground = SuccessBrush;
-        RefreshLog();
     }
 }

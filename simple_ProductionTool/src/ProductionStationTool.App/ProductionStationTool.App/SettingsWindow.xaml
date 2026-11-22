@@ -7,7 +7,7 @@
     <TabControl x:Name="Tabs" Margin="16" Background="Transparent" BorderThickness="0">
 
         <!-- ===== 页 1：机位与网络 ===== -->
-        <TabItem Header="机位与网络">
+        <TabItem Header="机位设置">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Background="Transparent">
                 <StackPanel>
 
@@ -56,52 +56,6 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- 网络 -->
-                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock Text="网络" Style="{StaticResource SectionTitle}"/>
-                            <TextBlock Text="本机 IP（只读；修改 IP 请用「打开网络设置」）"
-                                       Style="{StaticResource FieldLabel}" Margin="0,10,0,4"/>
-                            <TextBlock x:Name="TxtIps" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"
-                                       TextWrapping="Wrap" Margin="0,0,0,12"/>
-
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="服务器" Style="{StaticResource FieldLabel}"
-                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="TxtServerHost" Grid.Column="1" Style="{StaticResource FieldBox}"
-                                         VerticalAlignment="Center"/>
-                                <Button Grid.Column="2" Content="检测连通" Width="110" Height="36"
-                                        Style="{StaticResource GhostButton}" Margin="8,0,0,0"
-                                        Click="BtnPing_Click"/>
-                            </Grid>
-                            <TextBlock x:Name="TxtPingResult" FontSize="12" Margin="0,0,0,12"
-                                       Foreground="{StaticResource TextSecondaryBrush}"/>
-
-                            <Button Content="打开网络设置（网卡/IPv4）" Width="230" Height="40"
-                                    Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
-                                    Click="BtnOpenNetwork_Click"
-                                    ToolTip="打开 Windows 网络连接面板，改 IP/掩码/网关需管理员权限"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- 变更记录（参考版机位设置页） -->
-                    <Border Style="{StaticResource Card}">
-                        <StackPanel>
-                            <TextBlock Text="变更记录（machine_change.log）" Style="{StaticResource SectionTitle}"/>
-                            <TextBox x:Name="TxtLog" IsReadOnly="True" AcceptsReturn="True"
-                                     TextWrapping="Wrap" Height="110" Margin="0,10,0,0"
-                                     FontSize="11" FontFamily="Consolas"
-                                     Background="{StaticResource FieldBgBrush}"
-                                     BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
-                                     VerticalScrollBarVisibility="Auto"/>
-                        </StackPanel>
-                    </Border>
-
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
@@ -143,12 +97,12 @@
                                 <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0"
                                             ToolTip="A 下限：A 线圈电流爬坡达到此值后开始采样；均值低于此值判低流异常（默认 1.0A）">
                                     <TextBlock Text="A 下限 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxALower" Style="{StaticResource FieldBox}" Text="1.0"/>
+                                    <TextBox x:Name="BoxALower" Style="{StaticResource FieldBox}" Text="0.3"/>
                                 </StackPanel>
                                 <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,0"
                                             ToolTip="B 下限：B 线圈电流达到此值后开始采样；均值低于此值判低流异常（默认 1.0A）">
                                     <TextBlock Text="B 下限 (A)" Style="{StaticResource FieldLabel}"/>
-                                    <TextBox x:Name="BoxBLower" Style="{StaticResource FieldBox}" Text="1.0"/>
+                                    <TextBox x:Name="BoxBLower" Style="{StaticResource FieldBox}" Text="0.3"/>
                                 </StackPanel>
                             </Grid>
 

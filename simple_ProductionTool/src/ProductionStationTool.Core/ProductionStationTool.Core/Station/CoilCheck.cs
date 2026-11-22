@@ -15,13 +15,13 @@ public sealed class CoilTestOptions
     public int DetectionWindowMs { get; init; } = 10_000;
 
     /// <summary>A 线圈电流下限（A）：爬坡达到此值后开始采样；均值低于此值判低流异常。</summary>
-    public double CoilALowerA { get; init; } = 1.0;
+    public double CoilALowerA { get; init; } = 0.3;
 
     /// <summary>A 线圈电流上限（A）：均值高于此值判过流异常。</summary>
     public double CoilAUpperA { get; init; } = 2.0;
 
     /// <summary>B 线圈电流下限（A）：达到此值后开始采样；均值低于此值判低流异常。</summary>
-    public double CoilBLowerA { get; init; } = 1.0;
+    public double CoilBLowerA { get; init; } = 0.3;
 
     /// <summary>B 线圈电流上限（A）：均值高于此值判过流异常。</summary>
     public double CoilBUpperA { get; init; } = 2.0;
