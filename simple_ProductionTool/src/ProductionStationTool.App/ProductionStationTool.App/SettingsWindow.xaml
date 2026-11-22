@@ -37,7 +37,6 @@
                                     <ComboBoxItem Content="1"/>
                                     <ComboBoxItem Content="2"/>
                                     <ComboBoxItem Content="3"/>
-                                    <ComboBoxItem Content="4"/>
                                 </ComboBox>
                                 <TextBlock Grid.Column="3" Text="机位号" Style="{StaticResource FieldLabel}"
                                            VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -87,6 +86,19 @@
                                     Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
                                     Click="BtnOpenNetwork_Click"
                                     ToolTip="打开 Windows 网络连接面板，改 IP/掩码/网关需管理员权限"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 变更记录（参考版机位设置页） -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="变更记录（machine_change.log）" Style="{StaticResource SectionTitle}"/>
+                            <TextBox x:Name="TxtLog" IsReadOnly="True" AcceptsReturn="True"
+                                     TextWrapping="Wrap" Height="110" Margin="0,10,0,0"
+                                     FontSize="11" FontFamily="Consolas"
+                                     Background="{StaticResource FieldBgBrush}"
+                                     BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
+                                     VerticalScrollBarVisibility="Auto"/>
                         </StackPanel>
                     </Border>
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -43,6 +44,7 @@ public partial class SettingsWindow : Window
         TxtCurrentCode.Text = $"当前编码：{settings.Identity.Code}";
         TxtPingResult.Text = "点「检测连通」验证到服务器的链路";
         RefreshIps();
+        RefreshLog();
 
         // 页 2：检测参数
         FillCoilFields(MachineConfig.LoadCoilOptions());
@@ -62,6 +64,22 @@ public partial class SettingsWindow : Window
     }
 
     // ================= 页 1：机位与网络 =================
+
+    /// <summary>机位/参数变更留痕（machine_change.log）最近 8 行。</summary>
+    private void RefreshLog()
+    {
+        try
+        {
+            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "machine_change.log");
+            TxtLog.Text = File.Exists(path)
+                ? string.Join("\n", File.ReadAllLines(path).TakeLast(8))
+                : "（暂无变更记录）";
+        }
+        catch (Exception ex)
+        {
+            TxtLog.Text = $"（记录读取失败：{ex.Message}）";
+        }
+    }
 
     private void RefreshIps()
     {
@@ -110,6 +128,7 @@ public partial class SettingsWindow : Window
         TxtCurrentCode.Foreground = (Brush)FindResource("AccentBrush");
         TxtSaveResult.Text = "已保存到本机 machine.json，重启软件后生效";
         TxtSaveResult.Foreground = SuccessBrush;
+        RefreshLog();
     }
 
     private async void BtnPing_Click(object sender, RoutedEventArgs e)
@@ -208,6 +227,7 @@ public partial class SettingsWindow : Window
 
         TxtCoilSaveResult.Text = "已保存到本机 machine.json，重启后沿用，下次测试生效";
         TxtCoilSaveResult.Foreground = SuccessBrush;
+        RefreshLog();
     }
 
     // ================= 页 3：版本预设 =================
@@ -228,6 +248,7 @@ public partial class SettingsWindow : Window
 
         TxtPresetResult.Text = "已保存到本机 machine.json，重启后沿用，工位 4 下次测试比对生效";
         TxtPresetResult.Foreground = SuccessBrush;
+        RefreshLog();
     }
 
     private void BtnSaveScan_Click(object sender, RoutedEventArgs e)
@@ -250,5 +271,6 @@ public partial class SettingsWindow : Window
         MachineConfig.SaveScanTiming(scan, judge, overall);
         TxtScanSaveResult.Text = "已保存，下次测试生效";
         TxtScanSaveResult.Foreground = SuccessBrush;
+        RefreshLog();
     }
 }
