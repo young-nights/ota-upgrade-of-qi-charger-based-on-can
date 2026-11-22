@@ -1,0 +1,24 @@
+<Project>
+  <!--
+    构建产物必须跟随各自的项目目录，不能汇总到仓库根目录。
+    每个 .csproj 使用自身的 bin/obj：
+      <project-dir>/bin/<Configuration>/<TargetFramework>/
+      <project-dir>/obj/<Configuration>/<TargetFramework>/
+  -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'obj'))</BaseIntermediateOutputPath>
+    <BaseOutputPath>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'bin'))</BaseOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!--
+    WPF MarkupCompilePass2 会生成 *_wpftmp.csproj 临时工程。部分 Visual Studio /
+    .NET SDK 组合下该临时工程会漏生成 GeneratedMSBuildEditorConfig.editorconfig，
+    报“未能找到路径 ..._wpftmp.GeneratedMSBuildEditorConfig.editorconfig 的一部分”。
+    临时工程不参与最终程序集编译，也不需要生成 editorconfig；只对临时工程关闭，
+    主工程仍正常生成（不影响 analyzers / IDE 配置）。
+  -->
+  <PropertyGroup Condition="$(MSBuildProjectFile.EndsWith('_wpftmp.csproj'))">
+    <GenerateMSBuildEditorConfigFile>false</GenerateMSBuildEditorConfigFile>
+  </PropertyGroup>
+</Project>

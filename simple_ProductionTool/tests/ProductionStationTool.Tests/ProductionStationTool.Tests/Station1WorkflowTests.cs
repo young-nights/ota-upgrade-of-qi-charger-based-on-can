@@ -1,0 +1,415 @@
+using ProductionStationTool.Core.Sn;
+using ProductionStationTool.Core.Station;
+using ProductionStationTool.PowerZ;
+
+namespace ProductionStationTool.Tests;
+
+/// <summary>工位 1 流程行为测试（构想文档关键约定 + 步骤 5 双线圈检测）。</summary>
+public class Station1WorkflowTests
+{
+    private sealed class FakeStore : Core.Data.ITestRecordStore
+    {
+        public readonly List<Core.Data.TestRecord> Rows = new();
+
+        // 与 SQLite 实现同语义：同 SN 同工位覆盖更新取最新
+        public void Add(Core.Data.TestRecord r)
+        {
+            var old = Rows.FirstOrDefault(x => x.Sn == r.Sn && x.StationNo == r.StationNo);
+            if (old is not null)
+                Rows.Remove(old);
+            Rows.Add(r);
+        }
+
+        public IReadOnlyList<Core.Data.TestRecord> FindAllBySn(string sn)
+            => Rows.Where(x => x.Sn == sn).OrderBy(x => x.StationNo).ToList();
+
+        public IReadOnlyList<Core.Data.TestRecord> Recent(int n) => Rows.TakeLast(n).ToList();
+
+        public IReadOnlyList<Core.Data.TestRecord> Query(Core.Data.TestRecordFilter f)
+        {
+            IEnumerable<Core.Data.TestRecord> q = Rows;
+            if (f.From is { } from) q = q.Where(x => x.TestTime >= from);
+            if (f.To is { } to) q = q.Where(x => x.TestTime <= to);
+            if (f.StationNo is { } st) q = q.Where(x => x.StationNo == st);
+            if (!string.IsNullOrEmpty(f.MachineId)) q = q.Where(x => x.MachineId == f.MachineId);
+            if (!string.IsNullOrEmpty(f.Result)) q = q.Where(x => x.Result == f.Result);
+            return q.OrderByDescending(x => x.Id).Take(f.Limit > 0 ? f.Limit : 1000).ToList();
+        }
+
+        public IReadOnlyList<(int StationNo, string MachineId)> DistinctSources()
+            => Rows.Select(x => (x.StationNo, x.MachineId)).Distinct()
+                .OrderBy(x => x.StationNo).ThenBy(x => x.MachineId).ToList();
+
+        public void MarkAbandoned(string sn)
+        {
+            foreach (var x in Rows.Where(x => x.Sn == sn))
+                x.Abandoned = true;
+        }
+
+        public void MarkPrinted(string sn)
+        {
+            foreach (var x in Rows.Where(x => x.Sn == sn))
+                x.Printed = true;
+        }
+
+        public void SetAbandoned(string sn, bool abandoned)
+        {
+            foreach (var x in Rows.Where(x => x.Sn == sn))
+                x.Abandoned = abandoned;
+        }
+
+        public void SetPrinted(string sn, bool printed)
+        {
+            foreach (var x in Rows.Where(x => x.Sn == sn))
+                x.Printed = printed;
+        }
+
+        public IReadOnlyList<Core.Data.MachineTestStats> StatsByMachine(bool excludeAbandoned = false)
+            => Rows.Where(x => !excludeAbandoned || !x.Abandoned)
+                .GroupBy(x => (x.StationNo, x.MachineId))
+                .Select(g => new Core.Data.MachineTestStats(
+                    g.Key.StationNo, g.Key.MachineId,
+                    g.Count(),
+                    g.Count(x => x.Result == "PASS"),
+                    g.Count(x => x.Result == "FAIL"),
+                    g.Max(x => x.TestTime)))
+                .ToList();
+    }
+
+    private sealed class FakePowerZ : IPowerZSource
+    {
+        public event Action<PowerSample>? SampleReceived;
+        public Task StartAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public void DiscardBuffered() { }
+        public void Emit(double voltage, double current)
+            => SampleReceived?.Invoke(new PowerSample(voltage, current, DateTime.Now));
+        public void Dispose() { }
+    }
+
+    /// <summary>缩短时长的检测参数：检测窗口 400ms、有效时间下限 100ms、整体 3s。</summary>
+    private static CoilTestOptions FastOpts => new()
+    {
+        DetectionWindowMs = 400,
+        MinEffectiveMs = 100,
+        CoilALowerA = 1.0,
+        CoilAUpperA = 2.0,
+        CoilBLowerA = 1.0,
+        CoilBUpperA = 2.0,
+        OverallTimeoutMs = 3000,
+    };
+
+    private static Station1Workflow NewWorkflow(FakeStore store)
+        => new(store, snGenerate: (_, s) => $"SN-{s:D4}");
+
+    private static async Task EmitAsync(FakePowerZ pz, double v, double i, int durationMs, int intervalMs = 50)
+    {
+        var until = Environment.TickCount64 + durationMs;
+        while (Environment.TickCount64 < until)
+        {
+            pz.Emit(v, i);
+            await Task.Delay(intervalMs);
+        }
+    }
+
+    /// <summary>正常手法脚本：A 达到下限覆盖窗口 → 换线圈短暂低于 B 下限 → B 达到下限覆盖窗口。</summary>
+    private static async Task RunHappyScriptAsync(FakePowerZ pz)
+    {
+        await EmitAsync(pz, 5.0, 1.2, 500);   // 覆盖 A 检测窗口（400ms）
+        await EmitAsync(pz, 5.0, 0.1, 150);   // 换线圈：只要求出现低于 B 下限的接入沿，不做持续时间确认
+        await EmitAsync(pz, 5.0, 1.2, 500);   // B 达到下限后覆盖检测窗口（400ms）
+    }
+
+    [Fact]
+    public async Task SnWriteFails_NotStored()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+
+        var r = await wf.RunAsync(_ => Task.FromResult(false), () => Task.FromResult<string?>(null),
+            () => Task.CompletedTask, pz, FastOpts);
+
+        Assert.False(r.Passed);
+        Assert.Null(r.Coil);
+        Assert.Empty(store.Rows);   // 构想：写失败 SN 不进库
+    }
+
+    [Fact]
+    public async Task SnReadMismatch_NotStored()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+
+        var r = await wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-WRONG"),
+            () => Task.CompletedTask, pz, FastOpts);
+
+        Assert.False(r.Passed);
+        Assert.Null(r.Coil);
+        Assert.Empty(store.Rows);
+    }
+
+    [Fact]
+    public async Task NoSamples_StopsAndNotStored()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();            // 不 Emit → A 窗口无采样
+
+        var r = await wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, FastOpts);
+
+        Assert.False(r.Passed);
+        Assert.NotNull(r.Coil);
+        Assert.True(r.Coil!.NoValidSample);
+        Assert.Contains("无有效采样", r.AbnormalItems[0]);
+        Assert.Empty(store.Rows);             // 采样失败=流程错误：不入库
+    }
+
+    [Fact]
+    public async Task AllNormal_PassAndStore()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await RunHappyScriptAsync(pz);
+        var r = await run;
+
+        Assert.True(r.Passed);
+        Assert.True(r.Coil!.CoilAPassed);
+        Assert.True(r.Coil.CoilBPassed);
+        Assert.Single(store.Rows);
+        Assert.Equal("PASS", store.Rows[0].Result);
+    }
+
+    [Fact]
+    public async Task CoilA_OverUpper_FailWithOverCurrentItem()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await EmitAsync(pz, 5.0, 2.5, 400);   // A 窗口均值 2.5A 高于上限 2.0A
+        var r = await run;
+
+        Assert.False(r.Passed);
+        Assert.False(r.Coil!.CoilAPassed);
+        Assert.Contains("高于上限", r.AbnormalItems[0]);   // 过流异常项
+    }
+
+    [Fact]
+    public async Task CoilA_MeanBelowLower_FailAndStored()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await EmitAsync(pz, 5.0, 1.2, 100);   // 先达到下限
+        await EmitAsync(pz, 5.0, 0.5, 500);   // 之后均值被拉低到 1.0A 以下
+        var r = await run;
+
+        Assert.False(r.Passed);
+        Assert.False(r.Coil!.CoilAPassed);
+        Assert.Contains("低于下限", r.AbnormalItems[0]);
+        Assert.Single(store.Rows);            // 有采样 → 入库 FAIL 记录
+        Assert.Equal("FAIL", store.Rows[0].Result);
+    }
+
+    [Fact]
+    public async Task CoilA_NeverReachesLower_FailAndStored()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await EmitAsync(pz, 5.0, 0.5, 500);   // 始终低于 A 下限
+        var r = await run;
+
+        Assert.False(r.Passed);
+        Assert.False(r.Coil!.CoilAPassed);
+        Assert.Contains("未达到下限", r.AbnormalItems[0]);
+        Assert.Single(store.Rows);
+        Assert.Equal("FAIL", store.Rows[0].Result);
+    }
+
+    [Fact]
+    public async Task CoilB_NoRecovery_OverallTimeout_FailAndStored()
+    {
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+        var opts = new CoilTestOptions
+        {
+            DetectionWindowMs = 300,
+            MinEffectiveMs = 100,
+            CoilALowerA = 1.0,
+            CoilAUpperA = 2.0,
+            CoilBLowerA = 1.0,
+            CoilBUpperA = 2.0,
+            OverallTimeoutMs = 1200,          // 整体限时
+        };
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, opts);
+        await EmitAsync(pz, 5.0, 1.2, 400);   // A 正常
+        await EmitAsync(pz, 5.0, 0.1, 1200);  // 换线圈后一直低（B 未接入/未达到下限）→ 超时
+        var r = await run;
+
+        Assert.False(r.Passed);
+        Assert.True(r.Coil!.CoilAPassed);
+        Assert.False(r.Coil.CoilBPassed);
+        Assert.Contains("B 线圈未接入", r.AbnormalItems[0]);
+        Assert.Single(store.Rows);
+        Assert.Equal("FAIL", store.Rows[0].Result);
+    }
+
+    [Fact]
+    public async Task CoilA_EffectiveTimeTooShort_Fail()
+    {
+        // 电流接近检测窗口结束才达到下限：有效检测时间不足 → 无效
+        var store = new FakeStore();
+        var wf = NewWorkflow(store);
+        var pz = new FakePowerZ();
+        var opts = new CoilTestOptions
+        {
+            DetectionWindowMs = 400,
+            MinEffectiveMs = 200,
+            CoilALowerA = 1.0,
+            CoilAUpperA = 2.0,
+            CoilBLowerA = 1.0,
+            CoilBUpperA = 2.0,
+            OverallTimeoutMs = 1500,
+        };
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, opts);
+        await EmitAsync(pz, 5.0, 0.1, 350);   // 长时间低于下限
+        await EmitAsync(pz, 5.0, 1.2, 150);   // 接近窗口末才达到下限
+        var r = await run;
+
+        Assert.False(r.Passed);
+        Assert.False(r.Coil!.CoilAPassed);
+        Assert.Contains("有效检测时间", r.AbnormalItems[0]);
+        Assert.Single(store.Rows);
+        Assert.Equal("FAIL", store.Rows[0].Result);
+    }
+
+    [Fact]
+    public async Task RecordCarriesMachineIdentity()
+    {
+        // 机位数动态（每工位 1~N 台）：记录必须带本机工位号+机位号，多机位可追溯
+        var store = new FakeStore();
+        var wf = new Station1Workflow(store,
+            snGenerate: (_, s) => $"SN-{s:D4}",
+            identity: new StationIdentity(2, "3"));
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("SN-0001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await RunHappyScriptAsync(pz);
+        var r = await run;
+
+        Assert.True(r.Passed);
+        Assert.Single(store.Rows);
+        Assert.Equal(2, store.Rows[0].StationNo);
+        Assert.Equal("3", store.Rows[0].MachineId);
+        Assert.Equal("ST-02-3", wf.Identity.Code);
+    }
+
+    // ================= 联机取号 / 弃用回收（2026-11-16 防撞号改造） =================
+
+    private sealed class FakeAlloc
+    {
+        public SnAllocResult Result = new(true, "LSCH42JY012601010001", 1, null, "取号成功");
+        public readonly List<string> Released = new();
+    }
+
+    private static Station1Workflow NewAllocWorkflow(FakeStore store, FakeAlloc alloc)
+        => new(store,
+            snAllocate: _ => Task.FromResult(alloc.Result),
+            snRelease: (sn, _) => { alloc.Released.Add(sn); return Task.CompletedTask; });
+
+    [Fact]
+    public async Task AllocateFails_CapReached_ShowsErrorAndSkipsTest()
+    {
+        var store = new FakeStore();
+        var alloc = new FakeAlloc { Result = SnAllocResult.Fail("CAP_REACHED", "今日 SN 已达上限 9999（无弃用号可回收）") };
+        var wf = NewAllocWorkflow(store, alloc);
+        var pz = new FakePowerZ();
+
+        var r = await wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("x"),
+            () => Task.CompletedTask, pz, FastOpts);
+
+        Assert.False(r.Passed);
+        Assert.Equal("", r.Sn);
+        Assert.Contains("上限", r.AbnormalItems[0]);
+        Assert.Empty(store.Rows);
+        Assert.Empty(alloc.Released);
+    }
+
+    [Fact]
+    public async Task WriteFail_ReleasesSn()
+    {
+        var store = new FakeStore();
+        var alloc = new FakeAlloc();
+        var wf = NewAllocWorkflow(store, alloc);
+        var pz = new FakePowerZ();
+
+        var r = await wf.RunAsync(_ => Task.FromResult(false), () => Task.FromResult<string?>(null),
+            () => Task.CompletedTask, pz, FastOpts);
+
+        Assert.False(r.Passed);
+        Assert.Empty(store.Rows);
+        Assert.Equal(new[] { "LSCH42JY012601010001" }, alloc.Released);   // 本号立即弃用回收
+    }
+
+    [Fact]
+    public async Task CoilFail_StoredAsAbandoned_AndReleasesSn()
+    {
+        var store = new FakeStore();
+        var alloc = new FakeAlloc();
+        var wf = NewAllocWorkflow(store, alloc);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("LSCH42JY012601010001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await EmitAsync(pz, 5.0, 0.5, 400);   // A 均值 0.5A < 1.0A → FAIL
+        var r = await run;
+
+        Assert.False(r.Passed);
+        Assert.Single(store.Rows);
+        Assert.Equal("FAIL", store.Rows[0].Result);
+        Assert.True(store.Rows[0].Abandoned);                     // FAIL 记录保留但标弃用
+        Assert.Equal(new[] { "LSCH42JY012601010001" }, alloc.Released);
+    }
+
+    [Fact]
+    public async Task Pass_NotReleased_NotAbandoned()
+    {
+        var store = new FakeStore();
+        var alloc = new FakeAlloc();
+        var wf = NewAllocWorkflow(store, alloc);
+        var pz = new FakePowerZ();
+
+        var run = wf.RunAsync(_ => Task.FromResult(true), () => Task.FromResult<string?>("LSCH42JY012601010001"),
+            () => Task.CompletedTask, pz, FastOpts);
+        await RunHappyScriptAsync(pz);
+        var r = await run;
+
+        Assert.True(r.Passed);
+        Assert.Single(store.Rows);
+        Assert.Equal("PASS", store.Rows[0].Result);
+        Assert.False(store.Rows[0].Abandoned);
+        Assert.Empty(alloc.Released);
+    }
+}

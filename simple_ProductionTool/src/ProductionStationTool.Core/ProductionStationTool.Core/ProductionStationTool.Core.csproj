@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ProductionStationTool.PowerZ\ProductionStationTool.PowerZ\ProductionStationTool.PowerZ.csproj" />
+    <!-- CAN/UDS 协议栈复用维修上位机 Core（ZQWL 传输 + ISO-TP/UDS + SA 签名） -->
+    <ProjectReference Include="..\..\..\..\QiChargerStationTool\src\QiChargerStationTool.Core\QiChargerStationTool.Core\QiChargerStationTool.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <!-- TSPL/ZPL 直驱中文内容用 GB18030 编码（net8 需此包注册码页） -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

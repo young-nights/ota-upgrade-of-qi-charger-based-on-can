@@ -1,0 +1,142 @@
+using System.Windows;
+using System.Windows.Controls;
+using ProductionStationTool.App.Stations;
+using ProductionStationTool.App.Utilities;
+using ProductionStationTool.Core.Station;
+
+namespace ProductionStationTool.App;
+
+/// <summary>
+/// 简化版工位外壳：无汇总机、无老化工位。
+/// 菜单栏「工位选择」下拉切换 工位1/3/4（默认工位1）。
+/// 本机身份（工位号+机位号）来自 machine.json。
+/// </summary>
+public partial class MainWindow : Window
+{
+    private readonly IStationPage[] _pages;
+    private readonly StationIdentity? _identity;
+    private readonly StationPresenceReporter? _presence;
+
+    private IStationPage? _currentPage;
+    private bool _isRunning;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        // 小屏防截断：窗口不超出工作区（默认 1280x780 在 768p/高缩放下会被屏幕裁掉）
+        var wa = SystemParameters.WorkArea;
+        MaxWidth = wa.Width;
+        MaxHeight = wa.Height;
+        Width = Math.Min(Width, wa.Width);
+        Height = Math.Min(Height, wa.Height);
+
+        Title = "产线测试上位机 — 简化版";
+        _identity = MachineConfig.Load();
+        Title = $"产线测试上位机 — {_identity.Code}";
+        _pages = new IStationPage[]
+        {
+            new Station1Control(_identity),
+            new Station3Control(_identity),
+            new Station4Control(),
+        };
+        ShowPage(0);
+
+        // 工位机接入心跳（若配置了汇总机 serverHost；简化版无汇总机页，仍可不上报）
+        _presence = new StationPresenceReporter(_identity, MachineConfig.LoadServerHost());
+        _presence.Start();
+
+        Closed += (_, _) => _presence?.Dispose();
+    }
+
+    private void MenuStation_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string tag } || !int.TryParse(tag, out var index))
+            return;
+        for (var i = 0; i < MenuStations.Items.Count; i++)
+        {
+            if (MenuStations.Items[i] is MenuItem item)
+                item.IsChecked = i == index;
+        }
+        ShowPage(index);
+    }
+
+    private void ShowPage(int index)
+    {
+        if (index < 0 || index >= _pages.Length)
+            return;
+        if (_currentPage is not null)
+            _currentPage.AvailabilityChanged -= OnPageAvailabilityChanged;
+        _currentPage = _pages[index];
+        _currentPage.AvailabilityChanged += OnPageAvailabilityChanged;
+        PageHost.Content = _currentPage;
+        TxtCurrent.Text = $"当前：{_currentPage.Title}（本机：{_identity?.Label}）";
+        UpdateButtons();
+    }
+
+    private void OnPageAvailabilityChanged() => Dispatcher.Invoke(UpdateButtons);
+
+    /// <summary>
+    /// 按当前工位可用性刷新按钮：
+    /// 开始测试=串口已接入且未在跑；下一个=完整跑通一次且未在跑。
+    /// </summary>
+    private void UpdateButtons()
+    {
+        if (_currentPage is null)
+            return;
+        BtnStart.IsEnabled = !_isRunning && _currentPage.CanStartTest;
+    }
+
+    private async void BtnStart_Click(object sender, RoutedEventArgs e)
+    {
+        var page = _currentPage;
+        if (page is null || _isRunning || !page.CanStartTest)
+        {
+            if (page is not null && !page.CanStartTest)
+                TxtStatus.Text = $"{page.Title}：串口未接入，无法开始测试";
+            return;
+        }
+        _isRunning = true;
+        UpdateButtons();
+        TxtStatus.Text = $"{page.Title}：测试进行中…";
+        try
+        {
+            await page.StartAsync();
+            TxtStatus.Text = $"{page.Title}：流程结束";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = $"{page.Title}：异常 {ex.Message}";
+        }
+        finally
+        {
+            _isRunning = false;
+            UpdateButtons();
+        }
+    }
+
+    // ---- 顶部横幅菜单 ----
+
+    private void MenuSettingsNetwork_Click(object sender, RoutedEventArgs e) => OpenSettings(0);
+
+    private void MenuSettingsCoil_Click(object sender, RoutedEventArgs e) => OpenSettings(1);
+
+    private void MenuSettingsPresets_Click(object sender, RoutedEventArgs e) => OpenSettings(2);
+
+    private void MenuPrintSn_Click(object sender, RoutedEventArgs e)
+        => new LabelDesignerWindow { Owner = this }.ShowDialog();
+
+    private void OpenSettings(int startTab)
+    {
+        var win = new SettingsWindow(startTab) { Owner = this };
+        win.ShowDialog();
+    }
+
+    private void MenuAbout_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new AboutWindow { Owner = this };
+        win.ShowDialog();
+    }
+
+    // ---- 汇总机页面（整页接管工作区；仅启动登录选汇总机身份才进入，关闭窗口即退出）----
+}
