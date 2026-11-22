@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace ProductionStationTool.Core.Sn;
 
 /// <summary>
@@ -44,13 +46,18 @@ public static class SnGenerator
         fields = default;
         if (sn is null || sn.Length != SnLength)
             return false;
-        if (!sn.StartsWith(ProductPrefix + CategoryPrefix, StringComparison.Ordinal))
+        if (!sn.StartsWith(ProductPrefix + CategoryPrefix + ModelCode + FactoryCode, StringComparison.Ordinal))
+            return false;
+        if (!char.IsAsciiDigit(sn[8]) || !char.IsAsciiDigit(sn[9]))
             return false;
         // 布局：LS CH 42 JY 01 | yymmdd | ssss
         //       0  2  4  6  8    10..15   16..19
+        if (!DateOnly.TryParseExact(sn.AsSpan(10, 6), "yyMMdd",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+            return false;
         if (!int.TryParse(sn.AsSpan(10, 6), out var ymd))
             return false;
-        if (!int.TryParse(sn.AsSpan(16, 4), out var seq))
+        if (!int.TryParse(sn.AsSpan(16, 4), out var seq) || seq is < 1 or > 9999)
             return false;
 
         fields = new SnFields(

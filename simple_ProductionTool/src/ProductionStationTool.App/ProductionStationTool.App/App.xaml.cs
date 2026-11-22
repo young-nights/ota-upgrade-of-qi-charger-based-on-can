@@ -3,7 +3,7 @@ using System.Windows;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// 启动流程：直接进入工位主窗（简化版无工位机/汇总机登录分流）。
+/// 启动流程：直接进入工位机主窗口（仅工位1/工位3），无登录和汇总机。
 /// </summary>
 public partial class App : Application
 {

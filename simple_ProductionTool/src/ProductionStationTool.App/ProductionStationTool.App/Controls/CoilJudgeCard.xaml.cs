@@ -40,7 +40,7 @@ public partial class CoilJudgeCard : UserControl
     public void SetState(CoilState state, double currentA)
         => SetState(state, $"均值 {currentA:F2} A");
 
-    /// <summary>显示判定结果 + 自定义明细行（工位4 门禁/版本卡复用：记录摘要等）。</summary>
+    /// <summary>显示判定结果 + 自定义明细行（记录摘要等）。</summary>
     public void SetState(CoilState state, string detail)
     {
         switch (state)

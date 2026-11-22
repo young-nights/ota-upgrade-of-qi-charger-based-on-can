@@ -7,16 +7,15 @@ using ProductionStationTool.Core.Station;
 namespace ProductionStationTool.App;
 
 /// <summary>
-/// 简化版工位外壳：无汇总机、无老化工位。
-/// 菜单栏「工位选择」下拉切换 工位1/3/4（默认工位1）。
-/// 本机身份（工位号+机位号）来自 machine.json。
+/// 工位外壳：一个 App 集成多个工位页面，菜单栏「工位选择」下拉切换（默认工位1）。
+/// 「开始测试」「下一个」作用于当前选中工位。
+/// 本机身份（工位号+机位号）来自 machine.json——每工位机位数随产量动态增减，
+/// 增减机位只改配置文件，代码零改动。
 /// </summary>
 public partial class MainWindow : Window
 {
     private readonly IStationPage[] _pages;
     private readonly StationIdentity? _identity;
-    private readonly StationPresenceReporter? _presence;
-
     private IStationPage? _currentPage;
     private bool _isRunning;
 
@@ -31,22 +30,15 @@ public partial class MainWindow : Window
         Width = Math.Min(Width, wa.Width);
         Height = Math.Min(Height, wa.Height);
 
-        Title = "产线测试上位机 — 简化版";
         _identity = MachineConfig.Load();
         Title = $"产线测试上位机 — {_identity.Code}";
         _pages = new IStationPage[]
         {
             new Station1Control(_identity),
+            new Station2Control(),
             new Station3Control(_identity),
-            new Station4Control(),
         };
         ShowPage(0);
-
-        // 工位机接入心跳（若配置了汇总机 serverHost；简化版无汇总机页，仍可不上报）
-        _presence = new StationPresenceReporter(_identity, MachineConfig.LoadServerHost());
-        _presence.Start();
-
-        Closed += (_, _) => _presence?.Dispose();
     }
 
     private void MenuStation_Click(object sender, RoutedEventArgs e)
@@ -123,9 +115,6 @@ public partial class MainWindow : Window
 
     private void MenuSettingsPresets_Click(object sender, RoutedEventArgs e) => OpenSettings(2);
 
-    private void MenuPrintSn_Click(object sender, RoutedEventArgs e)
-        => new LabelDesignerWindow { Owner = this }.ShowDialog();
-
     private void OpenSettings(int startTab)
     {
         var win = new SettingsWindow(startTab) { Owner = this };
@@ -138,5 +127,4 @@ public partial class MainWindow : Window
         win.ShowDialog();
     }
 
-    // ---- 汇总机页面（整页接管工作区；仅启动登录选汇总机身份才进入，关闭窗口即退出）----
 }

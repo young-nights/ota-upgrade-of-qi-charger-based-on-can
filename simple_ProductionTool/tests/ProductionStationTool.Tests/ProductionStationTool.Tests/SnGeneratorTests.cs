@@ -31,7 +31,10 @@ public class SnGeneratorTests
     [Theory]
     [InlineData("LSCH42JY012606020001", true)]
     [InlineData("XXCH42JY012606020001", false)]  // 前缀不对
+    [InlineData("LSCH42JY0A2606020001", false)]  // 硬件版本必须为两位数字
     [InlineData("LSCH42JY01260602001", false)]   // 长度 19
+    [InlineData("LSCH42JY012613020001", false)]  // 日期 13 月非法
+    [InlineData("LSCH42JY012606020000", false)]  // 流水号 0000 非法
     [InlineData("", false)]
     public void TryParse_ValidatesShape(string sn, bool expected)
     {

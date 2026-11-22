@@ -50,8 +50,8 @@
                         <RowDefinition Height="*" MinHeight="105"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <!-- 异常项列表：至少 80，保证失败原因完整显示 -->
-                        <RowDefinition Height="80"/>
+                        <!-- 异常项列表：压缩高度（36），空间让给上方四卡片 -->
+                        <RowDefinition Height="36"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
@@ -74,10 +74,20 @@
                         <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
                                 CornerRadius="8" Padding="16">
                             <StackPanel VerticalAlignment="Center">
-                                <TextBlock Text="SN 码" Style="{StaticResource FieldLabel}"/>
-                                <TextBlock x:Name="TxtSn" Text="—"
-                                           FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
-                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="扫码枪 SN" Style="{StaticResource FieldLabel}"/>
+                                <TextBox x:Name="TxtSn" Text="" IsReadOnly="True"
+                                         FontSize="22" FontWeight="SemiBold" FontFamily="Consolas"
+                                         Foreground="{StaticResource TextPrimaryBrush}"
+                                         Background="White" BorderBrush="#90CAF9" BorderThickness="2"
+                                         Padding="8,4"
+                                         TextChanged="OnScanTextChanged"
+                                         KeyDown="OnScanKeyDown"/>
+                                <TextBlock x:Name="TxtScanHint" Text="点击「开始测试」后等待扫描"
+                                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                           Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="TxtScanCountdown" Text=""
+                                           FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -95,7 +105,7 @@
 
                     <!-- 检测参数只读提示（修改入口在「设置」页） -->
                     <TextBlock Grid.Row="3"
-                               Text="检测参数（A/B 上下限、检测窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
+                               Text="检测参数（A/B 上下限、窗口、超时）在顶部菜单「设置 → 检测参数」中修改"
                                FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                Margin="0,0,0,4"/>
 
@@ -104,14 +114,7 @@
                                Margin="0,0,0,4"/>
                     <ListBox x:Name="ListAbnormal" Grid.Row="5" FontSize="14"
                              Background="{StaticResource FieldBgBrush}"
-                             BorderBrush="{StaticResource CardBorderBrush}"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                             BorderBrush="{StaticResource CardBorderBrush}"/>
                 </Grid>
             </Border>
         </Grid>
