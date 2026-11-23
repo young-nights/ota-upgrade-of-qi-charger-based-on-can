@@ -73,7 +73,7 @@
 - **Qi 升级**：`qi_charger mcu1_upgrade <CCU 本地文件路径>` → `transferring → OK`，
   设备自复位搬运（BOOT 备份区→App + 验签）。**复位窗口 ~40s 内 `qi_charger identity`
   超时属正常**，稍候重试回读 mcu1-app 版本验证。`qi_charger mcu2_upgrade <path>` 走 MCU1 升 MCU2。
-- **固件投放**：`python_tools/app bin/app_image_vX_Y_Z.bin`（XATO 镜像）→ scp 到 CCU
+- **固件投放**：`python_tools/mcu1 mcu1 app bin/app_image_vX_Y_Z.bin`（XATO 镜像）→ scp 到 CCU
   任意目录（如 `/data/qi/`，先 `mkdir -p`）→ mcu1_upgrade 用该路径。
   `/data/local/firmware/qicharger/` 是 brood 发布仓（`QC_JYF_MCU1_FW_{ver}_{md5}.img` 命名），
   与 mcu1_upgrade 的任意路径参数是两套东西。

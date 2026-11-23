@@ -7,8 +7,8 @@ staged at Backup 0x08010000 during OTA and copied verbatim to App
 0x08003000 by BOOT; one image serves both locations.
 
 Usage:
-    python verify_image.py app bin/app_image.bin
-    python verify_image.py app bin/app_image.bin --key docs/keys/public.pem
+    python verify_image.py "mcu1 app bin/app_image.bin"
+    python verify_image.py "mcu1 app bin/app_image.bin" --key docs/keys/public.pem
 """
 
 from __future__ import print_function
@@ -152,7 +152,7 @@ def verify_ecdsa(firmware, signature, public_key_path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Verify packed XATO app image")
-    parser.add_argument("image", help="packed image path (app bin/app_image.bin)")
+    parser.add_argument("image", help="packed image path (mcu1 app bin/app_image.bin)")
     parser.add_argument("--key", default=None,
                         help="public key PEM for ECDSA check (optional)")
     args = parser.parse_args(argv)

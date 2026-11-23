@@ -71,10 +71,11 @@ dkms.conf
 *_Target *.dep
 
 # OTA auto-generated packed images
-python_tools/app bin/*.bin
+python_tools/mcu1 app bin/*.bin
 
 # Production merge output (bootloader+app merged bin)
-python_tools/burn bin/
+python_tools/mcu1 burn bin/
+python_tools/mcu2 burn/*.bin
 
 # Keil IDE project files (auto-generated, machine-specific)
 *.uvoptx

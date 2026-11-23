@@ -21,9 +21,9 @@
 
 | File name | MCU | Purpose | MD5 | Size (bytes) | Source |
 |-----------|-----|---------|-----|--------------|--------|
-| `QC_JYF_MCU1_FW_1.2.3_9053c70bfa3a237584a5f7c199916cff.img` | MCU1 | `.img` OTA upgrade | `9053c70bfa3a237584a5f7c199916cff` | 37768 | `python_tools/app bin/app_image_v1_2_3.bin` |
-| `QC_JYF_MCU1_FW_1.2.3_f247d340537a1defdf74dc58b5579329.bin` | MCU1 | `.bin` full-flash burn (Boot+App) | `f247d340537a1defdf74dc58b5579329` | 50056 | `python_tools/burn bin/prod_image_v1_2_3.bin` |
-| `QC_JYF_MCU2_FW_1.2.3_52e6d5da8225b93d830d1d25c53a916f.img` | MCU2 | `.img` **IAP upgrade payload** | `52e6d5da8225b93d830d1d25c53a916f` | 12916 | `python_tools/iap bin/QI_IAP_Ver_1_2_3.BIN` |
+| `QC_JYF_MCU1_FW_1.2.3_9053c70bfa3a237584a5f7c199916cff.img` | MCU1 | `.img` OTA upgrade | `9053c70bfa3a237584a5f7c199916cff` | 37768 | `python_tools/mcu1 app bin/app_image_v1_2_3.bin` |
+| `QC_JYF_MCU1_FW_1.2.3_f247d340537a1defdf74dc58b5579329.bin` | MCU1 | `.bin` full-flash burn (Boot+App) | `f247d340537a1defdf74dc58b5579329` | 50056 | `python_tools/mcu1 burn bin/prod_image_v1_2_3.bin` |
+| `QC_JYF_MCU2_FW_1.2.3_52e6d5da8225b93d830d1d25c53a916f.img` | MCU2 | `.img` **IAP upgrade payload** | `52e6d5da8225b93d830d1d25c53a916f` | 12916 | `python_tools/mcu2 iap bin/QI_IAP_Ver_1_2_3.BIN` |
 | `QC_JYF_MCU2_FW_1.2.3_16f5dba276923fe2ca81257ed6d7ee0a.bin` | MCU2 | `.bin` **full-flash burn** | `16f5dba276923fe2ca81257ed6d7ee0a` | 14963 | `python_tools/mcu2 burn/MCU2_Burn_V1.2.3.bin` (from `MCU2_Burn_V1.2.3.hex`) |
 | `QC_JYF_MCU2_FW_1.2.3_16f5dba276923fe2ca81257ed6d7ee0a.bin` | MCU2 | Full-flash burn | `16f5dba276923fe2ca81257ed6d7ee0a` | 14963 | **Delivered** (was TBD) |
 

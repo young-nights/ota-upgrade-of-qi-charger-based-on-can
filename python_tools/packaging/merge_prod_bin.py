@@ -23,8 +23,8 @@ import re
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-APP_BIN_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app bin")
-BURN_BIN_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "burn bin")
+APP_BIN_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mcu1 app bin")
+BURN_BIN_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mcu1 burn bin")
 
 DEFAULT_BOOT = os.path.join(
     REPO_ROOT,
@@ -42,7 +42,7 @@ def _extract_version_from_filename(path):
 
 
 def _find_latest_app_image():
-    """扫描 app bin/ 目录，返回 mtime 最新的 app_image*.bin 路径。
+    """扫描 mcu1 app bin/ 目录，返回 mtime 最新的 app_image*.bin 路径。
     pack_image.py 按版本号自动命名（app_image_v{x}_{y}_{z}.bin），
     固定名 app_image.bin 仅在版本串缺失时作为 fallback 产出。"""
     if not os.path.isdir(APP_BIN_DIR):
@@ -96,9 +96,9 @@ def main(argv=None):
     parser.add_argument("--boot", default=DEFAULT_BOOT,
                         help="bootloader.bin path (default: Objects/bootloader.bin)")
     parser.add_argument("--app", default=None,
-                        help="packed App XATO image path (default: auto-detect newest app_image*.bin in app bin/)")
+                        help="packed App XATO image path (default: auto-detect newest app_image*.bin in mcu1 app bin/)")
     parser.add_argument("--out", default=None,
-                        help="output merged bin (default: burn bin/prod_image_vX_Y_Z.bin, "
+                        help="output merged bin (default: mcu1 burn bin/prod_image_vX_Y_Z.bin, "
                              "版本后缀取自 app 文件名)")
     parser.add_argument("--hex", action="store_true",
                         help="also produce Intel HEX next to the bin")
@@ -114,7 +114,7 @@ def main(argv=None):
         args.app = _find_latest_app_image()
         if args.app is None:
             sys.stderr.write(
-                "ERROR: app bin/ 下未找到 app_image*.bin。"
+                "ERROR: mcu1 app bin/ 下未找到 app_image*.bin。"
                 "请先运行 pack_image.py 打包。\n")
             return 1
         print("APP image auto-detected: {}".format(args.app))

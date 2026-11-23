@@ -34,7 +34,7 @@ from xato_common import (  # noqa: E402
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
-APP_BIN_DIR = os.path.join(PARENT, "app bin")
+APP_BIN_DIR = os.path.join(PARENT, "mcu1 app bin")
 DEFAULT_BIN = os.path.join(REPO_ROOT, "qi_wireless_code_app", "mdk_project",
                            "Objects", "qi_wireless_code_app.bin")
 DEFAULT_KEY = os.path.join(REPO_ROOT, "docs", "keys", "private.pem")
@@ -109,7 +109,7 @@ def main(argv=None):
     parser.add_argument("--key", default=DEFAULT_KEY,
                         help="ECDSA private key PEM (default: docs/keys/private.pem)")
     parser.add_argument("--out-name", default=None,
-                        help="手动指定 app bin/ 内输出文件名（指定时忽略按版本号"
+                        help="手动指定 mcu1 app bin/ 内输出文件名（指定时忽略按版本号"
                              "自动命名；默认自动：app_image_v{major}_{minor}_"
                              "{patch}.bin，未提取到版本号时 %s）" % DEFAULT_OUT_NAME)
     args = parser.parse_args(argv)
