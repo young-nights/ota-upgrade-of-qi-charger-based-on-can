@@ -24,7 +24,8 @@
 | `QC_JYF_MCU1_FW_1.2.3_9053c70bfa3a237584a5f7c199916cff.img` | MCU1 | `.img` OTA upgrade | `9053c70bfa3a237584a5f7c199916cff` | 37768 | `python_tools/app bin/app_image_v1_2_3.bin` |
 | `QC_JYF_MCU1_FW_1.2.3_f247d340537a1defdf74dc58b5579329.bin` | MCU1 | `.bin` full-flash burn (Boot+App) | `f247d340537a1defdf74dc58b5579329` | 50056 | `python_tools/burn bin/prod_image_v1_2_3.bin` |
 | `QC_JYF_MCU2_FW_1.2.3_52e6d5da8225b93d830d1d25c53a916f.img` | MCU2 | `.img` **IAP upgrade payload** | `52e6d5da8225b93d830d1d25c53a916f` | 12916 | `python_tools/iap bin/QI_IAP_Ver_1_2_3.BIN` |
-| `QC_JYF_MCU2_FW_1.2.3_<MD5>.bin` | MCU2 | Full-flash burn | — | — | **Not delivered** (no full-flash source) |
+| `QC_JYF_MCU2_FW_1.2.3_16f5dba276923fe2ca81257ed6d7ee0a.bin` | MCU2 | `.bin` **full-flash burn** | `16f5dba276923fe2ca81257ed6d7ee0a` | 14963 | `python_tools/mcu2 burn/MCU2_Burn_V1.2.3.bin` (from `MCU2_Burn_V1.2.3.hex`) |
+| `QC_JYF_MCU2_FW_1.2.3_16f5dba276923fe2ca81257ed6d7ee0a.bin` | MCU2 | Full-flash burn | `16f5dba276923fe2ca81257ed6d7ee0a` | 14963 | **Delivered** (was TBD) |
 
 ### File type convention (§2.2)
 
@@ -57,7 +58,7 @@
 
 | # | Description | Trigger | Impact | Workaround |
 |---|-------------|---------|--------|------------|
-| 1 | MCU2 has no separate full-flash `.bin` | Factory full-chip program of MCU2 | MCU2 only via IAP `.img` | Use IAP path; full-flash source TBD |
+| 1 | ~~MCU2 full-flash missing~~ | — | — | **Resolved**: `Firmware/MCU2/QC_JYF_MCU2_FW_1.2.3_16f5dba276923fe2ca81257ed6d7ee0a.bin` included |
 | 2 | Release Note / Self Test Report are Markdown | Formal PDF archive | §4/§5 PDF format not met | Export PDF after sign-off |
 | 3 | Git tags may not exist yet | Traceability (§8) | Incomplete audit trail | Create `QC_JYF_MCU1_FW_1.2.3` / `QC_JYF_MCU2_FW_1.2.3`; never move |
 | 4 | Rollback / long-run multi-cycle charging not in this report scope | Extended validation | Incomplete §7 coverage if Lime requires it | Add follow-up tests if requested |
@@ -70,6 +71,7 @@
 |------|------|-------|
 | MCU1 OTA | `Firmware/MCU1/QC_JYF_MCU1_FW_1.2.3_9053c70bfa3a237584a5f7c199916cff.img` | CAN-UDS OTA; after upgrade read `0xF195` = `QC_JYF_MCU1_FW_1.2.3` |
 | MCU1 full burn | `Firmware/MCU1/QC_JYF_MCU1_FW_1.2.3_f247d340537a1defdf74dc58b5579329.bin` | Program at base **0x08000000** |
+| MCU2 full burn | `Firmware/MCU2/QC_JYF_MCU2_FW_1.2.3_16f5dba276923fe2ca81257ed6d7ee0a.bin` | Program MCU2 flash (hex→bin, holes 0xFF) |
 | MCU2 IAP | `Firmware/MCU2/QC_JYF_MCU2_FW_1.2.3_52e6d5da8225b93d830d1d25c53a916f.img` | Qi chip IAP (`2E 20 10 04` → 31 → 34/36 → 37) |
 
 **Limits**: Rollback verification is **pending** if required (§7).
@@ -100,4 +102,4 @@
 
 ---
 
-*Generated: 2026-11-22 11:38:26; sources: `python_tools/app bin` + `burn bin` (MCU1 1.2.3) + `iap bin` (MCU2 1.2.3)*
+*Generated: 2026-11-23 18:06:16; MCU2 burn added to 1.2.3 package only*

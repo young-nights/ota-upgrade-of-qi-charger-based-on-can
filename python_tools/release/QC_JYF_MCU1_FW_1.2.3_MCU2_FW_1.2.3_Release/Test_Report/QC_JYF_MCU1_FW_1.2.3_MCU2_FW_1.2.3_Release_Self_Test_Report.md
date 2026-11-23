@@ -12,6 +12,8 @@
 | MCU1 `.img` under test | `QC_JYF_MCU1_FW_1.2.3_9053c70bfa3a237584a5f7c199916cff.img` |
 | MCU1 `.bin` under test | `QC_JYF_MCU1_FW_1.2.3_f247d340537a1defdf74dc58b5579329.bin` |
 | MCU2 `.img` under test (IAP) | `QC_JYF_MCU2_FW_1.2.3_52e6d5da8225b93d830d1d25c53a916f.img` |
+| MCU2 `.bin` under test (full burn) | `QC_JYF_MCU2_FW_1.2.3_16f5dba276923fe2ca81257ed6d7ee0a.bin` |
+| MD5 (MCU2 bin) | `16f5dba276923fe2ca81257ed6d7ee0a` |
 | MD5 (MCU1 img) | `9053c70bfa3a237584a5f7c199916cff` |
 | MD5 (MCU1 bin) | `f247d340537a1defdf74dc58b5579329` |
 | MD5 (MCU2 img) | `52e6d5da8225b93d830d1d25c53a916f` |
@@ -35,6 +37,7 @@
 | REG-08 | Dual-MCU version reporting | Read `0xF195`, `0x2013` / `0x2133` | MCU1 = 1.2.3; MCU2 = 1.2.3 | Versions as expected | **PASS** |
 | REG-09 | Power-on / reset after upgrade | Power cycle after REG-01/REG-03 | Versions and config correct after reboot | Versions retained after power cycle | **PASS** |
 | REG-10 | Config read / charge smoke | Read `0x210D`; enable then disable charge again | Power limit readable; on/off still works | Read OK; on/off cycle OK | **PASS** |
+| REG-11 | MCU2 full burn | Program `Firmware/MCU2/QC_JYF_MCU2_FW_1.2.3_16f5dba276923fe2ca81257ed6d7ee0a.bin` → MCU2 still reports 1.2.3 | Burn OK; version 1.2.3 | **PASS** |
 
 ## 3. Change-Specific Tests (§5.2)
 
@@ -53,7 +56,7 @@
 | MCU1 image version string | `QC_JYF_MCU1_FW_1.2.3` |
 | Source sleep switch | `CAN_LP_SLEEP_ENABLE = 0` |
 | MD5 of three delivered files | Matches `Checksum/MD5.txt` and Release Note §2 |
-| MCU2 source mapping | `QI_IAP_Ver_1_2_3.BIN` → `Firmware/MCU2/….img` only |
+| MCU2 source mapping | IAP `.img` ← QI_IAP; burn `.bin` ← MCU2_Burn_V1.2.3.hex |
 | Git commit | `1f6e9b7b7977f29607b17ec32ebd97dc71d8d5d1` |
 
 ## 5. Conclusion
@@ -62,4 +65,4 @@
 - Package file integrity (MD5 / naming / MCU1 vs MCU2 mapping): **PASS**.
 - Rollback and extended long-run charging cycles: out of scope for this report unless Lime requires a follow-up.
 
-*Report date: 2026-11-22*
+*Report date: 2026-11-23*
