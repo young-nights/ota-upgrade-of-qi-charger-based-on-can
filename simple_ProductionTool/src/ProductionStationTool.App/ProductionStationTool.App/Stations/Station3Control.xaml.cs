@@ -123,21 +123,11 @@ public partial class Station3Control : UserControl, IStationPage
         RaiseAvailability();
     }
 
-    private async void OnDisconnectRequested()
+    /// <summary>
+    /// 断开：直接释放串口，不等待停充 UDS（原先同步 DisableCharging 会卡数秒）。
+    /// </summary>
+    private void OnDisconnectRequested()
     {
-        // 断开前发停止充电（2E 21 01 00）——充电开着则设备不休眠，命令可达
-        if (_can is not null && _connected)
-        {
-            try
-            {
-                var (ok, detail) = await _can.DisableChargingAsync();
-                _log.Append(ok ? $"断开前停止充电：{detail}" : $"断开前停充失败：{detail}");
-            }
-            catch (Exception ex)
-            {
-                _log.Append($"断开前停充异常：{ex.Message}");
-            }
-        }
         try { _can?.Dispose(); } catch { /* 忽略 */ }
         _can = null;
         _connected = false;

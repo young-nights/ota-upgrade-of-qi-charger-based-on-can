@@ -9,8 +9,8 @@ using ProductionStationTool.PowerZ;
 namespace ProductionStationTool.App.Stations;
 
 /// <summary>
-/// 工位 1 页面（简化）：连接设备 → 开启无线充电 → PowerZ A/B 双线圈 → 停充并结束。
-/// 无 SN 读取、无数据库关联/入库（简化版无数据库）。
+/// 工位 1 页面（简化）：连接设备 → 开启无线充电 → PowerZ A/B 双线圈 → 直接结束。
+/// 无 SN 读取、无数据库关联/入库；流程不含停充步骤（测完即结束）。
 /// 无有效采样 = 流程错误不判限；线圈判 FAIL 也在页面显示（不入库）。
 /// </summary>
 public partial class Station1Control : UserControl, IStationPage
@@ -18,6 +18,14 @@ public partial class Station1Control : UserControl, IStationPage
     private static readonly Brush SuccessBrush = new SolidColorBrush(Color.FromRgb(0x16, 0xA3, 0x4A));
     private static readonly Brush DangerBrush = new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26));
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
+
+    // 流程索引（与 SetSteps 一一对应，0 基）：
+    // 0 连接 | 1 开充 | 2 PowerZ 汇总（滚动提示） | 3 A 线圈 | 4 B 线圈
+    private const int IdxConnect = 0;
+    private const int IdxCharge = 1;
+    private const int IdxPowerZ = 2;
+    private const int IdxCoilA = 3;
+    private const int IdxCoilB = 4;
 
     private readonly LogBuffer _log = new();
     private LogWindow? _logWin;
@@ -52,10 +60,9 @@ public partial class Station1Control : UserControl, IStationPage
             ("2", "开启无线充电"),
             ("3", "PowerZ："),
             ("3.1", "A 线圈状态检测"),
-            ("3.2", "B 线圈状态检测"),
-            ("4", "停充并结束"));
-        // 3 汇总行：只滚动倒计时提示，通过/失败由 3.1/3.2 承载——初始空白
-        FlowPanel.Mark(2, StepStatus.None);
+            ("3.2", "B 线圈状态检测"));
+        // PowerZ 汇总行：只滚动倒计时/阶段提示，通过/失败由 3.1/3.2 承载
+        FlowPanel.Mark(IdxPowerZ, StepStatus.None);
 
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
@@ -96,20 +103,12 @@ public partial class Station1Control : UserControl, IStationPage
         RaiseAvailability();
     }
 
-    private async void OnDisconnectRequested()
+    /// <summary>
+    /// 断开：直接释放串口，不等待停充 UDS（原先同步 DisableCharging 会卡数秒）。
+    /// 充电若仍开着，由设备侧超时/下次开充覆盖；产线「断开」要求即时响应。
+    /// </summary>
+    private void OnDisconnectRequested()
     {
-        if (_can is not null && _connected)
-        {
-            try
-            {
-                var (ok, detail) = await _can.DisableChargingAsync();
-                _log.Append(ok ? $"断开前停止充电：{detail}" : $"断开前停充失败：{detail}");
-            }
-            catch (Exception ex)
-            {
-                _log.Append($"断开前停充异常：{ex.Message}");
-            }
-        }
         try { _can?.Dispose(); } catch { /* 忽略 */ }
         _can = null;
         _connected = false;
@@ -131,17 +130,19 @@ public partial class Station1Control : UserControl, IStationPage
         _running = true;
         RaiseAvailability();
         FlowPanel.Reset();
+        FlowPanel.Mark(IdxPowerZ, StepStatus.None);
         ListAbnormal.Items.Clear();
         ShowCoilJudgement(null);
         _flowCompleted = false;
         _log.Append("开始工位 1 测试流程");
 
         // ① 连接设备：唤醒 + 等 UDS 就绪
-        FlowPanel.Mark(0, StepStatus.Running);
+        FlowPanel.Mark(IdxConnect, StepStatus.Running);
         _log.Append("步骤 1：唤醒设备并等待 UDS 就绪…");
         if (!await _can.WaitReadyAsync(ct))
         {
-            FlowPanel.Mark(0, StepStatus.Failed);
+            FlowPanel.Mark(IdxConnect, StepStatus.Failed);
+            MarkRestWaiting("未执行（前序失败）");
             ListAbnormal.Items.Add("步骤 1「连接设备」失败：设备无应答（未上电？）");
             SetResultBadge(false);
             _log.Append("设备 8s 内无应答——请检查供电后重试");
@@ -150,19 +151,17 @@ public partial class Station1Control : UserControl, IStationPage
             RaiseAvailability();
             return;
         }
-        FlowPanel.Mark(0, StepStatus.Passed);
+        FlowPanel.Mark(IdxConnect, StepStatus.Passed);
         _log.Append("步骤 1 完成");
 
         // ② 开启无线充电
-        FlowPanel.Mark(1, StepStatus.Running);
+        FlowPanel.Mark(IdxCharge, StepStatus.Running);
         var (chargeOk, chargeDetail) = await _can.EnableChargingAsync(ct);
         _log.Append(chargeOk ? $"步骤 2：{chargeDetail}" : $"步骤 2：开启充电失败 {chargeDetail}");
         if (!chargeOk)
         {
-            FlowPanel.Mark(1, StepStatus.Failed);
-            FlowPanel.Mark(2, StepStatus.None);
-            FlowPanel.Mark(3, StepStatus.Waiting, "未执行（前序失败）");
-            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（前序失败）");
+            FlowPanel.Mark(IdxCharge, StepStatus.Failed);
+            MarkRestWaiting("未执行（前序失败）");
             ListAbnormal.Items.Add("开启充电失败：请检查设备放置和充电功能后重试");
             SetResultBadge(false);
             _running = false;
@@ -170,10 +169,10 @@ public partial class Station1Control : UserControl, IStationPage
             RaiseAvailability();
             return;
         }
-        FlowPanel.Mark(1, StepStatus.Passed);
+        FlowPanel.Mark(IdxCharge, StepStatus.Passed);
 
-        // ③ PowerZ A/B 双线圈判定
-        FlowPanel.Mark(2, StepStatus.Running);
+        // ③ PowerZ A/B 双线圈（onProgress → 流程区滚动倒计时/阶段提示）
+        FlowPanel.Mark(IdxPowerZ, StepStatus.Running);
         _log.Append("步骤 3：打开 PowerZ HID 采样…");
         CoilJudgement? coil = null;
         HidPowerZSource? powerZ = null;
@@ -190,7 +189,7 @@ public partial class Station1Control : UserControl, IStationPage
             {
                 _log.Append($"[PowerZ] 打开失败：{ex.Message}");
             }
-            coil = await CoilCheck.RunAsync(powerZ, coilOpts, LogSafe, ct);
+            coil = await CoilCheck.RunAsync(powerZ, coilOpts, LogSafe, ct, OnCoilProgress);
         }
         finally
         {
@@ -204,44 +203,70 @@ public partial class Station1Control : UserControl, IStationPage
         if (coil is null || coil.NoValidSample)
         {
             ShowCoilJudgement(null);
-            FlowPanel.Mark(2, StepStatus.Failed, "无有效采样");
-            FlowPanel.Mark(3, StepStatus.Waiting, "未执行（无有效采样）");
-            FlowPanel.Mark(4, StepStatus.Waiting, "未执行（无有效采样）");
+            FlowPanel.Mark(IdxPowerZ, StepStatus.Failed, "无有效采样");
+            FlowPanel.Mark(IdxCoilA, StepStatus.Failed);
+            FlowPanel.Mark(IdxCoilB, StepStatus.Waiting, "未执行（无有效采样）");
             ListAbnormal.Items.Add("PowerZ 无有效采样");
             await SafeStopChargingAsync(ct);
             SetResultBadge(false);
-            _log.Append("步骤 4：未执行（无有效采样）");
+            _log.Append("无有效采样，已安全停充并结束");
             _running = false;
             _flowCompleted = true;
             RaiseAvailability();
             return;
         }
 
+        // 定格 A/B 判定；PowerZ 汇总行回空白（提示已由 onProgress 滚过）
         ShowCoilJudgement(coil);
-        FlowPanel.Mark(2, coil.IsNormal ? StepStatus.Passed : StepStatus.Failed,
-            coil.IsNormal ? null : string.Join("；", coil.AbnormalItems));
+        FlowPanel.Mark(IdxPowerZ, StepStatus.None);
+        FlowPanel.Mark(IdxCoilA, coil.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
+        if (!coil.CoilAPassed)
+            FlowPanel.Mark(IdxCoilB, StepStatus.Waiting, "未执行（前序失败）");
+        else
+            FlowPanel.Mark(IdxCoilB, coil.CoilBPassed ? StepStatus.Passed : StepStatus.Failed);
+
         _log.Append($"步骤 3：A 均值 {coil.CoilACurrent:F3}A / B 均值 {coil.CoilBCurrent:F3}A" +
                     $" → {(coil.IsNormal ? "正常" : "异常：" + string.Join("；", coil.AbnormalItems))}");
-
-        // ④ 停充并结束（无入库）
-        FlowPanel.Mark(3, StepStatus.Running);
-        var (offOk, offDetail) = await _can.DisableChargingAsync(ct);
-        _log.Append(offOk ? $"步骤 4：停止充电（{offDetail}）" : $"步骤 4：停止充电失败 {offDetail}");
-        if (!offOk)
-            ListAbnormal.Items.Add("停止充电指令失败");
         foreach (var item in coil.AbnormalItems)
             ListAbnormal.Items.Add(item);
-        FlowPanel.Mark(3, offOk ? StepStatus.Passed : StepStatus.Failed);
 
-        var passed = coil.IsNormal && offOk;
+        // 直接结束：流程不含停充步骤
+        var passed = coil.IsNormal;
         SetResultBadge(passed);
-        _log.Append(passed ? "全部检测项正常，PASS" : $"存在 {ListAbnormal.Items.Count} 项异常，FAIL");
+        _log.Append(passed ? "全部检测项正常，PASS（未发停充，流程直接结束）"
+                           : $"存在 {ListAbnormal.Items.Count} 项异常，FAIL（未发停充）");
         _running = false;
         _flowCompleted = true;
         RaiseAvailability();
     }
 
-    /// <summary>安全关充：流程中途出错时充电可能仍开着，补发停充。</summary>
+    /// <summary>前序失败时把 PowerZ/A/B 标成未执行。</summary>
+    private void MarkRestWaiting(string text)
+    {
+        FlowPanel.Mark(IdxPowerZ, StepStatus.Waiting, text);
+        FlowPanel.Mark(IdxCoilA, StepStatus.Waiting, text);
+        FlowPanel.Mark(IdxCoilB, StepStatus.Waiting, text);
+    }
+
+    /// <summary>
+    /// PowerZ 检测实时进度：流程区「PowerZ：」行滚动阶段提示/倒计时；
+    /// A 判定一出即点亮 A 卡片并定格 3.1，3.2 随之进行中/未执行。
+    /// </summary>
+    private void OnCoilProgress(CoilProgress p)
+    {
+        FlowPanel.Mark(IdxPowerZ, StepStatus.Running, p.Hint);
+        if (p.CoilADecided)
+        {
+            CardCoilA.SetState(p.CoilAPassed ? CoilState.Passed : CoilState.Failed, p.CoilACurrent);
+            FlowPanel.Mark(IdxCoilA, p.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
+            if (!p.CoilAPassed)
+                FlowPanel.Mark(IdxCoilB, StepStatus.Waiting, "未执行（前序失败）");
+            else
+                FlowPanel.Mark(IdxCoilB, StepStatus.Running);
+        }
+    }
+
+    /// <summary>安全关充：无有效采样等中途出错时充电可能仍开着，补发停充。</summary>
     private async Task SafeStopChargingAsync(CancellationToken ct = default)
     {
         if (_can is null)
@@ -281,6 +306,7 @@ public partial class Station1Control : UserControl, IStationPage
     {
         _flowCompleted = false;
         FlowPanel.Reset();
+        FlowPanel.Mark(IdxPowerZ, StepStatus.None);
         ListAbnormal.Items.Clear();
         ShowCoilJudgement(null);
         TxtResult.Text = "待测试";

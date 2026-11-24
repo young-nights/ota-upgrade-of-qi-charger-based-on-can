@@ -51,7 +51,7 @@
                             <Border Grid.Column="2" Background="{StaticResource FieldBgBrush}"
                                     CornerRadius="8" Padding="14">
                                 <StackPanel>
-                                    <TextBlock Text="最近发送" Style="{StaticResource FieldLabel}"/>
+                                    <TextBlock Text="最近发送 / 已运行" Style="{StaticResource FieldLabel}"/>
                                     <TextBlock x:Name="TxtLast" Text="—"
                                                FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"
                                                Foreground="{StaticResource TextPrimaryBrush}"/>
@@ -61,7 +61,7 @@
 
                         <!-- 使用提示 -->
                         <TextBlock x:Name="TxtHint"
-                                   Text="点击「开始测试」后以 500ms 周期持续发送开充指令（2E 21 01）；产线接新设备无需重新点击，「断开」停止循环。不倒计时、不读电流电压、不判限、不入库。"
+                                   Text="点击「开始测试」后以 500ms 周期持续发送开充指令（2E 21 01）；产线接新设备无需重新点击，「断开」停止循环。「最近发送」显示正向运行计时（已运行 hh:mm:ss）。不读电流电压、不判限、不入库。"
                                    FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                    TextWrapping="Wrap"/>
                     </StackPanel>

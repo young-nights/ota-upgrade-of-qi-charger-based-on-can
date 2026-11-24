@@ -9,7 +9,8 @@ namespace ProductionStationTool.App.Stations;
 
 /// <summary>
 /// 工位 2 页面（简化版老化位）：点击「开始测试」后以 500ms 周期持续发送开充指令
-/// （2E 21 01）——产线接新设备无需重新点击；不倒计时、不读电流电压、不判限、不入库。
+/// （2E 21 01）——产线接新设备无需重新点击；「最近发送」区显示正向运行计时
+/// （已运行 hh:mm:ss · 最近结果），不读电流电压、不判限、不入库。
 /// 「断开」停止循环；循环跨「下一台」持续（接新设备不用重击）。
 /// </summary>
 public partial class Station2Control : UserControl, IStationPage
@@ -33,6 +34,12 @@ public partial class Station2Control : UserControl, IStationPage
     private CancellationTokenSource? _loopCts;
     private Task? _loopTask;
     private long _sentCount;
+    private long _loopStartTick;
+    private string _lastSendDetail = "—";
+    private readonly System.Windows.Threading.DispatcherTimer _elapsedTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(500),
+    };
 
     public int StationNo => 2;
     public string Title => "工位2 — 老化测试";
@@ -54,8 +61,20 @@ public partial class Station2Control : UserControl, IStationPage
         InitializeComponent();
         ConnPanel.ShowPowerZ = false;   // 本工位只用 CAN（开充指令），不接 PowerZ
         _log.Append("工位2 简化老化位：开始测试后以 500ms 周期持续发送开充指令");
+        // 正向计时：每 500ms 刷新「已运行 mm:ss」（非倒计时）
+        _elapsedTimer.Tick += (_, _) => RefreshElapsed();
         ConnPanel.ConnectRequested += OnConnectRequested;
         ConnPanel.DisconnectRequested += OnDisconnectRequested;
+    }
+
+    /// <summary>「最近发送」区显示正向运行计时 + 最近一次发送结果。</summary>
+    private void RefreshElapsed()
+    {
+        if (_loopTask is null)
+            return;
+        var sec = (Environment.TickCount64 - _loopStartTick) / 1000;
+        var span = TimeSpan.FromSeconds(Math.Max(0, sec));
+        TxtLast.Text = $"已运行 {span:hh\\:mm\\:ss} · {_lastSendDetail}";
     }
 
     private async void OnConnectRequested(string can, string pz)
@@ -102,16 +121,19 @@ public partial class Station2Control : UserControl, IStationPage
             return Task.CompletedTask;
 
         _sentCount = 0;
+        _loopStartTick = Environment.TickCount64;
+        _lastSendDetail = "建链中（10 03 + SA）…";
         Ui(() =>
         {
             TxtCount.Text = "0 次";
-            TxtLast.Text = "建链中（10 03 + SA）…";
+            RefreshElapsed();
             SetState("发送中", SuccessBrush, RunBg);
         });
+        _elapsedTimer.Start();
         _loopCts = new CancellationTokenSource();
         var token = _loopCts.Token;
         _loopTask = Task.Run(() => LoopAsync(token), token);
-        _log.Append("开充循环启动：500ms 周期发送 2E 21 01（开充）");
+        _log.Append("开充循环启动：500ms 周期发送 2E 21 01（开充），正向计时");
         RaiseAvailability();
         return Task.CompletedTask;
     }
@@ -132,10 +154,11 @@ public partial class Station2Control : UserControl, IStationPage
                 if (!eok)
                 {
                     // 设备可能刚接入/休眠：状态提示 + 补唤醒 burst，下轮重建链
+                    _lastSendDetail = edet;
                     Ui(() =>
                     {
                         SetState("等待设备", MutedBrush, IdleBg);
-                        TxtLast.Text = edet;
+                        RefreshElapsed();
                     });
                     _log.Append($"建链未就绪：{edet}，补唤醒后重试");
                     await can.TryWakeAsync(ct);
@@ -147,11 +170,12 @@ public partial class Station2Control : UserControl, IStationPage
                 if (wok)
                 {
                     _sentCount++;
+                    _lastSendDetail = $"{wdet} · {DateTime.Now:HH:mm:ss}";
                     var n = _sentCount;
                     Ui(() =>
                     {
                         TxtCount.Text = $"{n} 次";
-                        TxtLast.Text = $"{wdet} · {DateTime.Now:HH:mm:ss}";
+                        RefreshElapsed();
                         SetState("发送中", SuccessBrush, RunBg);
                     });
                     if (n % 20 == 0)   // 每 ~10s 落一条日志，防刷屏
@@ -159,10 +183,11 @@ public partial class Station2Control : UserControl, IStationPage
                 }
                 else
                 {
+                    _lastSendDetail = wdet;
                     Ui(() =>
                     {
                         SetState("写失败，重试中", DangerBrush, FailBg);
-                        TxtLast.Text = wdet;
+                        RefreshElapsed();
                     });
                     _log.Append($"2E 21 01 失败：{wdet}（下轮重建链）");
                 }
@@ -173,7 +198,8 @@ public partial class Station2Control : UserControl, IStationPage
             }
             catch (Exception ex)
             {
-                Ui(() => TxtLast.Text = $"异常：{ex.Message}");
+                _lastSendDetail = $"异常：{ex.Message}";
+                Ui(RefreshElapsed);
                 _log.Append($"开充循环异常：{ex.Message}");
             }
 
@@ -207,7 +233,12 @@ public partial class Station2Control : UserControl, IStationPage
         _loopCts.Dispose();
         _loopCts = null;
         _loopTask = null;
-        Ui(() => SetState("未启动", MutedBrush, IdleBg));
+        _elapsedTimer.Stop();
+        Ui(() =>
+        {
+            SetState("未启动", MutedBrush, IdleBg);
+            TxtLast.Text = "—";
+        });
         _log.Append("开充循环已停止");
     }
 
