@@ -9,8 +9,8 @@ using ProductionStationTool.PowerZ;
 namespace ProductionStationTool.App.Stations;
 
 /// <summary>
-/// 工位 1 页面（简化）：连接设备 → 开启无线充电 → PowerZ A/B 双线圈 → 直接结束。
-/// 无 SN 读取、无数据库关联/入库；流程不含停充步骤（测完即结束）。
+/// 工位 1 页面（简化）：连接设备 → 开启无线充电 → PowerZ A/B 双线圈 → 结束。
+/// 无 SN 读取、无数据库关联/入库；流程不含停充步骤（测完打「结束」标识）。
 /// 无有效采样 = 流程错误不判限；线圈判 FAIL 也在页面显示（不入库）。
 /// </summary>
 public partial class Station1Control : UserControl, IStationPage
@@ -20,12 +20,13 @@ public partial class Station1Control : UserControl, IStationPage
     private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x64, 0x74, 0x8B));
 
     // 流程索引（与 SetSteps 一一对应，0 基）：
-    // 0 连接 | 1 开充 | 2 PowerZ 汇总（滚动提示） | 3 A 线圈 | 4 B 线圈
+    // 0 连接 | 1 开充 | 2 PowerZ 汇总 | 3 A | 4 B | 5 结束
     private const int IdxConnect = 0;
     private const int IdxCharge = 1;
     private const int IdxPowerZ = 2;
     private const int IdxCoilA = 3;
     private const int IdxCoilB = 4;
+    private const int IdxEnd = 5;
 
     private readonly LogBuffer _log = new();
     private LogWindow? _logWin;
@@ -60,7 +61,8 @@ public partial class Station1Control : UserControl, IStationPage
             ("2", "开启无线充电"),
             ("3", "PowerZ："),
             ("3.1", "A 线圈状态检测"),
-            ("3.2", "B 线圈状态检测"));
+            ("3.2", "B 线圈状态检测"),
+            ("4", "结束"));
         // PowerZ 汇总行：只滚动倒计时/阶段提示，通过/失败由 3.1/3.2 承载
         FlowPanel.Mark(IdxPowerZ, StepStatus.None);
 
@@ -205,7 +207,8 @@ public partial class Station1Control : UserControl, IStationPage
             ShowCoilJudgement(null);
             FlowPanel.Mark(IdxPowerZ, StepStatus.Failed, "无有效采样");
             FlowPanel.Mark(IdxCoilA, StepStatus.Failed);
-            FlowPanel.Mark(IdxCoilB, StepStatus.Waiting, "未执行（无有效采样）");
+            FlowPanel.Mark(IdxCoilB, StepStatus.Failed);
+            FlowPanel.Mark(IdxEnd, StepStatus.Failed);
             ListAbnormal.Items.Add("PowerZ 无有效采样");
             await SafeStopChargingAsync(ct);
             SetResultBadge(false);
@@ -220,8 +223,9 @@ public partial class Station1Control : UserControl, IStationPage
         ShowCoilJudgement(coil);
         FlowPanel.Mark(IdxPowerZ, StepStatus.None);
         FlowPanel.Mark(IdxCoilA, coil.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
+        // A 未通过 → B 同样标失败（不显示「未执行」）
         if (!coil.CoilAPassed)
-            FlowPanel.Mark(IdxCoilB, StepStatus.Waiting, "未执行（前序失败）");
+            FlowPanel.Mark(IdxCoilB, StepStatus.Failed);
         else
             FlowPanel.Mark(IdxCoilB, coil.CoilBPassed ? StepStatus.Passed : StepStatus.Failed);
 
@@ -230,27 +234,29 @@ public partial class Station1Control : UserControl, IStationPage
         foreach (var item in coil.AbnormalItems)
             ListAbnormal.Items.Add(item);
 
-        // 直接结束：流程不含停充步骤
+        // 结束标识（不含停充）：A/B 都定格后打「结束」，整体 PASS/FAIL 与之一致
         var passed = coil.IsNormal;
+        FlowPanel.Mark(IdxEnd, passed ? StepStatus.Passed : StepStatus.Failed);
         SetResultBadge(passed);
-        _log.Append(passed ? "全部检测项正常，PASS（未发停充，流程直接结束）"
-                           : $"存在 {ListAbnormal.Items.Count} 项异常，FAIL（未发停充）");
+        _log.Append(passed ? "全部检测项正常，PASS（流程结束，未发停充）"
+                           : $"存在 {ListAbnormal.Items.Count} 项异常，FAIL（流程结束）");
         _running = false;
         _flowCompleted = true;
         RaiseAvailability();
     }
 
-    /// <summary>前序失败时把 PowerZ/A/B 标成未执行。</summary>
+    /// <summary>前序失败时把 PowerZ/A/B/结束 标成未执行。</summary>
     private void MarkRestWaiting(string text)
     {
         FlowPanel.Mark(IdxPowerZ, StepStatus.Waiting, text);
         FlowPanel.Mark(IdxCoilA, StepStatus.Waiting, text);
         FlowPanel.Mark(IdxCoilB, StepStatus.Waiting, text);
+        FlowPanel.Mark(IdxEnd, StepStatus.Waiting, text);
     }
 
     /// <summary>
     /// PowerZ 检测实时进度：流程区「PowerZ：」行滚动阶段提示/倒计时；
-    /// A 判定一出即点亮 A 卡片并定格 3.1，3.2 随之进行中/未执行。
+    /// A 判定一出即点亮 A 卡片并定格 3.1；A 未通过则 3.2 同步标失败。
     /// </summary>
     private void OnCoilProgress(CoilProgress p)
     {
@@ -260,7 +266,10 @@ public partial class Station1Control : UserControl, IStationPage
             CardCoilA.SetState(p.CoilAPassed ? CoilState.Passed : CoilState.Failed, p.CoilACurrent);
             FlowPanel.Mark(IdxCoilA, p.CoilAPassed ? StepStatus.Passed : StepStatus.Failed);
             if (!p.CoilAPassed)
-                FlowPanel.Mark(IdxCoilB, StepStatus.Waiting, "未执行（前序失败）");
+            {
+                CardCoilB.SetState(CoilState.Failed, 0);
+                FlowPanel.Mark(IdxCoilB, StepStatus.Failed);
+            }
             else
                 FlowPanel.Mark(IdxCoilB, StepStatus.Running);
         }
@@ -284,7 +293,7 @@ public partial class Station1Control : UserControl, IStationPage
 
     /// <summary>
     /// 线圈 A/B 两卡片三态：未测灰 / 通过绿 / 未通过红。
-    /// B 未执行到（无有效采样、A 未通过提前结束）保持未测。
+    /// A 未通过时 B 显示失败（与流程区 3.2 一致）。
     /// </summary>
     private void ShowCoilJudgement(CoilJudgement? c)
     {
@@ -296,7 +305,7 @@ public partial class Station1Control : UserControl, IStationPage
         }
         CardCoilA.SetState(c.CoilAPassed ? CoilState.Passed : CoilState.Failed, c.CoilACurrent);
         if (!c.CoilAPassed)
-            CardCoilB.Reset();
+            CardCoilB.SetState(CoilState.Failed, 0);
         else
             CardCoilB.SetState(c.CoilBPassed ? CoilState.Passed : CoilState.Failed, c.CoilBCurrent);
     }
