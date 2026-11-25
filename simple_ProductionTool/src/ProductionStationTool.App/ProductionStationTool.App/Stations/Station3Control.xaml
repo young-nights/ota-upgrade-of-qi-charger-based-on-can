@@ -27,10 +27,16 @@
                 <DockPanel>
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
                         <TextBlock Text="测试流程" Style="{StaticResource SectionTitle}"/>
-                        <Button Content="日志" Style="{StaticResource GhostButton}"
-                                Height="26" Padding="12,0" HorizontalAlignment="Right"
-                                Click="BtnLog_Click"
-                                ToolTip="弹出运行日志窗口（不占主页面）"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="导出 SN" Style="{StaticResource GhostButton}"
+                                    Height="26" Padding="12,0" Margin="0,0,8,0"
+                                    Click="BtnExportSn_Click"
+                                    ToolTip="把本班次「写入+回读均成功」的 SN 导出为 Excel（.xlsx）"/>
+                            <Button Content="日志" Style="{StaticResource GhostButton}"
+                                    Height="26" Padding="12,0"
+                                    Click="BtnLog_Click"
+                                    ToolTip="弹出运行日志窗口（不占主页面）"/>
+                        </StackPanel>
                     </Grid>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <controls:FlowStepsPanel x:Name="FlowPanel"/>

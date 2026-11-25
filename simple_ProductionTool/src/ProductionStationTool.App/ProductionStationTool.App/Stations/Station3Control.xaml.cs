@@ -1,8 +1,10 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using ProductionStationTool.App.Controls;
 using ProductionStationTool.App.Utilities;
 using ProductionStationTool.Core.Sn;
@@ -42,6 +44,9 @@ public partial class Station3Control : UserControl, IStationPage
     private bool _waitingForScan;
 
     private CanUdsDevice? _can;
+
+    /// <summary>成功写入并回读一致的 SN（供导出 Excel；写/读回失败不记录）。</summary>
+    private readonly List<SnRecord> _snOkRecords = new();
 
     /// <summary>CAN 串口已接入（点「连接」成功、未点「断开」）。</summary>
     private bool _connected;
@@ -364,6 +369,12 @@ public partial class Station3Control : UserControl, IStationPage
                         readOk ? "" : "SN 回读不一致");
                     TxtScanHint.Text = readOk ? "扫码、写入、回读均通过" : "SN 回读不一致";
                     TxtScanHint.Foreground = readOk ? SuccessBrush : DangerBrush;
+                    // 仅「写入成功 + 回读一致」才记入导出表
+                    if (readOk && writtenSn is { Length: > 0 })
+                    {
+                        _snOkRecords.Add(new SnRecord(writtenSn, DateTime.Now));
+                        _log.Append($"[SN导出] 已记录成功 SN {writtenSn}（共 {_snOkRecords.Count} 条）");
+                    }
                     return back;
                 },
                 chargeStartAsync: async () =>
@@ -540,6 +551,38 @@ public partial class Station3Control : UserControl, IStationPage
         BadgeResult.Background = passed
             ? new SolidColorBrush(Color.FromRgb(0xDC, 0xFC, 0xE7))
             : new SolidColorBrush(Color.FromRgb(0xFE, 0xE2, 0xE2));
+    }
+
+    /// <summary>导出本班次成功 SN（写入+回读均通过）为 Excel。写/读回失败不入表。</summary>
+    private void BtnExportSn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_snOkRecords.Count == 0)
+        {
+            TxtScanHint.Text = "暂无成功 SN 可导出（只记录写入+回读均通过的 SN）";
+            TxtScanHint.Foreground = MutedBrush;
+            _log.Append("导出 SN：列表为空");
+            return;
+        }
+        var dlg = new SaveFileDialog
+        {
+            Filter = "Excel 文件 (*.xlsx)|*.xlsx",
+            FileName = $"SN记录_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx",
+        };
+        if (dlg.ShowDialog(Window.GetWindow(this)) != true)
+            return;
+        try
+        {
+            SnExcelExporter.Export(_snOkRecords, dlg.FileName);
+            TxtScanHint.Text = $"已导出 {_snOkRecords.Count} 条成功 SN → {Path.GetFileName(dlg.FileName)}";
+            TxtScanHint.Foreground = SuccessBrush;
+            _log.Append($"导出 SN：{_snOkRecords.Count} 条 → {dlg.FileName}");
+        }
+        catch (Exception ex)
+        {
+            TxtScanHint.Text = $"导出失败：{ex.Message}";
+            TxtScanHint.Foreground = DangerBrush;
+            _log.Append($"导出 SN 失败：{ex.Message}");
+        }
     }
 
     /// <summary>弹出运行日志窗（无模式，边测边看）；重复点击激活已开窗口。</summary>
