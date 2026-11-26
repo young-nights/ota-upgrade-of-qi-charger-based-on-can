@@ -1,0 +1,19 @@
+qi_charger_srs.md
+  s_0deeffa004f69f::t_3b4ed204adf18c 53,276,318,351-352,354,357,417,464,661,665,855,980,1036,1161,1185,1281,1324-1325,1327,1716,1844
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "de12f1de86c758d1018ac2c3ad8b8cb9cffc5b78",
+  "prompts": {},
+  "sessions": {
+    "s_0deeffa004f69f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ce1ab3d-97e6-4693-8d9c-5efd9cb1086e",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Kevin Chen <zhuoxin.chen@li.me>"
+    }
+  }
+}
