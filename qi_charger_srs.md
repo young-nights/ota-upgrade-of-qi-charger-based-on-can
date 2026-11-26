@@ -500,7 +500,7 @@ Assumes Extended Session with SecurityAccess Level 1 is already active (see §5.
 |   | RX | ACK | `6E 21 01` | Write accepted |
 | 2 | TX | Read Charging State | `22 21 02` | State returned |
 |   | RX | Response | `62 21 02 00` | DISABLED |
-| 3 | TX | Read Output Power | `22 21 04` | Power returned |
+| 3 | TX | Read Real-Time Charging Power | `22 21 04` | Power returned |
 |   | RX | Response | `62 21 04 00 00` | 0.0 W |
 
 The charger SHALL stop power transfer within 200 ms of accepting the disable command.
@@ -513,7 +513,7 @@ Runtime status is primarily delivered via the periodic broadcast defined in Sect
 |---|-----|------|-------------|-----------------|
 | 1 | TX | Read Charging State | `22 21 02` | State returned |
 | 2 | TX | Read Device Present | `22 21 03` | Presence returned |
-| 3 | TX | Read Output Power | `22 21 04` | Power returned |
+| 3 | TX | Read Real-Time Charging Power | `22 21 04` | Power returned |
 | 4 | TX | Read Coil Temperature | `22 21 07` | Temperature returned |
 | 5 | TX | Read FOD Status | `22 21 09` | FOD status returned |
 | 6 | TX | Read Alignment Status | `22 21 0A` | Alignment returned |
@@ -843,7 +843,7 @@ Read and write access rules are listed separately. `Read Session` and `Read Secu
 | 0x2101 | Charger Enable | Default | None | Extended | Level 1 | 1 byte | `0x00=disable`, `0x01=enable` | `0x00-0x01`; volatile, resets to `0x00` |
 | 0x2102 | Charging State | Default | None | N/A | N/A | 1 byte | See Section 6.1 | `0x00-0x0A` |
 | 0x2103 | Device Present | Default | None | N/A | N/A | 1 byte | `0x00=no`, `0x01=yes` | `0x00-0x01` |
-| 0x2104 | Output Power | Default | None | N/A | N/A | 2 bytes | `uint16`, 0.1 W | `0x0000-0x012C` (0-30.0 W) |
+| 0x2104 | Real-Time Charging Power | Default | None | N/A | N/A | 2 bytes | `uint16`, mW, little-endian | `0x0000-0xFFFF` (0-65.535 W) |
 | 0x2105 | Input Voltage | Default | None | N/A | N/A | 2 bytes | `uint16`, 0.01 V | `0x0000-0x1388` (0-50.00 V) |
 | 0x2106 | Input Current | Default | None | N/A | N/A | 2 bytes | `uint16`, mA | `0x0000-0x2710` (0-10000 mA) |
 | 0x2107 | Coil Temperature | Default | None | N/A | N/A | 1 byte | `uint8`, deg C, offset -50 (actual = value - 50) | `0x00-0xFF` (-50 to 205 deg C) |
@@ -977,7 +977,7 @@ Length: 4 bytes.
 | Byte | Field | Encoding |
 |------|-------|----------|
 | 0 | Feature Flags | See bit definition below |
-| 1 | Maximum Power | `uint8`, 0.5 W per bit (note: DID `0x2104` uses 0.1 W per bit; DID `0x210D` is a power level code, not a power value) |
+| 1 | Maximum Power | `uint8`, 0.5 W per bit (note: DID `0x2104` is in mW; DID `0x210D` is a power level code, not a power value) |
 | 2 | Supported Modes | Bitfield |
 | 3 | Reserved | `0x00` |
 
@@ -1024,7 +1024,7 @@ DID 0x2100 response data: 7F 1E 0F 00
 | 0x2101 | Charger Enable | `01` | Enable charging |
 | 0x2102 | Charging State | `04` | CHARGING |
 | 0x2103 | Device Present | `01` | Compatible receiver detected |
-| 0x2104 | Output Power | `55 00` | 8.5 W |
+| 0x2104 | Real-Time Charging Power | `34 21` | 8.5 W (8500 mW = `0x2134`) |
 | 0x2105 | Input Voltage | `CE 04` | 12.30 V |
 | 0x2106 | Input Current | `20 03` | 800 mA |
 | 0x2107 | Coil Temperature | `5F` | 45 deg C (0x5F=95, 95-50=45) |
