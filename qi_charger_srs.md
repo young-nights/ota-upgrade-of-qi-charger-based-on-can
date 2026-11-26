@@ -707,7 +707,7 @@ The supplier SHALL implement the following state machine. State transitions may 
 | Any non-programming state | DiagnosticSessionControl to Programming Session (`0x10 0x02`) | Stop output within 200 ms, set DID `0x2101` to `0x00`, stop periodic broadcast | DISABLED |
 | DISABLED or STANDBY | CCU selects Service Mode with SecurityAccess | Keep output off and expose service routines | SERVICE_MODE |
 | SERVICE_MODE | CCU selects Normal Mode | Stop output, persist DID `0x210F=0x00`, and exit service diagnostics | DISABLED |
-| DISABLED | No CAN frame addressed to module received for the configured nonzero idle timeout (DID `0x2117`) and charger is disabled | Send final SHUTDOWN broadcast, suspend MCU, CAN transceiver enters wake-up mode | LOW_POWER |
+| DISABLED | No CAN frame addressed to module received for the configured nonzero idle timeout (DID `0x2117`) and charger is disabled | Send final SLEEP broadcast, suspend MCU, CAN transceiver enters wake-up mode | LOW_POWER |
 | LOW_POWER | Any CAN frame addressed to module received by CAN transceiver | Wake MCU, initialize to DISABLED, send BOOTUP then OPERATIONAL broadcast | DISABLED |
 
 ### 6.5 State Requirements
@@ -744,7 +744,7 @@ The supplier SHALL implement the following state machine. State transitions may 
 
 `[QI-STATE-016]` **[P0]** The charger SHALL enter LOW_POWER when it has been in DISABLED continuously for the configured nonzero idle timeout (DID `0x2117`) without receiving any CAN frame addressed to the module. If DID `0x2117=0x0000`, automatic LOW_POWER entry SHALL be disabled. The charger SHALL NOT enter LOW_POWER from any state other than DISABLED (e.g., not from FAULT, STANDBY, or any active charging state).
 
-`[QI-STATE-017]` **[P0]** Before entering LOW_POWER, the charger SHALL send a final SHUTDOWN lifecycle broadcast.
+`[QI-STATE-017]` **[P0]** Before entering LOW_POWER, the charger SHALL send a final SLEEP lifecycle broadcast.
 
 `[QI-STATE-018]` **[P0]** In LOW_POWER, both MCUs SHALL be in a sleep or stop mode; only the CAN transceiver SHALL remain powered in wake-up mode.
 
@@ -907,7 +907,7 @@ Manufacturing test mode and service mode SHALL require SecurityAccess Level 1.
 
 DID `0x210F` is persistent across reset and power cycle for all valid mode values. Reset and power cycle SHALL NOT implicitly return the charger to Normal mode. Charger Enable (DID `0x2101`) remains volatile and SHALL reset to disabled regardless of the persisted Operating Mode.
 
-`[QI-MODE-001]` **[P0]** In shipping/storage mode, the charger SHALL disable CAN transmission after sending a positive write response and one final SHUTDOWN broadcast.
+`[QI-MODE-001]` **[P0]** In shipping/storage mode, the charger SHALL disable CAN transmission after sending a positive write response and one final SLEEP broadcast.
 
 If the charger boots with persisted DID `0x210F=0x03`, it SHALL keep charging disabled and re-enter shipping/storage low-power behavior without requiring a new CCU command. Normal operation SHALL NOT resume solely because of reset or power cycle.
 
@@ -1274,13 +1274,24 @@ Payload:
 
 | Byte | Field | Format |
 |------|-------|--------|
-| 0 | Lifecycle State | Common lifecycle state |
+| 0 | Lifecycle State | See lifecycle state values below |
 | 1 | Charging State | See Section 6.1 |
 | 2 | Fault Code | See Section 8.1 |
 | 3 | Status Flags | See below |
 | 4-5 | Output Power | `uint16`, 0.1 W, little-endian |
 | 6 | Coil Temperature | `uint8`, deg C, offset -50 (actual = value - 50; same encoding as DID `0x2107`) |
 | 7 | Reserved | `0x00` |
+
+Lifecycle state values, byte 0:
+
+| Value | State | Meaning |
+|-------|-------|---------|
+| `0x01` | BOOTUP | Power-on or reset |
+| `0x02` | OPERATIONAL | Initialization complete, ready for normal operation |
+| `0x03` | WAKEUP | Reserved. The charger SHALL NOT send it. |
+| `0x04` | SLEEP | About to enter LOW_POWER |
+
+No other value SHALL be sent in byte 0.
 
 Status Flags, byte 3:
 
@@ -1309,9 +1320,9 @@ Examples:
 | State | CAN ID | Payload | Meaning |
 |-------|--------|---------|---------|
 | Boot | `0x18FF260D` | `01 00 00 00 00 00 32 00` | BOOTUP, disabled, no fault, 0 deg C (0x32=50, 50-50=0) |
-| Ready | `0x18FF260D` | `03 01 00 02 00 00 4B 00` | OPERATIONAL, STANDBY, enabled, 25 deg C (0x4B=75, 75-50=25) |
-| Charging | `0x18FF260D` | `03 04 00 8F 55 00 5F 00` | OPERATIONAL, CHARGING, device present, good alignment, clamp open, 8.5 W, 45 deg C (0x5F=95, 95-50=45) |
-| FOD suspend | `0x18FF260D` | `03 07 06 A3 00 00 60 00` | OPERATIONAL, SUSPENDED_FOD, FOD fault, clamp open, output 0 W, 46 deg C (0x60=96, 96-50=46) |
+| Ready | `0x18FF260D` | `02 01 00 02 00 00 4B 00` | OPERATIONAL, STANDBY, enabled, 25 deg C (0x4B=75, 75-50=25) |
+| Charging | `0x18FF260D` | `02 04 00 8F 55 00 5F 00` | OPERATIONAL, CHARGING, device present, good alignment, clamp open, 8.5 W, 45 deg C (0x5F=95, 95-50=45) |
+| FOD suspend | `0x18FF260D` | `02 07 06 A3 00 00 60 00` | OPERATIONAL, SUSPENDED_FOD, FOD fault, clamp open, output 0 W, 46 deg C (0x60=96, 96-50=46) |
 
 The charger SHALL comply with REF-1 §10 for common lifecycle broadcast timing (BOOTUP < 100 ms, OPERATIONAL on init, periodic 1 Hz default).
 
@@ -1679,7 +1690,7 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-WDG-001 | Verify watchdog reset reports Last Boot Reason `0x02` |
 | TC-QI-LP-001 | Verify charger enters LOW_POWER after 10 min idle in DISABLED with no CAN traffic |
 | TC-QI-LP-002 | Verify CAN frame addressed to module wakes charger from LOW_POWER to DISABLED within 100 ms |
-| TC-QI-LP-003 | Verify SHUTDOWN broadcast is sent before LOW_POWER entry |
+| TC-QI-LP-003 | Verify SLEEP broadcast is sent before LOW_POWER entry |
 | TC-QI-LP-004 | Verify CAN traffic to module resets the idle timer in DISABLED |
 | TC-QI-LP-005 | Verify DID `0x2117` configures idle timeout and `0x0000` disables LOW_POWER entry |
 | TC-QI-SAFE-006 | Inject invalid/out-of-range temperature sensor value and verify charger enters FAULT or SUSPENDED_THERMAL with fault detail identifying the failed sensor |
@@ -1724,7 +1735,7 @@ window short, observable, and recoverable by repeating the same download.
 | TS-QI-MODE-001 | Enter and exit shipping/storage mode | CAN stops, low power confirmed, DID `0x210F=0x03` persists across power cycle, and documented wake/service exit returns DID `0x210F` to `0x00` and Charging State to DISABLED |
 | TS-QI-NRC-001 | Verify all negative response scenarios in Section 7.10 | Each case returns expected NRC |
 | TS-QI-INPUT-001 | Input voltage boundary test | Charger operates at 10.0 V and 15.0 V; faults at 9.0 V and 16.0 V |
-| TS-QI-LP-001 | LOW_POWER entry and wake | Charger enters LOW_POWER after idle timeout in DISABLED; wakes to DISABLED within 100 ms on CAN frame; sends SHUTDOWN before sleep and BOOTUP/OPERATIONAL after wake |
+| TS-QI-LP-001 | LOW_POWER entry and wake | Charger enters LOW_POWER after idle timeout in DISABLED; wakes to DISABLED within 100 ms on CAN frame; sends SLEEP before sleep and BOOTUP/OPERATIONAL after wake |
 | TS-QI-SAFE-006 | Sensor failure during charging | Inject invalid sensor value while CHARGING; charger stops output within 500 ms and enters FAULT with fault detail identifying failed sensor |
 | TS-QI-SAFE-007 | Qi RX communication timeout | Suppress Qi RX packets for 1.5 s during CHARGING; charger stops output within 500 ms, DID `0x210B` updated, broadcast updated within 100 ms |
 | TS-QI-SAFE-008 | Input overcurrent | Inject overcurrent condition during CHARGING; charger stops output within 500 ms, enters FAULT, fault code and detail reported |
@@ -1782,8 +1793,8 @@ The supplier SHALL provide CAN or UDS payload traces for the scenarios below. Tr
 | TRACE-QI-011 | OTA rollback | Failed trial boot or invalid image rolls back to previous active slot |
 | TRACE-QI-012 | State machine | Attach, negotiate, charge, complete, detach, suspend, and fault transitions |
 | TRACE-QI-013 | Fault priority | Two simultaneous faults with DID `0x210B` reporting higher-priority code |
-| TRACE-QI-014 | Shipping/storage mode | Mode entry, final SHUTDOWN broadcast, CAN silence, persistence of DID `0x210F=0x03` across power cycle, and documented wake/service exit back to Normal mode |
-| TRACE-QI-015 | LOW_POWER entry and wake | In DISABLED: SHUTDOWN broadcast before sleep, CAN silence during LOW_POWER, wake on addressed CAN frame, BOOTUP/OPERATIONAL after wake |
+| TRACE-QI-014 | Shipping/storage mode | Mode entry, final SLEEP broadcast, CAN silence, persistence of DID `0x210F=0x03` across power cycle, and documented wake/service exit back to Normal mode |
+| TRACE-QI-015 | LOW_POWER entry and wake | In DISABLED: SLEEP broadcast before sleep, CAN silence during LOW_POWER, wake on addressed CAN frame, BOOTUP/OPERATIONAL after wake |
 | TRACE-QI-016 | CAN bus-off recovery | Bus-off induced, automatic recovery, lifecycle broadcast after recovery, UDS resumes |
 | TRACE-QI-017 | MCU2 firmware upgrade | Full MCU2 download flow from `10 02` through `0x37` with `2E 20 10 04`, `0x2112` transitions through `0x08`, any NRC `0x78` during MCU2 programming, and `0x2013` before and after the update |
 | TRACE-QI-018 | MCU2 update interruption and recovery | Power loss during MCU2 programming, post-restart reads of `0x2112` = `0x09`, `0x2013` NRC `0x22`, `0x2014` positive response, `0x210B` = `0x01`, then the repeated Firmware Type `0x04` download that clears the state |
@@ -1897,7 +1908,7 @@ For each trace, the supplier SHALL identify:
 | QI-STATE-014 | 6.5 | P0 | Debounce 50-500 ms |
 | QI-STATE-015 | 6.5 | P0 | STANDBY to CHARGING < 5 s |
 | QI-STATE-016 | 6.5 | P0 | LOW_POWER after configured nonzero idle timeout in DISABLED |
-| QI-STATE-017 | 6.5 | P0 | SHUTDOWN broadcast before LOW_POWER |
+| QI-STATE-017 | 6.5 | P0 | SLEEP broadcast before LOW_POWER |
 | QI-STATE-018 | 6.5 | P0 | MCU sleep in LOW_POWER; CAN transceiver wake |
 | QI-STATE-019 | 6.5 | P0 | Wake on addressed CAN frame |
 | QI-STATE-020 | 6.5 | P0 | LOW_POWER to DISABLED < 100 ms |
