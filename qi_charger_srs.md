@@ -252,7 +252,7 @@ All CCU <-> Qi module communication uses UDS (ISO 14229-1) over CAN with ISO-TP 
 | Qi standard | Qi v1.3 Extended Power Profile (EPP), 15 W class (REF-6). This is an internal Lime product; WPC certification is not required. |
 | Qi Authentication | Not required. The module is not WPC-certified; Qi Authentication (X.509/ECDSA) MAY be omitted. If the receiver limits power to BPP (5 W) due to missing authentication, the module SHALL report the actual negotiated power. |
 | Qi operating frequency | 80-145 kHz typical for EPP per REF-6. The supplier SHALL document the actual operating frequency range. |
-| Maximum charging power | 15 W nominal, configurable |
+| Maximum charging power | 15 W nominal, configurable in three levels: 5 W, 10 W, 15 W |
 | Default post-reset charger enable | DID `0x2101` resets disabled; persisted Operating Mode (DID `0x210F`) is reapplied after reset |
 | Operating input voltage | 10.0 V to 15.0 V nominal |
 | CAN transceiver | ISO 11898-2 compliant, 3.3 V or 5 V I/O |
@@ -314,8 +314,8 @@ The Qi charger supplier SHALL implement the complete module behavior described i
 
 `[QI-FUNC-005]` **[P0]** The charger SHALL reject control requests that would violate local safety limits.
 
-- **Input**: CCU writes DID `0x2101` = `0x01` (enable) while any blocking fault is active in DID `0x210B`; CCU writes DID `0x210D` with value exceeding hardware maximum power.
-- **Output**: NRC `0x22` (conditionsNotCorrect) for enable during blocking fault; NRC `0x31` (requestOutOfRange) for out-of-range power limit. Charging state and output power unchanged. Disable writes (`0x2101=0x00`) SHALL remain accepted during blocking faults per QI-FAULT-004.
+- **Input**: CCU writes DID `0x2101` = `0x01` (enable) while any blocking fault is active in DID `0x210B`; CCU writes DID `0x210D` with a value other than `0x01`, `0x02` or `0x03`.
+- **Output**: NRC `0x22` (conditionsNotCorrect) for enable during blocking fault; NRC `0x31` (requestOutOfRange) for an unsupported power level. Charging state and output power unchanged. Disable writes (`0x2101=0x00`) SHALL remain accepted during blocking faults per QI-FAULT-004.
 
 `[QI-FUNC-006]` **[P0]** The charger SHALL treat CCU commands as requested targets; actual charging state SHALL be determined by enable state, receiver presence, Qi negotiation, and safety conditions.
 
@@ -348,8 +348,8 @@ The Qi charger supplier SHALL implement the complete module behavior described i
 
 `[QI-FUNC-010]` **[P0]** The charger SHALL enforce the lower of hardware maximum power, CCU-configured power limit, receiver-requested power, and thermal derating limit.
 
-- **Input**: Hardware maximum (DID `0x2100` byte 1), CCU power limit (DID `0x210D`), Qi receiver requested power, thermal derating level (DID `0x210C`).
-- **Output**: Actual output power (DID `0x2104`) <= min(hardware max, CCU limit, receiver request, derated limit). If CCU limit is `0x0000`, output power = 0 W and charging is effectively disabled.
+- **Input**: Hardware maximum (DID `0x2100` byte 1), CCU power level (DID `0x210D`), Qi receiver requested power, thermal derating level (DID `0x210C`).
+- **Output**: Actual output power (DID `0x2104`) <= min(hardware max, CCU power level, receiver request, derated limit). The CCU power level maps `0x01` to 5 W, `0x02` to 10 W and `0x03` to 15 W. Charging is disabled through DID `0x2101`, not through DID `0x210D`.
 
 `[QI-FUNC-011]` **[P0]** The charger SHALL report output power as zero whenever wireless power transfer is inactive.
 
@@ -393,7 +393,7 @@ The Qi charger supplier SHALL implement the complete module behavior described i
 
 `[QI-CFG-003]` **[P0]** The charger SHALL reject unsupported or out-of-range configuration values with a negative response.
 
-- **Input**: DID `0x2101` with value > `0x01`; DID `0x210D` with value > `0x012C`; DID `0x210E` with value outside `0x0064-0x2710` (except `0x0000`); DID `0x210F` with value > `0x03`; DID `0x2117` with value > `0x003C`.
+- **Input**: DID `0x2101` with value > `0x01`; DID `0x210D` with a value other than `0x01`, `0x02` or `0x03`; DID `0x210E` with value outside `0x0064-0x2710` (except `0x0000`); DID `0x210F` with value > `0x03`; DID `0x2117` with value > `0x003C`.
 - **Output**: NRC `0x31`; DID value unchanged; charging state unchanged.
 
 `[QI-CFG-004]` **[P0]** The charger SHALL persist power limit (`0x210D`), heartbeat period (`0x210E`), operating mode (`0x210F`), and idle timeout (`0x2117`) in nonvolatile memory across reset.
@@ -461,7 +461,7 @@ This sequence is executed after the CCU detects Qi charger BOOTUP/OPERATIONAL or
 | 11 | TX | Enter Extended Session | `10 03` | Required for protected configuration |
 |   | RX | Positive Response | `50 03 ...` | Extended Session active |
 | 12 | TX/RX | SecurityAccess Level 1 | `27 01`, then `27 02 <signature>` | Security unlocked |
-| 13 | TX | Set Power Limit 15.0 W | `2E 21 0D 96 00` | Power limit stored |
+| 13 | TX | Set Power Level 15 W | `2E 21 0D 03` | Power limit stored |
 |   | RX | ACK | `6E 21 0D` | Write accepted |
 | 14 | TX | Set Heartbeat 1000 ms | `2E 21 0E E8 03` | Heartbeat period stored |
 |   | RX | ACK | `6E 21 0E` | Write accepted |
@@ -852,7 +852,7 @@ Read and write access rules are listed separately. `Read Session` and `Read Secu
 | 0x210A | Alignment Status | Default | None | N/A | N/A | 1 byte | See Section 7.4 | `0x00-0x03` |
 | 0x210B | Fault Code | Default | None | N/A | N/A | 1 byte | See Section 8 | `0x00-0x0B`, `0xFF` |
 | 0x210C | Thermal Derating Level | Default | None | N/A | N/A | 1 byte | 0-100 percent; `0x64` (100%) when charging is not active or no derating | `0x00-0x64` |
-| 0x210D | Power Limit | Default | None | Extended | Level 1 | 2 bytes | `uint16`, 0.1 W | `0x0000-0x012C` (0-30.0 W); `0x0000` disables charging |
+| 0x210D | Power Limit | Default | None | Extended | Level 1 | 1 byte | Power level code: `0x01` = 5 W, `0x02` = 10 W, `0x03` = 15 W | `0x01-0x03` |
 | 0x210E | Heartbeat Period | Default | None | Extended | Level 1 | 2 bytes | `uint16`, milliseconds | `100-10000` ms; `0x0000` disables periodic broadcast |
 | 0x210F | Operating Mode | Default | None | Extended | Level 1 | 1 byte | See Section 7.5 | `0x00-0x03`; persistent, reapplied after reset |
 | 0x2110 | Last Fault Detail | Default | None | N/A | N/A | 4 bytes | Supplier-defined diagnostic detail | See Section 7.9.2 |
@@ -977,7 +977,7 @@ Length: 4 bytes.
 | Byte | Field | Encoding |
 |------|-------|----------|
 | 0 | Feature Flags | See bit definition below |
-| 1 | Maximum Power | `uint8`, 0.5 W per bit (note: DID `0x2104` and `0x210D` use 0.1 W per bit) |
+| 1 | Maximum Power | `uint8`, 0.5 W per bit (note: DID `0x2104` uses 0.1 W per bit; DID `0x210D` is a power level code, not a power value) |
 | 2 | Supported Modes | Bitfield |
 | 3 | Reserved | `0x00` |
 
@@ -1033,7 +1033,7 @@ DID 0x2100 response data: 7F 1E 0F 00
 | 0x210A | Alignment Status | `03` | Good alignment |
 | 0x210B | Fault Code | `00` | No fault |
 | 0x210C | Thermal Derating Level | `50` | 80 percent available power |
-| 0x210D | Power Limit | `96 00` | 15.0 W |
+| 0x210D | Power Limit | `03` | 15 W (power level code `0x03`) |
 | 0x210E | Heartbeat Period | `E8 03` | 1000 ms |
 | 0x210F | Operating Mode | `00` | Normal mode |
 | 0x2110 | Last Fault Detail | `06 02 04 00` | FOD fault, supplier subcode 0x02, CHARGING state |
@@ -1064,8 +1064,8 @@ ReadDataByIdentifier and WriteDataByIdentifier payload examples are covered by t
 | Unsupported DID | `22 21 FF` | `7F 22 31` |
 | Invalid enable value | `2E 21 01 02` | `7F 2E 31` |
 | Enable while blocking fault active | `2E 21 01 01` | `7F 2E 22` |
-| Protected write before SecurityAccess | `2E 21 0D 96 00` | `7F 2E 33` |
-| Incorrect payload length | `2E 21 0D 96` | `7F 2E 13` |
+| Protected write before SecurityAccess | `2E 21 0D 03` | `7F 2E 33` |
+| Incorrect payload length | `2E 21 0D` | `7F 2E 13` |
 | Withdrawn DID | `22 20 11` | `7F 22 31` |
 | MCU2 APP version read while MCU2 has no valid APP or the internal link is down | `22 20 13` | `7F 22 22` |
 | MCU2 bootloader image type selected | `2E 20 10 05` | `7F 2E 31` |
@@ -1653,7 +1653,7 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-DID-002 | Read all Qi charger-specific DIDs |
 | TC-QI-DID-003 | Write Charger Enable and verify state transition |
 | TC-QI-DID-004 | Write Power Limit and verify enforcement |
-| TC-QI-DID-005 | Write out-of-range Power Limit and verify NRC `0x31` |
+| TC-QI-DID-005 | Write a Power Limit value other than `0x01`-`0x03` and verify NRC `0x31` |
 | TC-QI-DID-006 | Write out-of-range Heartbeat Period and verify NRC `0x31` |
 | TC-QI-DID-007 | Write invalid Charger Enable value (`0x02`) and verify NRC `0x31` |
 | TC-QI-DID-008 | Write Charger Enable `0x01` while blocking fault active and verify NRC `0x22`; write Charger Enable `0x00` while blocking fault active and verify positive response `6E 21 01`, DID `0x2101=0x00`, and fault state remains reported |
