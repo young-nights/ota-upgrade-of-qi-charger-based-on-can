@@ -253,6 +253,7 @@ All CCU <-> Qi module communication uses UDS (ISO 14229-1) over CAN with ISO-TP 
 | Qi Authentication | Not required. The module is not WPC-certified; Qi Authentication (X.509/ECDSA) MAY be omitted. If the receiver limits power to BPP (5 W) due to missing authentication, the module SHALL report the actual negotiated power. |
 | Qi operating frequency | 80-145 kHz typical for EPP per REF-6. The supplier SHALL document the actual operating frequency range. |
 | Maximum charging power | 15 W nominal, configurable in three levels: 5 W, 10 W, 15 W |
+| Default power limit | 10 W (DID `0x210D` = `0x02`) until the CCU writes another value |
 | Default post-reset charger enable | DID `0x2101` resets disabled; persisted Operating Mode (DID `0x210F`) is reapplied after reset |
 | Operating input voltage | 10.0 V to 15.0 V nominal |
 | CAN transceiver | ISO 11898-2 compliant, 3.3 V or 5 V I/O |
@@ -852,7 +853,7 @@ Read and write access rules are listed separately. `Read Session` and `Read Secu
 | 0x210A | Alignment Status | Default | None | N/A | N/A | 1 byte | See Section 7.4 | `0x00-0x03` |
 | 0x210B | Fault Code | Default | None | N/A | N/A | 1 byte | See Section 8 | `0x00-0x0B`, `0xFF` |
 | 0x210C | Thermal Derating Level | Default | None | N/A | N/A | 1 byte | 0-100 percent; `0x64` (100%) when charging is not active or no derating | `0x00-0x64` |
-| 0x210D | Power Limit | Default | None | Extended | Level 1 | 1 byte | Power limit code: `0x01` = 5 W, `0x02` = 10 W, `0x03` = 15 W | `0x01-0x03` |
+| 0x210D | Power Limit | Default | None | Extended | Level 1 | 1 byte | Power limit code: `0x01` = 5 W, `0x02` = 10 W, `0x03` = 15 W | `0x01-0x03`; persistent, default `0x02` (10 W) |
 | 0x210E | Heartbeat Period | Default | None | Extended | Level 1 | 2 bytes | `uint16`, milliseconds | `100-10000` ms; `0x0000` disables periodic broadcast |
 | 0x210F | Operating Mode | Default | None | Extended | Level 1 | 1 byte | See Section 7.5 | `0x00-0x03`; persistent, reapplied after reset |
 | 0x2110 | Last Fault Detail | Default | None | N/A | N/A | 4 bytes | Supplier-defined diagnostic detail | See Section 7.9.2 |
@@ -1063,6 +1064,7 @@ ReadDataByIdentifier and WriteDataByIdentifier payload examples are covered by t
 |-----------|---------|-------------------|
 | Unsupported DID | `22 21 FF` | `7F 22 31` |
 | Invalid enable value | `2E 21 01 02` | `7F 2E 31` |
+| Invalid power limit code | `2E 21 0D 04` | `7F 2E 31` |
 | Enable while blocking fault active | `2E 21 01 01` | `7F 2E 22` |
 | Protected write before SecurityAccess | `2E 21 0D 03` | `7F 2E 33` |
 | Incorrect payload length | `2E 21 0D` | `7F 2E 13` |
@@ -1291,7 +1293,7 @@ Lifecycle state values, byte 0:
 | `0x03` | WAKEUP | Reserved. The charger SHALL NOT send it. |
 | `0x04` | SLEEP | About to enter LOW_POWER |
 
-No other value SHALL be sent in byte 0.
+Only `0x01`, `0x02` and `0x04` are sent, per `[QI-BC-003]`.
 
 Status Flags, byte 3:
 
@@ -1335,6 +1337,11 @@ The charger SHALL comply with REF-1 §10 for common lifecycle broadcast timing (
 
 - **Input**: Any broadcast transmission.
 - **Output**: Byte 7 of the `0x18FF260D` payload = `0x00`.
+
+`[QI-BC-003]` **[P0]** The charger SHALL send only the lifecycle state values `0x01`, `0x02` and `0x04` in byte 0.
+
+- **Input**: Any broadcast transmission.
+- **Output**: Byte 0 of the `0x18FF260D` payload is `0x01`, `0x02` or `0x04`. The reserved value `0x03` and any other value are never sent.
 
 ---
 
@@ -1652,7 +1659,7 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-DID-001 | Read all common DIDs |
 | TC-QI-DID-002 | Read all Qi charger-specific DIDs |
 | TC-QI-DID-003 | Write Charger Enable and verify state transition |
-| TC-QI-DID-004 | Write Power Limit and verify enforcement |
+| TC-QI-DID-004 | Write each Power Limit code `0x01`, `0x02` and `0x03` and verify the output is limited to 5 W, 10 W and 15 W respectively |
 | TC-QI-DID-005 | Write a Power Limit value other than `0x01`-`0x03` and verify NRC `0x31` |
 | TC-QI-DID-006 | Write out-of-range Heartbeat Period and verify NRC `0x31` |
 | TC-QI-DID-007 | Write invalid Charger Enable value (`0x02`) and verify NRC `0x31` |
@@ -1662,6 +1669,7 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-DID-011 | Verify version DIDs `0xF195`, `0xF180`, `0xF193`, `0x2013`, and `0x2014` return exactly `QC_JYF_MCU1_FW_1.1.x`, `QC_JYF_MCU1_BL_FW_1.1.x`, `QC_JYF_HW_1.1.x`, `QC_JYF_MCU2_FW_1.1.x`, and `QC_JYF_MCU2_BL_FW_1.1.x` per Section 7.1.1, each null-terminated within the 32-byte field, and that `0xF195` reports MCU1 while `0x2013` reports MCU2 (the two values are independent and may differ) |
 | TC-QI-DID-013 | Read `0x2013` and `0x2014` in Default Session without SecurityAccess and verify both succeed within P2 |
 | TC-QI-DID-014 | Read `0xF18C` and verify the serial number is not in the `QC_JYF_…` format; split each version string on the last `_` and verify the remainder parses as `MAJOR.MINOR.PATCH`, including `QC_JYF_HW_1.1.x` which has one field fewer than the firmware strings |
+| TC-QI-DID-015 | On a unit with no prior write to DID `0x210D`, read it and verify `0x02` (10 W) |
 | TC-QI-SEC-001 | Verify protected DIDs reject writes before SecurityAccess |
 | TC-QI-SEC-002 | Verify valid ECDSA P-256 signature unlocks Level 1 |
 | TC-QI-SEC-003 | Verify invalid ECDSA P-256 signature returns NRC `0x35` |
@@ -1706,6 +1714,7 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-CLAMP-002 | In STANDBY with clamp closed (both arms at rest), verify Qi digital ping is suppressed and DID `0x2103` remains `0x00` |
 | TC-QI-CLAMP-003 | In STANDBY with clamp open (either arm displaced) and receiver present, verify transition to DEVICE_DETECTED |
 | TC-QI-CLAMP-004 | Verify broadcast status flags byte 3 bit 7 reflects clamp state |
+| TC-QI-BC-001 | Capture the broadcast through boot, charging, and LOW_POWER entry and verify byte 0 is only `0x01`, `0x02` or `0x04` |
 
 ### 15.2 Integration Tests
 
@@ -1785,7 +1794,7 @@ The supplier SHALL provide CAN or UDS payload traces for the scenarios below. Tr
 | TRACE-QI-003 | Protected configuration | Extended Session, SecurityAccess, writes to `0x210D`, `0x210E`, `0x210F` |
 | TRACE-QI-004 | Enable charging | Clear Faults, write `0x2101=01`, state transition to STANDBY or CHARGING |
 | TRACE-QI-005 | Runtime telemetry | Reads of `0x2102` through `0x210B` while charging |
-| TRACE-QI-006 | Disable charging | Write `0x2101=00`, output power becomes 0 W within target time |
+| TRACE-QI-006 | Disable charging | Write `0x2101=00`, charging power (DID `0x2104`) becomes 0 W within target time |
 | TRACE-QI-007 | FOD event | FOD status/fault DID and broadcast payload showing suspension |
 | TRACE-QI-008 | Thermal event | Thermal derating or suspend behavior and temperature DID values |
 | TRACE-QI-009 | Firmware upgrade | Full APP-hosted UDS download flow from `10 02` through `0x37`, `0x08000000` placeholder address, one universal artifact, CRC/signature validation, activation reset, and active/pending slot DIDs proving internal inactive-slot selection |
@@ -1947,6 +1956,7 @@ For each trace, the supplier SHALL identify:
 | QI-ROUTINE-003 | 10 | P0 | FOD Calibration Check: pass/fail |
 | QI-BC-001 | 11 | P0 | Broadcast within 100 ms of change |
 | QI-BC-002 | 11 | P0 | Reserved byte 7 = 0x00 |
+| QI-BC-003 | 11 | P0 | Byte 0 limited to 0x01, 0x02, 0x04 |
 | QI-OTA-001 | 12.3 | P0 | Report active MCU1 APP version via 0xF195 |
 | QI-OTA-002 | 12.3 | P0 | Report OTA DIDs 0x2112-0x2116 |
 | QI-OTA-003 | 12.3 | P0 | No power during OTA |
