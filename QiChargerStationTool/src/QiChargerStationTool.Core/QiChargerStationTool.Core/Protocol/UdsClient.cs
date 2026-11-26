@@ -108,18 +108,22 @@ public sealed class UdsClient
             _tp.Send(uds);
             LastSendMs = Environment.TickCount64 - tSend;
             // 派发踢帧（高延时根治·上位机侧）：设备请求→派发存在 ~2s 延迟
-            // （WSL 裸台架实测，与工具无关）。请求后 3 帧 3E 00（~70ms 间隔，
-            // 2026-11-21 自 35ms 放宽：请求+踢帧 4 连写是写通道挂起的最高频
-            // 写源，间隔翻倍写压减半；3 连踢的冲刷次数不变、仍在派发窗内）
-            // 把整轮压到 ~100-200ms——基线 2015ms，10×+ 提速。
+            // （WSL 裸台架实测，与工具无关）。请求后 3 帧 3E 00（~70ms 间隔）。
             // 机制：新帧到达踢开设备的派发/发送队列（管道实验：REQ2 到达 4ms
             // 内冲出 REQ1 积压应答）。唤醒/踢帧统一 02 3E 00（客户规定），
             // 设备回 7E 00 属预期，由 TryReceive 的过路流量逻辑消化。
-            for (int k = 0; k < 3; k++)
+            //
+            // FastTransfer（OTA/IAP 批量 0x36）跳过踢帧：每块 3×70ms≈210ms
+            // 纯等待，是 IAP ~220ms/块的主因（实测「发2+等0」）；批量传输
+            // 期间设备已在连续收发，无需每块再踢，且可显著提速。
+            if (!FastTransfer)
             {
-                if (ct.WaitHandle.WaitOne(70))
-                    return UdsResult.Fail("已取消");
-                SendWake();
+                for (int k = 0; k < 3; k++)
+                {
+                    if (ct.WaitHandle.WaitOne(70))
+                        return UdsResult.Fail("已取消");
+                    SendWake();
+                }
             }
             long tRecv = Environment.TickCount64;
 
