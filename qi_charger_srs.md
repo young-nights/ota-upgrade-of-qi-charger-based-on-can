@@ -50,7 +50,7 @@ The Qi charger is a CAN peripheral controlled by the CCU. It SHALL use the commo
 | Charging state machine and state reporting | Mechanical housing, potting, gasket, and sealing design |
 | Clamp arm hall-effect sensor monitoring and clamp state reporting | CCU-side driver implementation |
 | Device presence detection and negotiation | |
-| Output power, input voltage/current, and temperature reporting | Cloud/backend integration, dashboard, and alert presentation |
+| Real-time charging power, input voltage/current, and temperature reporting | Cloud/backend integration, dashboard, and alert presentation |
 | Foreign object detection (FOD) and protection | Mobile phone, phone OS, or Qi receiver firmware behavior |
 | Thermal derating and thermal shutdown | CAN bus wiring harness and platform-specific connector routing |
 | Alignment quality reporting | Platform-specific assembly process and packaging design |
@@ -252,7 +252,8 @@ All CCU <-> Qi module communication uses UDS (ISO 14229-1) over CAN with ISO-TP 
 | Qi standard | Qi v1.3 Extended Power Profile (EPP), 15 W class (REF-6). This is an internal Lime product; WPC certification is not required. |
 | Qi Authentication | Not required. The module is not WPC-certified; Qi Authentication (X.509/ECDSA) MAY be omitted. If the receiver limits power to BPP (5 W) due to missing authentication, the module SHALL report the actual negotiated power. |
 | Qi operating frequency | 80-145 kHz typical for EPP per REF-6. The supplier SHALL document the actual operating frequency range. |
-| Maximum charging power | 15 W nominal, configurable |
+| Maximum charging power | 15 W nominal, configurable in three levels: 5 W, 10 W, 15 W |
+| Default power limit | 10 W (DID `0x210D` = `0x02`) until the CCU writes another value |
 | Default post-reset charger enable | DID `0x2101` resets disabled; persisted Operating Mode (DID `0x210F`) is reapplied after reset |
 | Operating input voltage | 10.0 V to 15.0 V nominal |
 | CAN transceiver | ISO 11898-2 compliant, 3.3 V or 5 V I/O |
@@ -273,7 +274,7 @@ The CCU observes module state through DID `0x2102` (Charging State). See Section
 2. **Default readiness**: After boot in Normal mode, the module enters UDS Default Session, reports Charging State = DISABLED, and responds to UDS diagnostic requests. The charger remains disabled until the CCU explicitly enables it.
 3. **CCU enable flow**: The CCU enters Extended Session, unlocks SecurityAccess Level 1, optionally configures power limit and heartbeat period, clears any latched faults, and writes Charger Enable = `0x01`. The module transitions to STANDBY.
 4. **Device detection and charging**: While in STANDBY, the module polls the cradle hall-effect sensors on the left and right clamp arms. When either arm is displaced from its rest position (clamp open — user pulling arms apart or phone pushing arms apart), the module starts Qi digital ping to detect a compatible receiver. When a receiver is detected and debounced, the module enters DEVICE_DETECTED, then NEGOTIATING. On successful negotiation, the module enters CHARGING and delivers power within the configured limit. While both arms remain in their rest position (clamp closed, no phone), the module suppresses Qi digital ping to save power.
-5. **Monitoring and reporting**: The module publishes a periodic lifecycle/status broadcast carrying charging state, output power, temperature, FOD status, alignment, and fault code. The CCU may also query individual DIDs on demand for additional detail.
+5. **Monitoring and reporting**: The module publishes a periodic lifecycle/status broadcast carrying charging state, charging power, temperature, FOD status, alignment, and fault code. The CCU may also query individual DIDs on demand for additional detail.
 6. **Charge complete**: When the receiver indicates charge complete or zero power request, the module enters CHARGE_COMPLETE. On receiver removal, the module returns to STANDBY.
 7. **CCU disable flow**: The CCU writes Charger Enable = `0x00`. The module stops power transfer within 200 ms. If no blocking fault is active, the module enters DISABLED. If a blocking fault is active, the disable write still succeeds, Charger Enable becomes `0x00`, and the module remains in the applicable safety state until the fault is cleared.
 8. **Fault handling**: Safety faults stop charging and transition to SUSPENDED_THERMAL, SUSPENDED_FOD, or FAULT. Recovery requires the fault condition to clear and the CCU to run the Clear Faults routine.
@@ -314,8 +315,8 @@ The Qi charger supplier SHALL implement the complete module behavior described i
 
 `[QI-FUNC-005]` **[P0]** The charger SHALL reject control requests that would violate local safety limits.
 
-- **Input**: CCU writes DID `0x2101` = `0x01` (enable) while any blocking fault is active in DID `0x210B`; CCU writes DID `0x210D` with value exceeding hardware maximum power.
-- **Output**: NRC `0x22` (conditionsNotCorrect) for enable during blocking fault; NRC `0x31` (requestOutOfRange) for out-of-range power limit. Charging state and output power unchanged. Disable writes (`0x2101=0x00`) SHALL remain accepted during blocking faults per QI-FAULT-004.
+- **Input**: CCU writes DID `0x2101` = `0x01` (enable) while any blocking fault is active in DID `0x210B`; CCU writes DID `0x210D` with a value other than `0x01`, `0x02` or `0x03`.
+- **Output**: NRC `0x22` (conditionsNotCorrect) for enable during blocking fault; NRC `0x31` (requestOutOfRange) for an unsupported power limit code. Charging state and output power unchanged. Disable writes (`0x2101=0x00`) SHALL remain accepted during blocking faults per QI-FAULT-004.
 
 `[QI-FUNC-006]` **[P0]** The charger SHALL treat CCU commands as requested targets; actual charging state SHALL be determined by enable state, receiver presence, Qi negotiation, and safety conditions.
 
@@ -349,12 +350,12 @@ The Qi charger supplier SHALL implement the complete module behavior described i
 `[QI-FUNC-010]` **[P0]** The charger SHALL enforce the lower of hardware maximum power, CCU-configured power limit, receiver-requested power, and thermal derating limit.
 
 - **Input**: Hardware maximum (DID `0x2100` byte 1), CCU power limit (DID `0x210D`), Qi receiver requested power, thermal derating level (DID `0x210C`).
-- **Output**: Actual output power (DID `0x2104`) <= min(hardware max, CCU limit, receiver request, derated limit). If CCU limit is `0x0000`, output power = 0 W and charging is effectively disabled.
+- **Output**: Actual charging power (DID `0x2104`) <= min(hardware max, CCU power limit, receiver request, derated limit). The CCU power limit code maps `0x01` to 5 W, `0x02` to 10 W and `0x03` to 15 W. Charging is disabled through DID `0x2101`, not through DID `0x210D`.
 
-`[QI-FUNC-011]` **[P0]** The charger SHALL report output power as zero whenever wireless power transfer is inactive.
+`[QI-FUNC-011]` **[P0]** The charger SHALL report charging power as zero whenever wireless power transfer is inactive.
 
 - **Input**: DID `0x2102` is any of DISABLED (`0x00`), STANDBY (`0x01`), SUSPENDED_THERMAL (`0x06`), SUSPENDED_FOD (`0x07`), FAULT (`0x08`), SERVICE_MODE (`0x09`), LOW_POWER (`0x0A`).
-- **Output**: DID `0x2104` = `0x0000` (0 W); broadcast output power bytes = `0x0000`.
+- **Output**: DID `0x2104` = `0x0000` (0 W); broadcast charging power bytes = `0x0000`.
 
 `[QI-FUNC-012]` **[P0]** The charger SHALL return to STANDBY when the receiver is removed and no blocking fault remains.
 
@@ -393,7 +394,7 @@ The Qi charger supplier SHALL implement the complete module behavior described i
 
 `[QI-CFG-003]` **[P0]** The charger SHALL reject unsupported or out-of-range configuration values with a negative response.
 
-- **Input**: DID `0x2101` with value > `0x01`; DID `0x210D` with value > `0x012C`; DID `0x210E` with value outside `0x0064-0x2710` (except `0x0000`); DID `0x210F` with value > `0x03`; DID `0x2117` with value > `0x003C`.
+- **Input**: DID `0x2101` with value > `0x01`; DID `0x210D` with a value other than `0x01`, `0x02` or `0x03`; DID `0x210E` with value outside `0x0064-0x2710` (except `0x0000`); DID `0x210F` with value > `0x03`; DID `0x2117` with value > `0x003C`.
 - **Output**: NRC `0x31`; DID value unchanged; charging state unchanged.
 
 `[QI-CFG-004]` **[P0]** The charger SHALL persist power limit (`0x210D`), heartbeat period (`0x210E`), operating mode (`0x210F`), and idle timeout (`0x2117`) in nonvolatile memory across reset.
@@ -414,7 +415,7 @@ Operating Mode persistence applies to all valid DID `0x210F` values (`0x00-0x03`
 
 ### 4.1 CAN and ISO-TP
 
-`[QI-COM-001]` **[P0]** The Qi charger SHALL comply with REF-1 (`common_can_protocol_spec.md`), including CAN physical layer (§4), ISO-TP transport (§6), UDS services (§7), lifecycle broadcast (§10), and bus-off recovery (§12).
+`[QI-COM-001]` **[P0]** The Qi charger SHALL comply with REF-1 (`common_can_protocol_spec.md`), including CAN physical layer (§4), ISO-TP transport (§6), UDS services (§7), lifecycle broadcast (§10, with the byte 0 values of Section 11), and bus-off recovery (§12).
 
 `[QI-COM-002]` **[P0]** The Qi charger SHALL accept UDS requests on `0x18DA0D03`.
 
@@ -461,7 +462,7 @@ This sequence is executed after the CCU detects Qi charger BOOTUP/OPERATIONAL or
 | 11 | TX | Enter Extended Session | `10 03` | Required for protected configuration |
 |   | RX | Positive Response | `50 03 ...` | Extended Session active |
 | 12 | TX/RX | SecurityAccess Level 1 | `27 01`, then `27 02 <signature>` | Security unlocked |
-| 13 | TX | Set Power Limit 15.0 W | `2E 21 0D 96 00` | Power limit stored |
+| 13 | TX | Set Power Limit 15 W | `2E 21 0D 03` | Power limit stored |
 |   | RX | ACK | `6E 21 0D` | Write accepted |
 | 14 | TX | Set Heartbeat 1000 ms | `2E 21 0E E8 03` | Heartbeat period stored |
 |   | RX | ACK | `6E 21 0E` | Write accepted |
@@ -500,7 +501,7 @@ Assumes Extended Session with SecurityAccess Level 1 is already active (see §5.
 |   | RX | ACK | `6E 21 01` | Write accepted |
 | 2 | TX | Read Charging State | `22 21 02` | State returned |
 |   | RX | Response | `62 21 02 00` | DISABLED |
-| 3 | TX | Read Output Power | `22 21 04` | Power returned |
+| 3 | TX | Read Real-Time Charging Power | `22 21 04` | Power returned |
 |   | RX | Response | `62 21 04 00 00` | 0.0 W |
 
 The charger SHALL stop power transfer within 200 ms of accepting the disable command.
@@ -513,7 +514,7 @@ Runtime status is primarily delivered via the periodic broadcast defined in Sect
 |---|-----|------|-------------|-----------------|
 | 1 | TX | Read Charging State | `22 21 02` | State returned |
 | 2 | TX | Read Device Present | `22 21 03` | Presence returned |
-| 3 | TX | Read Output Power | `22 21 04` | Power returned |
+| 3 | TX | Read Real-Time Charging Power | `22 21 04` | Power returned |
 | 4 | TX | Read Coil Temperature | `22 21 07` | Temperature returned |
 | 5 | TX | Read FOD Status | `22 21 09` | FOD status returned |
 | 6 | TX | Read Alignment Status | `22 21 0A` | Alignment returned |
@@ -658,11 +659,11 @@ Persisted Shipping/storage mode (DID `0x210F=0x03`) is handled by Section 7.5. B
 
 | State | Wireless Power Output | Required Reporting |
 |-------|-----------------------|--------------------|
-| DISABLED | Off | `0x2101=00`, output power `0.0 W`, no active charging |
+| DISABLED | Off | `0x2101=00`, charging power `0.0 W`, no active charging |
 | STANDBY | Off | Enabled, polling clamp sensors; Qi ping active only when clamp open; no receiver detected yet |
 | DEVICE_DETECTED | Off or detection-only power | Receiver present, no negotiated power transfer yet |
 | NEGOTIATING | Limited by Qi negotiation | Receiver present, negotiation in progress |
-| CHARGING | On | Nonzero output power unless receiver requests zero power |
+| CHARGING | On | Nonzero charging power unless receiver requests zero power |
 | CHARGE_COMPLETE | Off or maintenance-only power | Receiver present, no charging power requested |
 | SUSPENDED_THERMAL | Off | Thermal suspend condition active, resume only after hysteresis threshold |
 | SUSPENDED_FOD | Off | FOD condition active or latched |
@@ -707,7 +708,7 @@ The supplier SHALL implement the following state machine. State transitions may 
 | Any non-programming state | DiagnosticSessionControl to Programming Session (`0x10 0x02`) | Stop output within 200 ms, set DID `0x2101` to `0x00`, stop periodic broadcast | DISABLED |
 | DISABLED or STANDBY | CCU selects Service Mode with SecurityAccess | Keep output off and expose service routines | SERVICE_MODE |
 | SERVICE_MODE | CCU selects Normal Mode | Stop output, persist DID `0x210F=0x00`, and exit service diagnostics | DISABLED |
-| DISABLED | No CAN frame addressed to module received for the configured nonzero idle timeout (DID `0x2117`) and charger is disabled | Send final SHUTDOWN broadcast, suspend MCU, CAN transceiver enters wake-up mode | LOW_POWER |
+| DISABLED | No CAN frame addressed to module received for the configured nonzero idle timeout (DID `0x2117`) and charger is disabled | Send final SLEEP broadcast, suspend MCU, CAN transceiver enters wake-up mode | LOW_POWER |
 | LOW_POWER | Any CAN frame addressed to module received by CAN transceiver | Wake MCU, initialize to DISABLED, send BOOTUP then OPERATIONAL broadcast | DISABLED |
 
 ### 6.5 State Requirements
@@ -744,7 +745,7 @@ The supplier SHALL implement the following state machine. State transitions may 
 
 `[QI-STATE-016]` **[P0]** The charger SHALL enter LOW_POWER when it has been in DISABLED continuously for the configured nonzero idle timeout (DID `0x2117`) without receiving any CAN frame addressed to the module. If DID `0x2117=0x0000`, automatic LOW_POWER entry SHALL be disabled. The charger SHALL NOT enter LOW_POWER from any state other than DISABLED (e.g., not from FAULT, STANDBY, or any active charging state).
 
-`[QI-STATE-017]` **[P0]** Before entering LOW_POWER, the charger SHALL send a final SHUTDOWN lifecycle broadcast.
+`[QI-STATE-017]` **[P0]** Before entering LOW_POWER, the charger SHALL send a final SLEEP lifecycle broadcast.
 
 `[QI-STATE-018]` **[P0]** In LOW_POWER, both MCUs SHALL be in a sleep or stop mode; only the CAN transceiver SHALL remain powered in wake-up mode.
 
@@ -843,7 +844,7 @@ Read and write access rules are listed separately. `Read Session` and `Read Secu
 | 0x2101 | Charger Enable | Default | None | Extended | Level 1 | 1 byte | `0x00=disable`, `0x01=enable` | `0x00-0x01`; volatile, resets to `0x00` |
 | 0x2102 | Charging State | Default | None | N/A | N/A | 1 byte | See Section 6.1 | `0x00-0x0A` |
 | 0x2103 | Device Present | Default | None | N/A | N/A | 1 byte | `0x00=no`, `0x01=yes` | `0x00-0x01` |
-| 0x2104 | Output Power | Default | None | N/A | N/A | 2 bytes | `uint16`, 0.1 W | `0x0000-0x012C` (0-30.0 W) |
+| 0x2104 | Real-Time Charging Power | Default | None | N/A | N/A | 2 bytes | `uint16`, mW, little-endian | `0x0000-0xFFFF` (0-65.535 W) |
 | 0x2105 | Input Voltage | Default | None | N/A | N/A | 2 bytes | `uint16`, 0.01 V | `0x0000-0x1388` (0-50.00 V) |
 | 0x2106 | Input Current | Default | None | N/A | N/A | 2 bytes | `uint16`, mA | `0x0000-0x2710` (0-10000 mA) |
 | 0x2107 | Coil Temperature | Default | None | N/A | N/A | 1 byte | `uint8`, deg C, offset -50 (actual = value - 50) | `0x00-0xFF` (-50 to 205 deg C) |
@@ -852,7 +853,7 @@ Read and write access rules are listed separately. `Read Session` and `Read Secu
 | 0x210A | Alignment Status | Default | None | N/A | N/A | 1 byte | See Section 7.4 | `0x00-0x03` |
 | 0x210B | Fault Code | Default | None | N/A | N/A | 1 byte | See Section 8 | `0x00-0x0B`, `0xFF` |
 | 0x210C | Thermal Derating Level | Default | None | N/A | N/A | 1 byte | 0-100 percent; `0x64` (100%) when charging is not active or no derating | `0x00-0x64` |
-| 0x210D | Power Limit | Default | None | Extended | Level 1 | 2 bytes | `uint16`, 0.1 W | `0x0000-0x012C` (0-30.0 W); `0x0000` disables charging |
+| 0x210D | Power Limit | Default | None | Extended | Level 1 | 1 byte | Power limit code: `0x01` = 5 W, `0x02` = 10 W, `0x03` = 15 W | `0x01-0x03`; persistent, default `0x02` (10 W) |
 | 0x210E | Heartbeat Period | Default | None | Extended | Level 1 | 2 bytes | `uint16`, milliseconds | `100-10000` ms; `0x0000` disables periodic broadcast |
 | 0x210F | Operating Mode | Default | None | Extended | Level 1 | 1 byte | See Section 7.5 | `0x00-0x03`; persistent, reapplied after reset |
 | 0x2110 | Last Fault Detail | Default | None | N/A | N/A | 4 bytes | Supplier-defined diagnostic detail | See Section 7.9.2 |
@@ -907,7 +908,7 @@ Manufacturing test mode and service mode SHALL require SecurityAccess Level 1.
 
 DID `0x210F` is persistent across reset and power cycle for all valid mode values. Reset and power cycle SHALL NOT implicitly return the charger to Normal mode. Charger Enable (DID `0x2101`) remains volatile and SHALL reset to disabled regardless of the persisted Operating Mode.
 
-`[QI-MODE-001]` **[P0]** In shipping/storage mode, the charger SHALL disable CAN transmission after sending a positive write response and one final SHUTDOWN broadcast.
+`[QI-MODE-001]` **[P0]** In shipping/storage mode, the charger SHALL disable CAN transmission after sending a positive write response and one final SLEEP broadcast.
 
 If the charger boots with persisted DID `0x210F=0x03`, it SHALL keep charging disabled and re-enter shipping/storage low-power behavior without requiring a new CCU command. Normal operation SHALL NOT resume solely because of reset or power cycle.
 
@@ -977,7 +978,7 @@ Length: 4 bytes.
 | Byte | Field | Encoding |
 |------|-------|----------|
 | 0 | Feature Flags | See bit definition below |
-| 1 | Maximum Power | `uint8`, 0.5 W per bit (note: DID `0x2104` and `0x210D` use 0.1 W per bit) |
+| 1 | Maximum Power | `uint8`, 0.5 W per bit (note: DID `0x2104` is in mW; DID `0x210D` is a power limit code, not a power value) |
 | 2 | Supported Modes | Bitfield |
 | 3 | Reserved | `0x00` |
 
@@ -1024,7 +1025,7 @@ DID 0x2100 response data: 7F 1E 0F 00
 | 0x2101 | Charger Enable | `01` | Enable charging |
 | 0x2102 | Charging State | `04` | CHARGING |
 | 0x2103 | Device Present | `01` | Compatible receiver detected |
-| 0x2104 | Output Power | `55 00` | 8.5 W |
+| 0x2104 | Real-Time Charging Power | `34 21` | 8.5 W (8500 mW = `0x2134`) |
 | 0x2105 | Input Voltage | `CE 04` | 12.30 V |
 | 0x2106 | Input Current | `20 03` | 800 mA |
 | 0x2107 | Coil Temperature | `5F` | 45 deg C (0x5F=95, 95-50=45) |
@@ -1033,7 +1034,7 @@ DID 0x2100 response data: 7F 1E 0F 00
 | 0x210A | Alignment Status | `03` | Good alignment |
 | 0x210B | Fault Code | `00` | No fault |
 | 0x210C | Thermal Derating Level | `50` | 80 percent available power |
-| 0x210D | Power Limit | `96 00` | 15.0 W |
+| 0x210D | Power Limit | `03` | 15 W (power limit code `0x03`) |
 | 0x210E | Heartbeat Period | `E8 03` | 1000 ms |
 | 0x210F | Operating Mode | `00` | Normal mode |
 | 0x2110 | Last Fault Detail | `06 02 04 00` | FOD fault, supplier subcode 0x02, CHARGING state |
@@ -1063,9 +1064,10 @@ ReadDataByIdentifier and WriteDataByIdentifier payload examples are covered by t
 |-----------|---------|-------------------|
 | Unsupported DID | `22 21 FF` | `7F 22 31` |
 | Invalid enable value | `2E 21 01 02` | `7F 2E 31` |
+| Invalid power limit code | `2E 21 0D 04` | `7F 2E 31` |
 | Enable while blocking fault active | `2E 21 01 01` | `7F 2E 22` |
-| Protected write before SecurityAccess | `2E 21 0D 96 00` | `7F 2E 33` |
-| Incorrect payload length | `2E 21 0D 96` | `7F 2E 13` |
+| Protected write before SecurityAccess | `2E 21 0D 03` | `7F 2E 33` |
+| Incorrect payload length | `2E 21 0D` | `7F 2E 13` |
 | Withdrawn DID | `22 20 11` | `7F 22 31` |
 | MCU2 APP version read while MCU2 has no valid APP or the internal link is down | `22 20 13` | `7F 22 22` |
 | MCU2 bootloader image type selected | `2E 20 10 05` | `7F 2E 31` |
@@ -1158,7 +1160,7 @@ recovery action.
 `[QI-SAFE-004]` **[P0]** The charger SHALL derate charging power before thermal shutdown.
 
 - **Input**: DID `0x2107` or DID `0x2108` exceeds derating start threshold (default: coil 70 °C, PCB 75 °C) while charging.
-- **Output**: DID `0x210C` reduced below `0x64` (100%); actual output power (DID `0x2104`) clamped to derated limit; broadcast thermal derating flag (byte 3 bit 6) = 1.
+- **Output**: DID `0x210C` reduced below `0x64` (100%); actual charging power (DID `0x2104`) clamped to derated limit; broadcast thermal derating flag (byte 3 bit 6) = 1.
 
 When charging is not active or no thermal derating is applied, DID `0x210C` SHALL report `0x64` (100%).
 
@@ -1182,7 +1184,7 @@ When charging is not active or no thermal derating is applied, DID `0x210C` SHAL
 - **Input**: DID `0x2106` exceeds the hardware overcurrent threshold while charging.
 - **Output**: Output power off within 500 ms; DID `0x2102` transitions to FAULT (`0x08`); DID `0x210B` updated with fault code; DID `0x2110` updated with fault detail.
 
-`[QI-SAFE-009]` **[P0]** The charger SHALL report charging efficiency through the relationship of input power (DID `0x2105` * DID `0x2106`) and output power (DID `0x2104`). The supplier SHALL document the minimum expected efficiency at 5 W and 15 W output.
+`[QI-SAFE-009]` **[P0]** The charger SHALL report charging efficiency through the relationship of input power (DID `0x2105` * DID `0x2106`) and charging power (DID `0x2104`). The supplier SHALL document the minimum expected efficiency at 5 W and 15 W output.
 
 - **Input**: N/A (documentation and reporting requirement).
 - **Output**: Supplier release documentation includes efficiency measurements at 5 W and 15 W output with a standard Qi test receiver.
@@ -1274,13 +1276,24 @@ Payload:
 
 | Byte | Field | Format |
 |------|-------|--------|
-| 0 | Lifecycle State | Common lifecycle state |
+| 0 | Lifecycle State | See lifecycle state values below |
 | 1 | Charging State | See Section 6.1 |
 | 2 | Fault Code | See Section 8.1 |
 | 3 | Status Flags | See below |
-| 4-5 | Output Power | `uint16`, 0.1 W, little-endian |
+| 4-5 | Real-Time Charging Power | `uint16`, mW, little-endian; same encoding as DID `0x2104` |
 | 6 | Coil Temperature | `uint8`, deg C, offset -50 (actual = value - 50; same encoding as DID `0x2107`) |
 | 7 | Reserved | `0x00` |
+
+Lifecycle state values, byte 0:
+
+| Value | State | Meaning |
+|-------|-------|---------|
+| `0x01` | BOOTUP | Power-on or reset |
+| `0x02` | OPERATIONAL | Initialization complete, ready for normal operation |
+| `0x03` | WAKEUP | Reserved. The charger SHALL NOT send it. |
+| `0x04` | SLEEP | About to enter LOW_POWER |
+
+Only `0x01`, `0x02` and `0x04` are sent, per `[QI-BC-003]`.
 
 Status Flags, byte 3:
 
@@ -1309,11 +1322,11 @@ Examples:
 | State | CAN ID | Payload | Meaning |
 |-------|--------|---------|---------|
 | Boot | `0x18FF260D` | `01 00 00 00 00 00 32 00` | BOOTUP, disabled, no fault, 0 deg C (0x32=50, 50-50=0) |
-| Ready | `0x18FF260D` | `03 01 00 02 00 00 4B 00` | OPERATIONAL, STANDBY, enabled, 25 deg C (0x4B=75, 75-50=25) |
-| Charging | `0x18FF260D` | `03 04 00 8F 55 00 5F 00` | OPERATIONAL, CHARGING, device present, good alignment, clamp open, 8.5 W, 45 deg C (0x5F=95, 95-50=45) |
-| FOD suspend | `0x18FF260D` | `03 07 06 A3 00 00 60 00` | OPERATIONAL, SUSPENDED_FOD, FOD fault, clamp open, output 0 W, 46 deg C (0x60=96, 96-50=46) |
+| Ready | `0x18FF260D` | `02 01 00 02 00 00 4B 00` | OPERATIONAL, STANDBY, enabled, 25 deg C (0x4B=75, 75-50=25) |
+| Charging | `0x18FF260D` | `02 04 00 8F 34 21 5F 00` | OPERATIONAL, CHARGING, device present, good alignment, clamp open, 8.5 W (8500 mW = `0x2134`), 45 deg C (0x5F=95, 95-50=45) |
+| FOD suspend | `0x18FF260D` | `02 07 06 A3 00 00 60 00` | OPERATIONAL, SUSPENDED_FOD, FOD fault, clamp open, charging power 0 W, 46 deg C (0x60=96, 96-50=46) |
 
-The charger SHALL comply with REF-1 §10 for common lifecycle broadcast timing (BOOTUP < 100 ms, OPERATIONAL on init, periodic 1 Hz default).
+The charger SHALL comply with REF-1 §10 for common lifecycle broadcast timing (BOOTUP < 100 ms, OPERATIONAL on init, periodic 1 Hz default). The byte 0 values of the table above take precedence over the lifecycle state values of REF-1 §10 for this module.
 
 `[QI-BC-001]` **[P0]** The charger SHALL send a status broadcast within 100 ms of lifecycle, charging state, or fault state changes.
 
@@ -1324,6 +1337,11 @@ The charger SHALL comply with REF-1 §10 for common lifecycle broadcast timing (
 
 - **Input**: Any broadcast transmission.
 - **Output**: Byte 7 of the `0x18FF260D` payload = `0x00`.
+
+`[QI-BC-003]` **[P0]** The charger SHALL send only the lifecycle state values `0x01`, `0x02` and `0x04` in byte 0.
+
+- **Input**: Any broadcast transmission.
+- **Output**: Byte 0 of the `0x18FF260D` payload is `0x01`, `0x02` or `0x04`. The reserved value `0x03` and any other value are never sent.
 
 ---
 
@@ -1641,8 +1659,8 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-DID-001 | Read all common DIDs |
 | TC-QI-DID-002 | Read all Qi charger-specific DIDs |
 | TC-QI-DID-003 | Write Charger Enable and verify state transition |
-| TC-QI-DID-004 | Write Power Limit and verify enforcement |
-| TC-QI-DID-005 | Write out-of-range Power Limit and verify NRC `0x31` |
+| TC-QI-DID-004 | Write each Power Limit code `0x01`, `0x02` and `0x03` and verify the output is limited to 5 W, 10 W and 15 W respectively |
+| TC-QI-DID-005 | Write a Power Limit value other than `0x01`-`0x03` and verify NRC `0x31` |
 | TC-QI-DID-006 | Write out-of-range Heartbeat Period and verify NRC `0x31` |
 | TC-QI-DID-007 | Write invalid Charger Enable value (`0x02`) and verify NRC `0x31` |
 | TC-QI-DID-008 | Write Charger Enable `0x01` while blocking fault active and verify NRC `0x22`; write Charger Enable `0x00` while blocking fault active and verify positive response `6E 21 01`, DID `0x2101=0x00`, and fault state remains reported |
@@ -1651,6 +1669,7 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-DID-011 | Verify version DIDs `0xF195`, `0xF180`, `0xF193`, `0x2013`, and `0x2014` return exactly `QC_JYF_MCU1_FW_1.1.x`, `QC_JYF_MCU1_BL_FW_1.1.x`, `QC_JYF_HW_1.1.x`, `QC_JYF_MCU2_FW_1.1.x`, and `QC_JYF_MCU2_BL_FW_1.1.x` per Section 7.1.1, each null-terminated within the 32-byte field, and that `0xF195` reports MCU1 while `0x2013` reports MCU2 (the two values are independent and may differ) |
 | TC-QI-DID-013 | Read `0x2013` and `0x2014` in Default Session without SecurityAccess and verify both succeed within P2 |
 | TC-QI-DID-014 | Read `0xF18C` and verify the serial number is not in the `QC_JYF_…` format; split each version string on the last `_` and verify the remainder parses as `MAJOR.MINOR.PATCH`, including `QC_JYF_HW_1.1.x` which has one field fewer than the firmware strings |
+| TC-QI-DID-015 | On a unit with no prior write to DID `0x210D`, read it and verify `0x02` (10 W) |
 | TC-QI-SEC-001 | Verify protected DIDs reject writes before SecurityAccess |
 | TC-QI-SEC-002 | Verify valid ECDSA P-256 signature unlocks Level 1 |
 | TC-QI-SEC-003 | Verify invalid ECDSA P-256 signature returns NRC `0x35` |
@@ -1679,7 +1698,7 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-WDG-001 | Verify watchdog reset reports Last Boot Reason `0x02` |
 | TC-QI-LP-001 | Verify charger enters LOW_POWER after 10 min idle in DISABLED with no CAN traffic |
 | TC-QI-LP-002 | Verify CAN frame addressed to module wakes charger from LOW_POWER to DISABLED within 100 ms |
-| TC-QI-LP-003 | Verify SHUTDOWN broadcast is sent before LOW_POWER entry |
+| TC-QI-LP-003 | Verify SLEEP broadcast is sent before LOW_POWER entry |
 | TC-QI-LP-004 | Verify CAN traffic to module resets the idle timer in DISABLED |
 | TC-QI-LP-005 | Verify DID `0x2117` configures idle timeout and `0x0000` disables LOW_POWER entry |
 | TC-QI-SAFE-006 | Inject invalid/out-of-range temperature sensor value and verify charger enters FAULT or SUSPENDED_THERMAL with fault detail identifying the failed sensor |
@@ -1695,6 +1714,7 @@ window short, observable, and recoverable by repeating the same download.
 | TC-QI-CLAMP-002 | In STANDBY with clamp closed (both arms at rest), verify Qi digital ping is suppressed and DID `0x2103` remains `0x00` |
 | TC-QI-CLAMP-003 | In STANDBY with clamp open (either arm displaced) and receiver present, verify transition to DEVICE_DETECTED |
 | TC-QI-CLAMP-004 | Verify broadcast status flags byte 3 bit 7 reflects clamp state |
+| TC-QI-BC-001 | Capture the broadcast through boot, charging, and LOW_POWER entry and verify byte 0 is only `0x01`, `0x02` or `0x04` |
 
 ### 15.2 Integration Tests
 
@@ -1702,7 +1722,7 @@ window short, observable, and recoverable by repeating the same download.
 |---------|-------------|---------------|
 | TS-QI-CAN-001 | Verify CAN IDs | Requests on `0x18DA0D03`, responses on `0x18DA030D`, broadcast on `0x18FF260D` |
 | TS-QI-STATE-001 | Enable charger with no device | State becomes STANDBY |
-| TS-QI-STATE-002 | Device detected and charging starts | State reaches CHARGING and output power reports non-zero |
+| TS-QI-STATE-002 | Device detected and charging starts | State reaches CHARGING and charging power reports non-zero |
 | TS-QI-FOD-001 | Simulate FOD | Charging stops within 500 ms and status reports FOD |
 | TS-QI-THERM-001 | Simulate coil overtemperature | Charging derates or suspends per thresholds |
 | TS-QI-THERM-002 | Simulate PCB overtemperature | Charging derates or suspends per PCB thresholds |
@@ -1724,7 +1744,7 @@ window short, observable, and recoverable by repeating the same download.
 | TS-QI-MODE-001 | Enter and exit shipping/storage mode | CAN stops, low power confirmed, DID `0x210F=0x03` persists across power cycle, and documented wake/service exit returns DID `0x210F` to `0x00` and Charging State to DISABLED |
 | TS-QI-NRC-001 | Verify all negative response scenarios in Section 7.10 | Each case returns expected NRC |
 | TS-QI-INPUT-001 | Input voltage boundary test | Charger operates at 10.0 V and 15.0 V; faults at 9.0 V and 16.0 V |
-| TS-QI-LP-001 | LOW_POWER entry and wake | Charger enters LOW_POWER after idle timeout in DISABLED; wakes to DISABLED within 100 ms on CAN frame; sends SHUTDOWN before sleep and BOOTUP/OPERATIONAL after wake |
+| TS-QI-LP-001 | LOW_POWER entry and wake | Charger enters LOW_POWER after idle timeout in DISABLED; wakes to DISABLED within 100 ms on CAN frame; sends SLEEP before sleep and BOOTUP/OPERATIONAL after wake |
 | TS-QI-SAFE-006 | Sensor failure during charging | Inject invalid sensor value while CHARGING; charger stops output within 500 ms and enters FAULT with fault detail identifying failed sensor |
 | TS-QI-SAFE-007 | Qi RX communication timeout | Suppress Qi RX packets for 1.5 s during CHARGING; charger stops output within 500 ms, DID `0x210B` updated, broadcast updated within 100 ms |
 | TS-QI-SAFE-008 | Input overcurrent | Inject overcurrent condition during CHARGING; charger stops output within 500 ms, enters FAULT, fault code and detail reported |
@@ -1774,7 +1794,7 @@ The supplier SHALL provide CAN or UDS payload traces for the scenarios below. Tr
 | TRACE-QI-003 | Protected configuration | Extended Session, SecurityAccess, writes to `0x210D`, `0x210E`, `0x210F` |
 | TRACE-QI-004 | Enable charging | Clear Faults, write `0x2101=01`, state transition to STANDBY or CHARGING |
 | TRACE-QI-005 | Runtime telemetry | Reads of `0x2102` through `0x210B` while charging |
-| TRACE-QI-006 | Disable charging | Write `0x2101=00`, output power becomes 0 W within target time |
+| TRACE-QI-006 | Disable charging | Write `0x2101=00`, charging power (DID `0x2104`) becomes 0 W within target time |
 | TRACE-QI-007 | FOD event | FOD status/fault DID and broadcast payload showing suspension |
 | TRACE-QI-008 | Thermal event | Thermal derating or suspend behavior and temperature DID values |
 | TRACE-QI-009 | Firmware upgrade | Full APP-hosted UDS download flow from `10 02` through `0x37`, `0x08000000` placeholder address, one universal artifact, CRC/signature validation, activation reset, and active/pending slot DIDs proving internal inactive-slot selection |
@@ -1782,8 +1802,8 @@ The supplier SHALL provide CAN or UDS payload traces for the scenarios below. Tr
 | TRACE-QI-011 | OTA rollback | Failed trial boot or invalid image rolls back to previous active slot |
 | TRACE-QI-012 | State machine | Attach, negotiate, charge, complete, detach, suspend, and fault transitions |
 | TRACE-QI-013 | Fault priority | Two simultaneous faults with DID `0x210B` reporting higher-priority code |
-| TRACE-QI-014 | Shipping/storage mode | Mode entry, final SHUTDOWN broadcast, CAN silence, persistence of DID `0x210F=0x03` across power cycle, and documented wake/service exit back to Normal mode |
-| TRACE-QI-015 | LOW_POWER entry and wake | In DISABLED: SHUTDOWN broadcast before sleep, CAN silence during LOW_POWER, wake on addressed CAN frame, BOOTUP/OPERATIONAL after wake |
+| TRACE-QI-014 | Shipping/storage mode | Mode entry, final SLEEP broadcast, CAN silence, persistence of DID `0x210F=0x03` across power cycle, and documented wake/service exit back to Normal mode |
+| TRACE-QI-015 | LOW_POWER entry and wake | In DISABLED: SLEEP broadcast before sleep, CAN silence during LOW_POWER, wake on addressed CAN frame, BOOTUP/OPERATIONAL after wake |
 | TRACE-QI-016 | CAN bus-off recovery | Bus-off induced, automatic recovery, lifecycle broadcast after recovery, UDS resumes |
 | TRACE-QI-017 | MCU2 firmware upgrade | Full MCU2 download flow from `10 02` through `0x37` with `2E 20 10 04`, `0x2112` transitions through `0x08`, any NRC `0x78` during MCU2 programming, and `0x2013` before and after the update |
 | TRACE-QI-018 | MCU2 update interruption and recovery | Power loss during MCU2 programming, post-restart reads of `0x2112` = `0x09`, `0x2013` NRC `0x22`, `0x2014` positive response, `0x210B` = `0x01`, then the repeated Firmware Type `0x04` download that clears the state |
@@ -1830,7 +1850,7 @@ For each trace, the supplier SHALL identify:
 | Item | Owner | Notes |
 |------|-------|-------|
 | Final thermal and voltage calibration thresholds | Supplier + Lime | Defaults listed in Section 9.2 |
-| Final maximum charging power | Supplier + Lime | Nominal target is 15 W |
+| Final power limit levels | Supplier + Lime | Confirm the three levels (5 W, 10 W, 15 W) and the 15 W nominal maximum |
 | Final OTA flash layout and APP slot size | Supplier + Lime | Required before release approval; remains internal to the Qi charger and SHALL NOT alter the CCU-facing universal-artifact contract |
 | Final negotiation retry count | Supplier | Constrained to 2-5 per QI-STATE-013 |
 | Final receiver debounce timing | Supplier | Constrained to 50-500 ms per QI-STATE-014 |
@@ -1897,7 +1917,7 @@ For each trace, the supplier SHALL identify:
 | QI-STATE-014 | 6.5 | P0 | Debounce 50-500 ms |
 | QI-STATE-015 | 6.5 | P0 | STANDBY to CHARGING < 5 s |
 | QI-STATE-016 | 6.5 | P0 | LOW_POWER after configured nonzero idle timeout in DISABLED |
-| QI-STATE-017 | 6.5 | P0 | SHUTDOWN broadcast before LOW_POWER |
+| QI-STATE-017 | 6.5 | P0 | SLEEP broadcast before LOW_POWER |
 | QI-STATE-018 | 6.5 | P0 | MCU sleep in LOW_POWER; CAN transceiver wake |
 | QI-STATE-019 | 6.5 | P0 | Wake on addressed CAN frame |
 | QI-STATE-020 | 6.5 | P0 | LOW_POWER to DISABLED < 100 ms |
@@ -1936,6 +1956,7 @@ For each trace, the supplier SHALL identify:
 | QI-ROUTINE-003 | 10 | P0 | FOD Calibration Check: pass/fail |
 | QI-BC-001 | 11 | P0 | Broadcast within 100 ms of change |
 | QI-BC-002 | 11 | P0 | Reserved byte 7 = 0x00 |
+| QI-BC-003 | 11 | P0 | Byte 0 limited to 0x01, 0x02, 0x04 |
 | QI-OTA-001 | 12.3 | P0 | Report active MCU1 APP version via 0xF195 |
 | QI-OTA-002 | 12.3 | P0 | Report OTA DIDs 0x2112-0x2116 |
 | QI-OTA-003 | 12.3 | P0 | No power during OTA |
