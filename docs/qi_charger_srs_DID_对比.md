@@ -2,11 +2,12 @@
 
 > 对比对象
 > - **SRS**：`qi_charger_srs.md`（英文原版，v1.3 2026-09-22，共 1993 行）
-> - **固件 MCU1 APP**：`qi_wireless_code_app/mdk_app/Inc/can_protocol.h`（DID 宏定义）+ `qi_wireless_code_app/mdk_app/Src/can_protocol.c` 的 `fill_did_payload()`（读应答组装）与 `handle_write_data_by_id()`（写门禁）
-> - **Bootloader**：`qi_wireless_bootloader/`（未实现 RDBI/WDBI，仅 Safe Mode 下放行 `3E`/`22 2113`）
-> - **上位机**：`QiChargerStationTool/src/QiChargerStationTool.Core/.../Protocol/UdsClient.cs`、`simple_ProductionTool/.../Station/*`
+> - **固件 MCU1 APP**：`qi_wireless_code_app/` 的 CAN-UDS DID 实际读写行为（只比语义与口径，不写实现细节）
+> - **Bootloader**：`qi_wireless_bootloader/`（Safe Mode 下仅放行 `3E` / `22 2113`）
+> - **上位机**：`QiChargerStationTool`、`simple_ProductionTool`
 >
-> 生成日期：2026-11-28。若与英文原版冲突，以 `qi_charger_srs.md` 为准。
+> 生成日期：2026-11-28。本版改为大白话口径：只说「SRS 怎么规定 vs 实际什么行为、差在哪、要协商什么」，不涉及代码实现。
+> 若与英文原版冲突，以 `qi_charger_srs.md` 为准。
 
 ---
 
@@ -15,14 +16,14 @@
 | 类别 | 数量 | 说明 |
 |------|------|------|
 | SRS 定义的 DID 总数 | 32 | §7.1 通用 7 个 + §7.2 充电器特定 25 个 |
-| 完全匹配（名称/长度/格式/范围/权限一致） | 14 | 可直接交付 |
-| **语义冲突（同 DID 不同含义）** | **3** | `0x210E` / `0x2111` / `0x2117` —— **最严重** |
-| 格式/量纲/范围不一致 | 8 | 长度、偏移、量程、状态码范围有出入 |
-| SRS 有、代码无 | 4 | `0x2014`、`0x210F`、`0x2012`、`0x2101` 读 |
-| 代码有、SRS 无 | 8 | `0x2119`/`0x211A`/`0x2120`/`0x2132`/`0x2133`/`0x2140`/`0x2141`/`0x21FF` |
+| 完全一致（名称/长度/格式/范围/权限） | 14 | 可直接交付 |
+| **语义冲突（同号不同物）** | **3** | `0x210E` / `0x2111` / `0x2117` —— **最严重** |
+| 格式/量纲/范围/权限不一致 | 9 | 长度、偏移、量程、状态码范围、返回长度有出入 |
+| SRS 有、固件无 | 4 | `0x2014`、`0x210F`、`0x2012`、`0x2101` 读 |
+| 固件有、SRS 无 | 8 | `0x2119`/`0x211A`/`0x2120`/`0x2132`/`0x2133`/`0x2140`/`0x2141`/`0x21FF` |
 | 编号撞车（DID 与 DTC/OS 流程服务号同名） | 2 | `0x2132` / `0x2133` |
 
-**必须优先处理的 3 个语义冲突**：SRS 把 `0x210E`/`0x2111`/`0x2117` 定义为「心跳周期 / 输送能量 / 空闲超时」，而固件把同一批号用作「充电次数 / Qi 状态原始字节 / 充电显示态」。任何按 SRS 开发的 CCU 读这三个 DID 会拿到完全无关的数据，写这三个 DID 会被 NRC `0x31` 拒绝。
+**必须优先处理的 3 个语义冲突**：SRS 把 `0x210E`/`0x2111`/`0x2117` 定义为「心跳周期 / 输送能量 / 空闲超时」，而固件把同一批号当「充电次数 / Qi 状态原始字节 / 充电显示态」用。按 SRS 开发的 CCU 读这三个号会拿到完全无关的数据，写会被拒绝——这不是格式差一点，是**同号不同物**，必须先裁定（见 §2.7 第 1 条）。
 
 ---
 
@@ -83,95 +84,134 @@ SRS 持久化要求 `[QI-CFG-004]`：`0x210D`、`0x210E`、`0x210F`、`0x2117` �
 
 ## 2. 逐 DID 对比
 
-图例：✅ 一致 ｜ ⚠️ 不一致（格式/量纲/范围/权限）｜ ❌ 语义冲突 ｜ ➖ SRS 有代码无 ｜ ➕ 代码有 SRS 无
+> 本节只比「SRS 怎么规定」和「实际行为」的语义是否一致，**不展开固件实现细节**。
+> 图例：✅ 一致 ｜ ⚠️ 不一致（格式/量纲/范围/权限）｜ ❌ 语义冲突 ｜ ➖ SRS 有固件无 ｜ ➕ 固件有 SRS 无
 
-### 2.1 完全匹配（14 项）
+### 2.1 完全一致（14 项）
 
-| DID | SRS | 固件实现 | 判定 |
-|-----|-----|----------|------|
-| `0xF195` | 32B ASCII `QC_JYF_MCU1_FW_1.1.x` | `device_info_pad32(out, SW_VERSION_STR)`，32B | ✅ |
-| `0xF180` | 32B ASCII `QC_JYF_MCU1_BL_FW_1.1.x` | `device_info_pad32(out, BOOTLOADER_VER_STR)`，32B | ✅ |
-| `0xF193` | 32B ASCII `QC_JYF_HW_1.1.x` | `device_info_pad32(out, HW_VERSION_STR)`，32B（编译期常量，NVM `hw_version` 已弃用） | ✅ |
-| `0xF18C` | 32B ASCII SN | `device_info_read` → `di.sn`，32B；可写（PROGRAMMING + SA） | ✅ |
-| `0x2010` | 1B，`0x01`–`0x04`，其余 NRC `0x31` | `g_fw_type_target`，`FW_TYPE_APP`–`FW_TYPE_MCU2`，越界 NRC `0x31`；可写（PROGRAMMING + SA） | ✅ |
-| `0x2013` | 32B ASCII `QC_JYF_MCU2_FW_1.1.x`；MCU2 无有效 APP 或链路断 → NRC `0x22`，不得回占位串 | 延迟应答 `7F 22 78` → Qi 应答后 `62 20 13 + ASCII`，变长 21–27B；缓存无效/超时 → NRC `0x22` | ✅（长度按实际串，非固定 32B，见 ⚠️A1） |
-| `0x2100` | 4B Bitfield | `out[0]=15`(15W)、`out[1..3]=0`，4B | ✅ |
-| `0x2102` | 1B `0x00-0x0A` | `QI_CHARGE_CHARGING/STANDBY/DISABLED`，1B | ✅ |
-| `0x2103` | 1B `0x00/0x01` | `g_qi_device_present`，1B | ✅ |
-| `0x2104` | 2B `uint16` mW 小端 | `g_qi_output_power_mw` 拆 `[lo, hi]`，2B | ✅ |
-| `0x210B` | 1B `0x00-0x0B`/`0xFF` | `g_qi_fault_code` 透传，1B | ✅ |
-| `0x2110` | 4B 供应商自定义 | `memcpy(out, g_qi_last_fault_detail, 4)`，4B | ✅ |
-| `0x2112` | 1B 见 §7.6 | 1B，状态映射见 §2.4 | ⚠️ 范围多 `0x0A` |
-| `0x2116` | 1B 回滚计数 | `meta.copy_retry_count & 0xFF`，1B | ✅ |
-| `0x2118` | 1B `0x00=closed` `0x01=open` | PA0 电平：高→`0x01` 低→`0x00`，1B | ✅（源码注释文字与 SRS 措辞相反，取值映射一致） |
-| `0x210D` | 1B `0x01/0x02/0x03`，持久化默认 `0x02`，写需 Extended+L1 | `g_qi_power_level`（`QI_POWER_5W/10W/15W`），NVM 持久；写需 EXTENDED + SA | ✅ |
+| DID | SRS 定义 | 判定 |
+|-----|----------|------|
+| `0xF195` | 32B ASCII 软件版本 `QC_JYF_MCU1_FW_1.1.x` | ✅ |
+| `0xF180` | 32B ASCII Boot 版本 `QC_JYF_MCU1_BL_FW_1.1.x` | ✅ |
+| `0xF193` | 32B ASCII 硬件版本 `QC_JYF_HW_1.1.x` | ✅ |
+| `0xF18C` | 32B ASCII 序列号（写权限差异见 §3.3） | ✅ |
+| `0x2010` | 1B，`0x01`–`0x04` 选升级目标，越界拒绝 NRC `0x31` | ✅ |
+| `0x2100` | 4B 能力位域 | ✅ |
+| `0x2102` | 1B 充电状态 `0x00-0x0A` | ✅ |
+| `0x2103` | 1B 有无手机 `0x00/0x01` | ✅ |
+| `0x2104` | 2B 实时充电功率，mW 小端 | ✅ |
+| `0x210B` | 1B 故障码 `0x00-0x0B`/`0xFF` | ✅ |
+| `0x2110` | 4B 最近故障细节（供应商自定义） | ✅ |
+| `0x2116` | 1B 回滚计数 | ✅ |
+| `0x2118` | 1B 夹臂状态 `0x00=closed` `0x01=open`（取值含义一致；固件源码注释措辞与 SRS 相反，建议顺手改注释） | ✅ |
+| `0x210D` | 1B 功率档 `0x01/0x02/0x03`，持久化默认 `0x02`，写需 Extended+L1 | ✅ |
+
+> `0x2013`（MCU2 版本串）语义一致但**长度口径不一致**，已归入 §2.3；`0x2112`（OTA 状态）范围多一个值，也归入 §2.3。
 
 ### 2.2 ❌ 语义冲突（3 项，最高优先级）
 
-| DID | SRS 定义 | 固件实际 | 影响 |
-|-----|----------|----------|------|
-| **`0x210E`** | **Heartbeat Period**，2B `uint16` ms，`100-10000`（`0`=关广播），可写（Extended+L1），持久化 | **充电次数**，4B `uint32` 小端，只读 + NVM；Qi 状态字节2 b0 上升沿（放机稳定 30s）计一次 | 长度 2B vs 4B、语义完全无关、读写权限相反。按 SRS 写心跳周期会被 NRC `0x31` 拒绝；按 SRS 读会把 4 字节充电次数误当 2 字节毫秒数 |
-| **`0x2111`** | **Energy Delivered**，4B `uint32` 0.1 Wh，只读；`0x2101` 由 `0x00`→`0x01` 时清零 | **Qi Status Raw**，2B 原始状态字节（`[0]` b0=PING b1=CHARGING b2=FULL b3=OVP b4=UVP b5=OCP b6=OTP b7=FOD；`[1]` b0=充电触发位 30s 去抖） | 长度 4B vs 2B、语义完全无关。CCU 无法取得输送能量；位保护/显示逻辑与 SRS §2.5 状态摘要无对应 |
-| **`0x2117`** | **Idle Timeout**，2B `uint16` 分钟，`0x0000-0x003C`，可写（Extended+L1），持久化，默认 `0x000A` | **充电显示态**，1B 只读：`0x02` 磁铁不存在·充电中 / `0x03` 磁铁不存在·未充电 / `0x04` 磁铁存在·未充电 / `0x05` 充电失能 / `0x06` 电已充满 | 长度 2B vs 1B、语义完全无关、读写权限相反。SRS 的 LOW_POWER 进入条件（§6 状态机 `DISABLED --> LOW_POWER: 0x2117 > 0`）在固件中无对应实现 |
+**冲突是怎么来的（大白话）**：DID 相当于给每项数据发的「门牌号」。固件早期按自己的需要先给一批内部数据编了号；SRS v1.3 又按功能语义重新分配了一遍门牌号。两边从没共用过一张编号对照表，于是有 3 个号在两边挂了**完全不同的东西**——不是数值格式差一点，而是「你说是 A、我这里是 B」。更糟的是这 3 个号连读写方向都反着：SRS 当可写配置项，固件当只读数据。
 
-> **处置建议**：这三项须由双方（Lime ↔ 供应商）书面裁定是「SRS 修订」还是「固件改号」。若保留固件语义，则 SRS §7.2、§3.4 `[QI-CFG-004]`、§6 状态机、§15 测试用例 `TC-QI-CFG-*`/`TC-QI-MODE-*`、§17 追溯条目需同步改；若以 SRS 为准，则固件须新增心跳周期、输送能量、空闲超时三项实现并把充电次数/Qi 状态/显示态迁到空闲号（建议 `0x2150`+）。
+| DID | SRS 的定义 | 实际当什么用 | 冲突点 | 按 SRS 开发会怎样 |
+|-----|------------|--------------|--------|-------------------|
+| **`0x210E`** | **心跳周期**：2 字节毫秒数，100–10000，`0`=停广播；可写、掉电保存 | **累计充电次数**：4 字节计数，只读、掉电保存（手机放稳充电算一次） | 同号不同物；2B vs 4B；可写 vs 只读 | 读到的是充电次数却被当成毫秒数；写心跳周期被拒（NRC `0x31`） |
+| **`0x2111`** | **累计输送能量**：4 字节，单位 0.1 Wh，只读；充电使能从关到开时清零 | **Qi 芯片原始状态**：2 字节标志位（是否在 PING/充电中/充满，过压/过流/过温/异物等保护，充电触发位） | 同号不同物；4B vs 2B | 拿不到输送能量；读到的标志位不知所云 |
+| **`0x2117`** | **空闲超时**：2 字节分钟数，0–60，默认 10；可写、掉电保存；是状态机进低功耗（LOW_POWER）的条件 | **充电显示状态**：1 字节枚举（未放手机在充 / 未在充 / 放了未充 / 已禁用 / 已充满） | 同号不同物；2B vs 1B；可写 vs 只读 | 配不了空闲进低功耗，SRS §6 状态机的 `DISABLED → LOW_POWER` 条件落空；读到的是显示态 |
 
-### 2.3 ⚠️ 格式 / 量纲 / 范围 / 权限不一致（8 项）
+> **处置**：这 3 个号必须由双方（Lime ↔ 供应商）书面裁定「改 SRS」还是「改固件」，无论改哪边，SRS §7.2、`[QI-CFG-004]`、§6 状态机、测试用例 `TC-QI-CFG-*`/`TC-QI-MODE-*`、追溯条目都要跟着改。详见 §2.7 第 1 条。
 
-| DID | SRS | 固件 | 差异 |
-|-----|-----|------|------|
-| `0x2105` | **Input Voltage**，2B `uint16` 0.01 V，`0x0000-0x1388` | `[v_raw, i_raw]` **2×uint8** 原始量（`g_qi_voltage_raw`/`g_qi_current_raw`） | 单位/标度不符；SRS 是电压，固件是「电压+电流」两原始字节；量纲不可换算 |
-| `0x2106` | **Input Current**，2B `uint16` mA，`0x0000-0x2710` | **NRC `0x31`**（`/* HW not supported */`） | 硬件不支持，恒 NRC `0x31`；SRS 未预留此不支持口径 |
-| `0x2107` | **Coil Temperature**，1B °C **偏移 −50** | **NRC `0x31`**（HW not supported） | 同上 |
-| `0x210A` | **Alignment Status**，1B `0x00-0x03`（§7.4） | **NRC `0x31`**（HW not supported） | 同上 |
-| `0x2108` | **PCB Temperature**，1B °C **偏移 −50**（实际 = 值 − 50） | `g_qi_pcb_temp`，1B，**源码未声明偏移** | 是否已含 −50 偏移不明；CCU 若按 SRS 减 50 会偏低 50 °C |
-| `0x210C` | Thermal Derating **0–100 %**，`0x64`=100%（未降额） | `g_qi_thermal_derate`，1B，**档位语义** | 量纲：SRS 为百分比，固件为降额档位；`0x64` 语义需确认 |
-| `0x2112` | OTA Status 范围 **`0x00-0x09`** | `0x00-0x0A`（多 **`0x0A` MCU2 Confirmed**） | 超出 SRS 合法域；且 SRS §7.6 未收录 `0x0A` |
-| `0x2113`/`0x2114` | 槽位 `0x00-0x01`；`0x2114` 另有 `0xFE`/`0xFF` | `0x2114` 用 **`0x02`** 表示待搬运备份槽，另有 `0xFE` | `0x02` 不在 SRS 合法域（`0x00-0x01`/`0xFE`/`0xFF`） |
+### 2.3 ⚠️ 格式 / 量纲 / 范围 / 权限不一致（9 项）
 
-补充：`0x2013` SRS 要求固定 32B 填充 ASCII，固件走延迟应答返回**变长 21–27B**（`62 20 13 + ASCII`，无 32B 填充）。同理 `0x2133` 为 3B `major.minor.patch`。若 CCU 严格按 REF-1 §8.1 固定 32B 解析会失配 —— 需在接口文件中明示。
+| DID | SRS 要求 | 实际情况（大白话） | 差在哪 |
+|-----|----------|--------------------|--------|
+| `0x2105` | 输入电压，2 字节，单位 0.01 V（0–50 V） | 返回 2 个原始字节：第 1 字节是电压原始值、第 2 字节是电流原始值 | 号对上了，但内容不是按 0.01 V 标度的电压；电压电流挤在一个号里且无标定 |
+| `0x2106` | 输入电流，2 字节 mA（0–10000） | 硬件不支持，读一律拒绝（NRC `0x31`） | SRS 没写「硬件不支持时怎么办」的口径 |
+| `0x2107` | 线圈温度，1 字节，值 −50 = 实际温度 | 硬件不支持，读一律拒绝（NRC `0x31`） | 同上 |
+| `0x210A` | 对位状态 `0x00-0x03` | 硬件不支持，读一律拒绝（NRC `0x31`） | 同上 |
+| `0x2108` | PCB 温度，1 字节，值 −50 = 实际温度 | 能读，但返回值有没有先减 50 没有声明 | 若已减过而 CCU 再减一次会低 50 °C；若没减则会高 50 °C——必须先确认再统一 |
+| `0x210C` | 降额**百分比** 0–100 %（`0x64`=未降额/满功率） | 实际给的是降额**档位**，不是百分比 | 量纲不同；`0x64` 的含义需确认，SRS 建议补一句「100% = 满功率」 |
+| `0x2112` | OTA 状态 `0x00-0x09` | 实际还有 `0x0A`（MCU2 固件已确认） | 超出 SRS 合法值域，对照见 §2.4 |
+| `0x2113`/`0x2114` | 槽位 `0x00-0x01`；`0x2114` 另允许 `0xFE`/`0xFF` | `0x2114` 用 `0x02` 表示「备份槽」，另有 `0xFE` | `0x02` 不在 SRS 合法域 |
+| `0x2013` | 固定 32 字节 ASCII 填充 | 按真实字符串返回，21–27 字节不定长；且要先等 MCU2 应答，不能和其他 DID 拼在一起读 | 严格按 32 字节解析会错位；组合读会被拒（NRC `0x22`）——需在接口文件中明示 |
 
 ### 2.4 `0x2112` OTA 状态码对照
 
-| 值 | SRS §7.6 | 固件 `fill_did_payload` | 一致 |
-|----|----------|-------------------------|------|
-| `0x00` | Idle | `0x00` Idle（无 OTA、无待报结果） | ✅ |
-| `0x01` | Downloading | `0x01` Downloading（下载到备份区） | ✅ |
-| `0x02` | Validating | `0x02` Validating（CRC/签名校验） | ✅ |
-| `0x03` | Pending Activation | `0x03` Pending Activation（`backup_valid` 置位，随即自复位激活） | ✅ |
-| `0x04` | Trial Boot | `0x04` Trial Boot（源码注明「单 App 架构不适用」） | ⚠️ 恒不出现 |
-| `0x05` | Confirmed | `0x05` Confirmed（`last_boot_reason==0x03`） | ✅ |
-| `0x06` | Rolled Back | `0x06` Rolled Back（`last_boot_reason==0x04`） | ✅ |
-| `0x07` | Failed | `0x07` Failed（旧 APP 保留） | ✅ |
-| `0x08` | MCU2 In Progress | `0x08` MCU2 In Progress | ✅ |
-| `0x09` | MCU2 No APP | `0x09` MCU2 No APP（持久态，成功重刷后清除） | ✅ |
-| **`0x0A`** | **无** | **MCU2 Confirmed**（新 APP 运行且 `0x2013` 缓存已刷新） | ❌ 超范围 |
+| 值 | SRS §7.6 | 实际行为 | 一致 |
+|----|----------|----------|------|
+| `0x00` | Idle | Idle（无 OTA、无待报结果） | ✅ |
+| `0x01` | Downloading | Downloading（下载到备份区） | ✅ |
+| `0x02` | Validating | Validating（校验中） | ✅ |
+| `0x03` | Pending Activation | Pending Activation（备份区校验通过置位，随即自动复位激活） | ✅ |
+| `0x04` | Trial Boot | Trial Boot（单 App 架构下不会出现） | ⚠️ 恒不出现 |
+| `0x05` | Confirmed | Confirmed（上次启动原因为「确认启动」） | ✅ |
+| `0x06` | Rolled Back | Rolled Back（上次启动原因为「回滚」） | ✅ |
+| `0x07` | Failed | Failed（旧 APP 保留） | ✅ |
+| `0x08` | MCU2 In Progress | MCU2 In Progress | ✅ |
+| `0x09` | MCU2 No APP | MCU2 No APP（持久态，成功重刷后清除） | ✅ |
+| **`0x0A`** | **无** | **MCU2 Confirmed**（MCU2 新固件已运行并已确认版本） | ❌ 超范围 |
 
-### 2.5 ➖ SRS 有、代码无（4 项）
+### 2.5 ➖ SRS 有、固件无（4 项）
 
-| DID | SRS 定义 | 代码现状 | 影响 |
-|-----|----------|----------|------|
-| **`0x2014`** | MCU2 Bootloader Version，32B ASCII `QC_JYF_MCU2_BL_FW_1.1.x` | **完全未实现**（`can_protocol.h`/`fill_did_payload` 无此号） | SRS §5.3 启动发现序列第 6 步、§12.6 `[QI-OTA-015]`、`TC-QI-DID-*`、D-16 均依赖它；CCU 读它会得 NRC `0x31`，固件清单不完整 |
-| **`0x210F`** | Operating Mode，1B `0x00-0x03`，可写（Extended+L1），持久化，复位重放 | **完全未实现** | §7.5 四种工作模式（Normal/Service/Manufacturing test/Shipping-storage）、`[QI-MODE-001..003]`、`[QI-CFG-004]`、`TC-QI-MODE-001/002`、`TS-QI-MODE-001`、`TRACE-QI-014` 全部无实现；发货/存储模式无法进入 |
-| `0x2012` | Resource Package Version —— **SRS 明示本版本不要求**，应 NRC `0x31` | 未实现 → 落入 `default: return -1` → NRC `0x31` | ✅ 行为符合，但属「按设计不实现」而非缺漏 |
-| `0x2101` **读** | Read Session=Default、Read Security=None，应返回当前使能值 | **只写不读**：`0x2101` 不在 `fill_did_payload`，读 → NRC `0x31` | SRS §3.2/§5.x 序列要求读回 `0x2101` 确认；缺读路径 |
+| DID | SRS 定义 | 现状 | 影响 |
+|-----|----------|------|------|
+| **`0x2014`** | MCU2 Bootloader 版本，32B ASCII | 完全未实现，读会被拒绝（NRC `0x31`） | SRS §5.3 启动发现序列第 6 步、§12.6 `[QI-OTA-015]`、`TC-QI-DID-*`、D-16 均依赖它 |
+| **`0x210F`** | Operating Mode，1B `0x00-0x03`，可写（Extended+L1），持久化，复位重放 | 完全未实现 | §7.5 四种工作模式（Normal/Service/Manufacturing test/Shipping-storage）、`[QI-MODE-001..003]`、`[QI-CFG-004]`、`TC-QI-MODE-*`、`TS-QI-MODE-001`、`TRACE-QI-014` 全部落空；**发货/存储模式进不去** |
+| `0x2012` | Resource Package Version —— SRS 明示本版本**不要求**，应 NRC `0x31` | 未实现，读被拒绝 | ✅ 行为符合，属「按设计不实现」，测试别误报 |
+| `0x2101` **读** | 读为 Default/无权限，应返回当前使能值 | 只能写、不能读，读被拒绝（NRC `0x31`） | SRS §3.2/§5.x 要求写完读回 `0x2101` 确认；缺读路径 |
 
-> `0x2014` 与 `0x210F` 是**实打实的缺口**，建议在交付前补齐或由 Lime 书面豁免并修订 SRS。
+> `0x2014` 与 `0x210F` 是**实打实的缺口**，交付前要么补齐、要么由 Lime 书面豁免并修订 SRS（见 §2.7 第 2、3 条）。
 
-### 2.6 ➕ 代码有、SRS 无（8 项）
+### 2.6 ➕ 固件有、SRS 无（8 项）
 
-| DID | 固件定义 | 长度 | 用途 | 备注 |
-|-----|----------|------|------|------|
-| `0x2119` | `DID_SIT1145_LP_STATUS` | 4B | SIT1145 低功耗状态：`[0]` flags（bit0 ever_sleep / bit1 last_wake_was_wup / bit2 sleep_fail sticky / bit3 rx_drop sticky / bit4-7 wake src）`[1]` wup_count `[2-3]` last_sleep_sec LE | 产线/诊断私有 |
-| `0x211A` | `DID_SIT1145_LP_WIPE_DIAG` | 4B | 反幻影唤醒诊断：`[0]` 0x24 事件快照 `[1]` 0x63 事件快照 `[2]` WIPE_STAT 位 `[3]` 清除+等待尝试次数 | 产线/诊断私有 |
-| `0x2120` | `DID_ECDSA_PUBKEY` | 65B | ECDSA P-256 公钥（SEC1 未压缩）；读需 `di.pubkey_valid==0x01`，否则 NRC；写需 PROGRAMMING + SA | SRS §10/§7 未定义公钥 DID（安全访问走 `0x27`）；与 SRS 「`0x2121` SecurityAccess」编号无关 |
-| `0x2132` | `DID_QI_IAP_STATUS` | 9B | Qi IAP 状态：`[0]` state `[1]` progress `[2-4]` Qi 版本 major.minor.patch `[5-6]` 已发 LE `[7-8]` 总长 LE | **与 SRS DTC/OS 升级流程的服务号 `0x2132`「传输退出」撞名** |
-| `0x2133` | `DID_QI_FW_VERSION` | 3B | Qi 芯片固件版本 major.minor.patch | **与 SRS DTC/OS 流程服务号 `0x2133`「安全连接」撞名** |
-| `0x2140` | `DID_QI_UART_SNIFF` | 变长 ≤245B | Qi UART 抓取读取：`62 21 40 [flags][len][data...]`，siphon 分次消费；任意会话、无需安全；组合读含它 → NRC `0x22` | 仅单读 |
-| `0x2141` | `DID_QI_UART_TX` | 1–64B | Qi UART 透传发送（写），门禁同 `0x2010`（PROGRAMMING + SA） | 仅写 |
-| `0x21FF` | （无宏，直接 case） | 1B | `sit1145_get_mode()`：`0x04`=Standby `0x07`=Normal `0x01`=Sleep | 诊断私有 |
+| DID | 实际用途（大白话） | 备注 |
+|-----|--------------------|------|
+| `0x2119` | SIT1145 芯片低功耗状态诊断，4B | 产线/诊断私有，SRS 未登记 |
+| `0x211A` | SIT1145 防误唤醒诊断，4B | 产线/诊断私有，SRS 未登记 |
+| `0x2120` | 签名用 ECDSA 公钥（P-256，65B）；读需已写入，写需编程会话+安全访问 | SRS §10 安全访问走 `0x27`，未定义公钥 DID |
+| `0x2132` | Qi IAP 升级状态（9B：状态/进度/版本/已传长度） | **与 SRS DTC/OS 流程服务号 `0x2132`「传输退出」撞名** |
+| `0x2133` | Qi 芯片固件版本（3B：major.minor.patch） | **与 SRS 服务号 `0x2133`「安全连接」撞名** |
+| `0x2140` | Qi UART 抓包读出，变长 ≤245B；只支持单独读，和其他 DID 一起读被拒 | 诊断私有 |
+| `0x2141` | Qi UART 透传发送（写，1–64B，需编程会话+安全访问） | 诊断私有 |
+| `0x21FF` | SIT1145 工作模式（Standby/Normal/Sleep），1B | 诊断私有 |
 
-建议：这 8 个号段在 SRS §7.2 的 `0x2100-0x21FF` 区间内，但未列入表格。若属供应商扩展，应在 SRS 增补「供应商扩展 DID」小节或单独接口文件登记，否则 CCU 侧无法发现。
+这 8 个号都在 SRS 划给充电器的 `0x2100-0x21FF` 区间内，但没进 SRS 表格。若属供应商扩展，应在 SRS 增补「供应商扩展 DID」小节或出接口文件登记，否则 CCU 侧发现不了（见 §2.7 第 14 条）。
+
+### 2.7 需要协商的改动点
+
+> 以下每条都是「SRS 与固件口径不一致、必须双方定一个准」的点。每条给出两个可选方向；**无论改哪边，测试用例（`TC-QI-*`）与追溯条目（`TRACE-QI-*`）都要同步改**。
+
+**P0 —— 不定就没法联调**
+
+1. **`0x210E` / `0x2111` / `0x2117` 三个号的归属（语义冲突）**
+   - 方向 A **改 SRS**：把「心跳周期 / 输送能量 / 空闲超时」挪到别的号（建议 `0x2150` 起），同步改 §7.2、`[QI-CFG-004]` 持久化要求、§6 状态机、`TC-QI-CFG-*`/`TC-QI-MODE-*`、`TRACE-QI-*`；
+   - 方向 B **改固件**：把这三项功能真正做出来，现有数据（充电次数 / Qi 状态 / 显示态）挪到空闲号。
+2. **`0x2014`（MCU2 Bootloader 版本）缺口**
+   - 方向 A 固件补上；方向 B SRS 书面豁免，并删掉 §5.3 启动发现第 6 步、§12.6 `[QI-OTA-015]`、D-16 对它的依赖。
+3. **`0x210F`（工作模式）缺口**
+   - 方向 A 固件实现四种模式 + 掉电保存；方向 B SRS 豁免（牵动 `[QI-MODE-001..003]`、`TC-QI-MODE-*`、`TS-QI-MODE-001`、`TRACE-QI-014`）。现状是发货/存储模式进不去。
+
+**P1 —— 口径对齐**
+
+4. **`0x2106` / `0x2107` / `0x210A` 硬件不支持**：方向 A SRS 标注「不支持时读拒绝（NRC `0x31`）」；方向 B 固件补硬件/算法实现。
+5. **`0x2105` 电压量纲**：方向 A 固件按 0.01 V 单位输出标准电压值；方向 B SRS 改成原始值并写明换算/标定方法。
+6. **`0x2108` 温度偏移 −50**：先确认实际返回值是否已减 50，再统一口径（已减 → 保留 SRS、CCU 不再减；未减 → 固件补齐）。
+7. **`0x210C` 降额量纲**：统一为「百分比」还是「档位」；SRS 补「100% = 满功率」说明。
+8. **`0x2112` 多 `0x0A`、`0x2114` 多 `0x02`**：SRS 扩合法值域并补含义说明（或固件不再使用这两个值）。
+9. **`0x2013` 长度**：接口文件明示实际为 21–27 字节变长（或固件改成 32 字节填充）；同时明确它不能参与组合读。
+10. **`0x2101` 只能写不能读**：固件补读路径——SRS 要求写完能读回确认。
+11. **写门禁口径两处要写清**：`0x2010`（选升级目标）SRS 流程要求可写但表格没标、实际要求更高会话级别；`0xF18C`（SN）SRS 标只读、产线需要写——「谁能写、在哪个会话写」要在 SRS 里补明确。
+
+**P2 —— 编号与登记**
+
+12. **`0x2132` / `0x2133` 撞名**：固件改用别的号（`0x2150`+），或 SRS 明示「DID 命名空间」与「DTC/OS 升级服务号命名空间」分开解析。
+13. **上位机自用的 `0x2134`**：上位机改用 `0xF193`，或把这个号补进 SRS——SRS 里 `0x2134` 只是数值示例，不是 DID。
+14. **8 个固件扩展号未登记**（`0x2119`/`0x211A`/`0x2120`/`0x2132`/`0x2133`/`0x2140`/`0x2141`/`0x21FF`）：SRS 增补「供应商扩展 DID」小节或出接口文件。
+15. **Bootloader 阶段读不到 `0xF180`**：Bootloader 支持读版本号，或 SRS §5.3 改成「Bootloader 阶段只读 `0x2113`」。
+
+**无需协商、各自整改**
+
+- 上位机版本检测补读 `0x2013`（按接口文件解析），满足 D-16 交付的五串要求；现在读的 `0x2133` 是 3B 数值版本，SRS 不认。
+- `0x2012` 双方已一致（SRS 本版本不要求、固件拒绝），保持现状即可。
 
 ---
 
@@ -179,137 +219,67 @@ SRS 持久化要求 `[QI-CFG-004]`：`0x210D`、`0x210E`、`0x210F`、`0x2117` �
 
 ### 3.1 `0x2132` / `0x2133` 撞名
 
-SRS 的 DTC/OS OTA 流程（第三方 OS/DTC 升级通道）用 `0x2130` OS_Info、`0x2131` OS_Download_Data、`0x2132` 传输退出、`0x2133` 安全连接 作为**服务号**；固件把 `0x2132`/`0x2133` 用作 **DID**（Qi IAP 状态 / Qi 版本）。两套语义在同一 16 位命名空间内重叠，容易在上位机解析时误判。
+SRS 的 DTC/OS OTA 流程（第三方 OS/DTC 升级通道）用 `0x2130` OS_Info、`0x2131` OS_Download_Data、`0x2132` 传输退出、`0x2133` 安全连接 作为**服务号**；固件把 `0x2132`/`0x2133` 用作 **DID**（Qi IAP 状态 / Qi 版本）。两套语义在同一 16 位命名空间里重叠，上位机解析时容易误判（见 §2.7 第 12 条）。
 
 ### 3.2 `0x2134` 不是 DID
 
-`0x2134` 在 SRS 中只作为**数值示例**出现（`0x2104` = 8500 mW = `0x2134`，见 §7.10 表与 §11 报文示例）。SRS **未定义** `0x2134` 为任何 DID。上位机 `QiChargerStationTool` 侧的「HwVersion_Pn `0x2134`」属**上位机自行扩展**，SRS 与固件均无此号 —— 若需保留，应补进 SRS 或改用 `0xF193`。
+`0x2134` 在 SRS 中只作为**数值示例**出现（`0x2104` = 8500 mW = `0x2134`，见 §7.10 表与 §11 报文示例）。SRS **未定义** `0x2134` 为任何 DID。上位机侧的「HwVersion_Pn `0x2134`」属**上位机自行扩展**，SRS 与固件均无此号——若需保留，应补进 SRS 或改用 `0xF193`（见 §2.7 第 13 条）。
 
 ### 3.3 SRS 内部不一致（供 Lime 勘误）
 
 | 位置 | 问题 |
 |------|------|
-| §7.2 vs §3.4 `[QI-CFG-004]` | `0x210E`/`0x210F`/`0x2117` 要求持久化，但固件对 `0x210E`/`0x2117` 无写路径 |
+| §7.2 vs §3.4 `[QI-CFG-004]` | `0x210E`/`0x210F`/`0x2117` 要求持久化，但固件对 `0x210E`/`0x2117` 根本没有写入口 |
 | §7.2 `0x2112` 范围 `0x00-0x09` vs §12.6 / §7.6 | 正文引入 MCU2 状态却未扩展合法域 |
-| §7.2 `0x2107`/`0x2108` 偏移 −50 vs §11 报文示例 `0x5F=95, 95-50=45` | 示例自洽，但固件 `g_qi_pcb_temp` 是否已减 50 未声明 |
+| §7.2 `0x2107`/`0x2108` 偏移 −50 vs §11 报文示例 `0x5F=95, 95-50=45` | 示例自洽，但固件 `0x2108` 返回值是否已减 50 未声明 |
 | §7.2 `0x210C` 写 `0x64`=100% 未降额 | 与「降额档位」直觉相反，建议补一句「100% = 全功率」 |
-| `0x2013` 长度 | §7.1 说 32B 固定填充，实际应答变长 21–27B（见 §2.3 补充） |
-| `0xF18C` 写权限 | §7.1 表标 N/A（只读），但固件允许 PROGRAMMING + SA 写 SN（产线必需） |
+| `0x2013` 长度 | §7.1 说 32B 固定填充，实际应答为变长 21–27B（见 §2.3） |
+| `0xF18C` 写权限 | §7.1 表标 N/A（只读），但产线必须能写 SN——写权限要补进 SRS |
 
 ---
 
 ## 4. 门禁（会话 / 安全访问）对比
 
-| DID | SRS 读 | SRS 写 | 固件读 | 固件写 | 判定 |
+| DID | SRS 读 | SRS 写 | 实际读 | 实际写 | 判定 |
 |-----|--------|--------|--------|--------|------|
-| `0x2101` | Default / 无 | Extended / L1 | **NRC `0x31`（无读实现）** | EXTENDED + SA | ⚠️ 缺读 |
-| `0x210D` | Default / 无 | Extended / L1 | Default / 无 | EXTENDED + SA | ✅ |
+| `0x2101` | Default / 无 | Extended / L1 | **NRC `0x31`（无读路径）** | 扩展会话 + 安全访问 | ⚠️ 缺读 |
+| `0x210D` | Default / 无 | Extended / L1 | Default / 无 | 扩展会话 + 安全访问 | ✅ |
 | `0x210E` | Default / 无 | Extended / L1 | Default / 无 | **NRC `0x31`** | ❌ 语义冲突 |
 | `0x210F` | Default / 无 | Extended / L1 | **NRC `0x31`** | **NRC `0x31`** | ➖ 未实现 |
 | `0x2117` | Default / 无 | Extended / L1 | Default / 无 | **NRC `0x31`** | ❌ 语义冲突 |
-| `0x2010` | Default / 无 | —（SRS 表未列写） | Default / 无 | PROGRAMMING + SA | ⚠️ 固件写门禁更严，且 SRS §12.1 要求可写以选目标 |
-| `0xF18C` | Default / 无 | N/A | Default / 无 | PROGRAMMING + SA | ⚠️ 见 §3.3 |
-| `0x2120` | —（SRS 无） | — | 有（`pubkey_valid`） | PROGRAMMING + SA | ➕ |
-| `0x2141` | —（SRS 无） | — | — | PROGRAMMING + SA | ➕ |
+| `0x2010` | Default / 无 | —（SRS 表未列写） | Default / 无 | 编程会话 + 安全访问 | ⚠️ 实际写门禁更严，且 SRS §12.1 要求可写以选目标 |
+| `0xF18C` | Default / 无 | N/A | Default / 无 | 编程会话 + 安全访问 | ⚠️ 见 §3.3 |
+| `0x2120` | —（SRS 无） | — | 有（需已写入公钥） | 编程会话 + 安全访问 | ➕ |
+| `0x2141` | —（SRS 无） | — | — | 编程会话 + 安全访问 | ➕ |
 
-固件写门禁统一口径（`handle_write_data_by_id`）：
-- **EXTENDED + SA**：`0x2101`、`0x210D`
-- **PROGRAMMING + SA**：`0x2010`、`0xF18C`、`0x2120`、`0x2141`
-- 其他 DID 写 → NRC `0x31`
-- 同一 case 内**会话检查先于安全检查**（`0x22`=会话丢失，`0x33`=会话在但未解锁）
+写门禁统一口径：
+- **扩展会话 + 安全访问**：`0x2101`、`0x210D`
+- **编程会话 + 安全访问**：`0x2010`、`0xF18C`、`0x2120`、`0x2141`
+- 其余 DID 写 → NRC `0x31`
+- 检查顺序：**先看会话、再看安全**（会话不对 → NRC `0x22`；会话对但没解锁 → NRC `0x33`）
 
-固件读特殊口径：
-- `0x2013`：仅单读；组合读含它 → NRC `0x22`（延迟应答无法服务多 DID）
-- `0x2140`：仅单读；组合读含它 → NRC `0x22`（变长 + siphon 消耗语义）
-- `0x2013` 在 Qi IAP 升级中 → NRC `0x22`（避免 UART 命令交叉）
+读的特殊口径：
+- `0x2013`、`0x2140` 只支持单独读；和其他 DID 拼在一起读 → NRC `0x22`（前者要等 MCU2 应答，后者是分次读取的语义）
+- Qi 升级过程中读 `0x2013` → NRC `0x22`（避免和升级命令串扰）
 
 ---
 
 ## 5. Bootloader 侧
 
-| 项 | SRS | `qi_wireless_bootloader` | 判定 |
-|----|-----|--------------------------|------|
-| Bootloader Version DID `0xF180` | 应可读（§5.3 第 3 步） | **无 RDBI 实现**（`boot_safe_mode.c` 仅放行 `3E` / `22 2113`） | ➖ Safe Mode 下 CCU 读 `0xF180` 会失败 |
+| 项 | SRS | 实际 | 判定 |
+|----|-----|------|------|
+| Bootloader 版本 DID `0xF180` | 应可读（§5.3 第 3 步） | **不支持读任何 DID**（Safe Mode 只放行 `3E` / `22 2113`） | ➖ Bootloader 阶段 CCU 读 `0xF180` 会失败 |
 | `0x2113` Active FW Slot | 应可读 | Safe Mode 下放行 `22 2113` | ✅ 唯一放行的 DID |
 | 其他 DID | — | 一律不应答 | ➖ |
 
-SRS §5.3 启动发现序列要求 CCU 在 Bootloader 阶段也能读 `0xF180`；当前 Bootloader 只在 Safe Mode 放行 `0x2113`，与 SRS 不符。
+SRS §5.3 启动发现序列要求 CCU 在 Bootloader 阶段也能读 `0xF180`；当前只放行 `0x2113`，与 SRS 不符（见 §2.7 第 15 条）。
 
 ---
 
 ## 6. 上位机使用情况（参考）
 
-`QiChargerStationTool.Core/Protocol/UdsClient.cs`：
-- `TryReadAllVersions` 读 `0xF195` / `0x2133` / `0xF180` / `0xF193`（MCU1 APP / Qi 版本 / Boot / HW）
-- 注释中提到 `0x2132`（读 Qi IAP 状态判断首帧是否已处理）、`0x2133`（读 Qi 3B 版本）
-- **未使用** `0x2013`（MCU2 ASCII 版本串）与 `0x2014`；`VersionSet` 直接收 3B 数值版本
+- 上位机版本读取目前读 `0xF195` / `0x2133` / `0xF180` / `0xF193`（MCU1 APP 版本 / Qi 芯片版本 / Boot 版本 / 硬件版本）。
+- **未使用** `0x2013`（MCU2 ASCII 版本串）与 `0x2014`；版本集合直接收 3B 数值版本。
+- `simple_ProductionTool` 工位 1/3 已加「软硬件版本检测」步骤：读 MCU1 / MCU2 / Boot / HW 四路版本，读失败不中断测试。
 
-`simple_ProductionTool` 工位 1/3：本次已加「软硬件版本检测」步骤，读 MCU1 / MCU2 / Boot / HW 四路版本，读失败不中断测试。
-
-> 上位机读的是 `0x2133`（3B 数值）而非 SRS 规定的 `0x2013`（ASCII 版本串）。两者都由固件提供，但 SRS 只认 `0x2013`/`0x2014`。建议上位机版本检测同时读 `0x2013` 并按 REF-1 §8.1 解析，以满足 D-16 交付要求。
-
----
-
-## 7. 待办清单（按优先级）
-
-| # | 优先级 | 项 | 建议动作 |
-|---|--------|----|----------|
-| 1 | **P0** | `0x210E` / `0x2111` / `0x2117` 语义冲突 | 双方书面裁定；无论改 SRS 还是改固件，须同步改测试用例与追溯条目 |
-| 2 | **P0** | `0x2014` MCU2 Bootloader Version 未实现 | 固件补 DID（可从 Qi Bootloader 查询或缓存），或 Lime 豁免并改 SRS §5.3/§12.6 |
-| 3 | **P0** | `0x210F` Operating Mode 未实现 | 实现四种模式 + 持久化，或 Lime 豁免（牵动 `[QI-MODE-001..003]`、`TC-QI-MODE-*`、`TS-QI-MODE-001`、`TRACE-QI-014`） |
-| 4 | P1 | `0x2101` 无读实现 | 在 `fill_did_payload` 补 `case DID_CHARGER_ENABLE`（回 `g_qi_charger_enable`） |
-| 5 | P1 | `0x2106` / `0x2107` / `0x210A` 恒 NRC `0x31` | 在 SRS §7.2 标注「硬件不支持，恒 NRC `0x31`」，或补硬件/算法实现 |
-| 6 | P1 | `0x2105` 量纲不符（2×uint8 vs uint16 0.01V） | 固件改 `uint16` 0.01 V 小端，或 SRS 改为原始量并注明标定 |
-| 7 | P1 | `0x2108` 偏移 −50 是否已应用 | 固件注释明确；若未减 50 则补齐，若已减则 SRS 保留 |
-| 8 | P1 | `0x2112` 多 `0x0A`、`0x2114` 多 `0x02` | SRS §7.6/§7.7 扩域并补说明 |
-| 9 | P2 | `0x2132`/`0x2133` 与 DTC/OS 服务号撞名 | 固件改用 `0x2150+`，或 SRS 明示两套命名空间 |
-| 10 | P2 | `0x2134` 上位机扩展号 | 上位机改用 `0xF193`，或补进 SRS |
-| 11 | P2 | `0x2013` 变长 vs 32B 固定 | 接口文件明示实际应答长度 |
-| 12 | P2 | Bootloader 无 `0xF180` 读 | Bootloader 补 RDBI，或 SRS §5.3 说明 Bootloader 阶段只读 `0x2113` |
-| 13 | P2 | 8 个供应商扩展 DID 未登记 | 补 SRS「供应商扩展 DID」小节或独立接口文件 |
-| 14 | P2 | 上位机未用 `0x2013` | `TryReadAllVersions` 增读 `0x2013` 并按 REF-1 §8.1 解析 |
-
----
-
-## 8. 附：固件 DID 速查（`can_protocol.h`）
-
-```
-标准标识        0xF195 SW_VERSION           32B  R    ASCII SW_VERSION_STR
-                0xF18C SERIAL_NUMBER        32B  R/W  ASCII SN (PROG+SA)
-                0xF180 BOOTLOADER_VERSION   32B  R    ASCII BOOTLOADER_VER_STR
-                0xF193 HW_VERSION           32B  R    ASCII HW_VERSION_STR
-固件管理        0x2010 FW_TYPE              1B   R/W  PROG+SA
-                0x2013 QI_VERSION_QUERY     变长 R    ASCII QC_JYF_MCU2_FW_x.x.x
-充电器          0x2100 CHARGER_CAPABILITY   4B   R
-                0x2101 CHARGER_ENABLE       1B   W    EXT+SA
-                0x2102 CHARGE_STATE         1B   R
-                0x2103 DEVICE_PRESENT       1B   R
-                0x2104 OUTPUT_POWER         2B   R    mW LE
-                0x2105 INPUT_VI             2B   R    [v_raw, i_raw]
-                0x2106 INPUT_CURRENT        —    R    NRC 0x31
-                0x2107 COIL_TEMP            —    R    NRC 0x31
-                0x2108 PCB_TEMP             1B   R
-                0x2109 FOD_STATUS           1B   R
-                0x210A ALIGNMENT            —    R    NRC 0x31
-                0x210B FAULT_CODE           1B   R
-                0x210C THERMAL_DERATE       1B   R
-                0x210D POWER_LIMIT          1B   R/W  EXT+SA, NVM
-                0x210E (charge count)       4B   R    NVM   ← 与 SRS 冲突
-                0x2110 LAST_FAULT_DETAIL    4B   R
-                0x2111 (qi status raw)      2B   R        ← 与 SRS 冲突
-                0x2112 OTA_STATE            1B   R
-                0x2113 ACTIVE_SLOT          1B   R
-                0x2114 PENDING_SLOT         1B   R
-                0x2115 LAST_BOOT_REASON     1B   R
-                0x2116 ROLLBACK_COUNT       1B   R
-                0x2117 (qi display state)   1B   R        ← 与 SRS 冲突
-                0x2118 CLAMP_STATE          1B   R
-诊断/私有       0x2119 SIT1145_LP_STATUS    4B   R
-                0x211A SIT1145_LP_WIPE_DIAG 4B   R
-                0x2120 ECDSA_PUBKEY         65B  R/W  PROG+SA
-                0x2132 QI_IAP_STATUS        9B   R
-                0x2133 QI_FW_VERSION        3B   R
-                0x2140 QI_UART_SNIFF        变长 R    siphon
-                0x2141 QI_UART_TX           1-64B W  PROG+SA
-                0x21FF (sit1145 mode)       1B   R
-```
+> 上位机读的是 `0x2133`（3B 数值）而非 SRS 规定的 `0x2013`（ASCII 版本串）。两者都由固件提供，但 SRS 只认 `0x2013`/`0x2014`。建议版本检测补读 `0x2013` 并按接口文件解析，以满足 D-16 交付要求。
