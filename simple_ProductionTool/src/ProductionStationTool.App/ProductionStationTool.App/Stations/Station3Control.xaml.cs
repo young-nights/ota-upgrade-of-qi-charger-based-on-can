@@ -305,6 +305,22 @@ public partial class Station3Control : UserControl, IStationPage
         FlowPanel.Mark(0, StepStatus.Passed);
         _log.Append("步骤 1 完成");
 
+        // ①.5 检测软硬件版本（放在工位流程内）
+        _log.Append("步骤 1.5：检测软硬件版本…");
+        try
+        {
+            var vs = await _can.TryReadAllVersionsAsync(ct);
+            TxtVersion.Text = vs.Summary;
+            _log.Append("[版本] " + vs.Summary);
+            foreach (var e in vs.Errors)
+                _log.Append("[版本] " + e);
+        }
+        catch (Exception ex)
+        {
+            TxtVersion.Text = "版本读取失败";
+            _log.Append($"[版本] 读取失败：{ex.Message}");
+        }
+
         // ② 扫码：等待扫码枪输入，倒计时结束校验 SN 结构
         FlowPanel.Mark(1, StepStatus.Running);
         var scannedSn = await WaitForScanAsync(ct);
@@ -495,6 +511,8 @@ public partial class Station3Control : UserControl, IStationPage
         FlowPanel.Reset();
         ListAbnormal.Items.Clear();
         TxtSn.Text = "";
+        TxtCoilHint.Text = "";
+        TxtVersion.Text = "";
         TxtScanHint.Text = "点击「开始测试」后等待扫描";
         TxtScanHint.Foreground = MutedBrush;
         TxtScanCountdown.Text = "";
@@ -512,6 +530,13 @@ public partial class Station3Control : UserControl, IStationPage
     /// </summary>
     private void OnCoilProgress(CoilProgress p)
     {
+        // 数据栏显示「放入 B 线圈」等换接提示
+        if (p.Hint.Contains("放入 B") || p.Hint.Contains("放入B"))
+            TxtCoilHint.Text = "放入 B 线圈";
+        else if (p.CoilADecided && p.Hint.Contains("B 采"))
+            TxtCoilHint.Text = "B 线圈采集中…";
+        else if (!p.CoilADecided)
+            TxtCoilHint.Text = "A 线圈检测中…";
         FlowPanel.Mark(3, StepStatus.Running, p.Hint);   // PowerZ 汇总行：阶段提示/倒计时
         if (p.CoilADecided)
         {

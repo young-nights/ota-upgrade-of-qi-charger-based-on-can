@@ -135,6 +135,8 @@ public partial class Station1Control : UserControl, IStationPage
         FlowPanel.Mark(IdxPowerZ, StepStatus.None);
         ListAbnormal.Items.Clear();
         ShowCoilJudgement(null);
+        TxtCoilHint.Text = "";
+        TxtVersion.Text = "";
         _flowCompleted = false;
         _log.Append("开始工位 1 测试流程");
 
@@ -155,6 +157,22 @@ public partial class Station1Control : UserControl, IStationPage
         }
         FlowPanel.Mark(IdxConnect, StepStatus.Passed);
         _log.Append("步骤 1 完成");
+
+        // ①.5 检测软硬件版本（放在工位流程内）
+        _log.Append("步骤 1.5：检测软硬件版本…");
+        try
+        {
+            var vs = await _can.TryReadAllVersionsAsync(ct);
+            TxtVersion.Text = vs.Summary;
+            _log.Append("[版本] " + vs.Summary);
+            foreach (var e in vs.Errors)
+                _log.Append("[版本] " + e);
+        }
+        catch (Exception ex)
+        {
+            TxtVersion.Text = "版本读取失败";
+            _log.Append($"[版本] 读取失败：{ex.Message}");
+        }
 
         // ② 开启无线充电
         FlowPanel.Mark(IdxCharge, StepStatus.Running);
@@ -260,6 +278,13 @@ public partial class Station1Control : UserControl, IStationPage
     /// </summary>
     private void OnCoilProgress(CoilProgress p)
     {
+        // 数据栏显示「放入 B 线圈」等换接提示
+        if (p.Hint.Contains("放入 B") || p.Hint.Contains("放入B"))
+            TxtCoilHint.Text = "放入 B 线圈";
+        else if (p.CoilADecided && p.Hint.Contains("B 采"))
+            TxtCoilHint.Text = "B 线圈采集中…";
+        else if (!p.CoilADecided)
+            TxtCoilHint.Text = "A 线圈检测中…";
         FlowPanel.Mark(IdxPowerZ, StepStatus.Running, p.Hint);
         if (p.CoilADecided)
         {
@@ -318,6 +343,8 @@ public partial class Station1Control : UserControl, IStationPage
         FlowPanel.Mark(IdxPowerZ, StepStatus.None);
         ListAbnormal.Items.Clear();
         ShowCoilJudgement(null);
+        TxtCoilHint.Text = "";
+        TxtVersion.Text = "";
         TxtResult.Text = "待测试";
         TxtResult.Foreground = MutedBrush;
         BadgeResult.Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF5, 0xF9));

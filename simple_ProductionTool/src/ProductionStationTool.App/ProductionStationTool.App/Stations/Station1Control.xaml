@@ -55,6 +55,17 @@
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,4"/>
 
+                    <!-- 软硬件版本 + 线圈换接提示 -->
+                    <TextBlock x:Name="TxtVersion" Grid.Row="0" Text=""
+                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top"
+                               TextWrapping="Wrap" MaxWidth="420" Margin="0,0,0,0"/>
+                    <TextBlock x:Name="TxtCoilHint" Grid.Row="0" Text=""
+                               FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                               Margin="0,0,0,2"/>
+
                     <!-- 结果大字（简化流程：无 SN、无数据库关联） -->
                     <Border x:Name="BadgeResult" Grid.Row="1" Background="#F1F5F9" CornerRadius="8"
                             Padding="24,14" Margin="0,0,0,12" HorizontalAlignment="Left">

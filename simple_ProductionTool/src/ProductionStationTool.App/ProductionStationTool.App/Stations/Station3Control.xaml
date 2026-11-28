@@ -62,6 +62,15 @@
 
                     <TextBlock Grid.Row="0" Text="数据展示" Style="{StaticResource SectionTitle}"
                                Margin="0,0,0,4"/>
+                    <TextBlock x:Name="TxtVersion" Grid.Row="0" Text=""
+                               FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top"
+                               TextWrapping="Wrap" MaxWidth="420"/>
+                    <TextBlock x:Name="TxtCoilHint" Grid.Row="0" Text=""
+                               FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                               Margin="0,0,0,2"/>
 
                     <!-- 结果大字 + SN 码 并排 -->
                     <Grid Grid.Row="1" Margin="0,0,0,12">
